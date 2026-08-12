@@ -77,10 +77,10 @@ export function ExportStep({
           <CheckCircle2 size={22} />
           <span>
             <strong>Cyclic three-set analysis captured</strong>
-            {results.events.length} events across {results.scanRounds} full passes · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
+            {results.events.length} events across {results.scanRounds} discovery rounds · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
           </span>
         </div>
-        <span className="fidelity-badge">Session 17 snapshot</span>
+        <span className="fidelity-badge">Session 18 snapshot</span>
       </div>
 
       <div className="export-grid">

@@ -21,6 +21,7 @@ const [
   types,
   client,
   app,
+  styles,
   datasetStep,
   settings,
   scan,
@@ -34,6 +35,7 @@ const [
   pagesVerifier,
   sessionHandoff,
   session17Handoff,
+  session18Handoff,
   chimaeraTrace,
   geneconvTrace,
   threeSeqTrace,
@@ -59,6 +61,7 @@ const [
   read("src/lib/types.ts"),
   read("src/lib/wasmClient.ts"),
   read("src/App.tsx"),
+  read("src/styles.css"),
   read("src/components/DatasetStep.tsx"),
   read("src/components/SettingsStep.tsx"),
   read("src/components/ScanStep.tsx"),
@@ -72,6 +75,7 @@ const [
   read("scripts/verify-pages-output.mjs"),
   read("docs/session-15-handoff.md"),
   read("docs/session-17-handoff.md"),
+  read("docs/session-18-handoff.md"),
   read("docs/native-chimaera-discovery-trace.md"),
   read("docs/native-geneconv-discovery-trace.md"),
   read("docs/native-threeseq-discovery-trace.md"),
@@ -1385,21 +1389,61 @@ for (const shortlistContract of [
     fail(`cyclic-shortlist supplied-source trace is missing ${shortlistContract}`);
   }
 }
-if (!readme.includes("Session 17 source checkpoint") ||
+for (const handoffContract of [
+  "0.18.0-session-18",
+  "org.rdp-web.project/v1alpha16",
+  "Windows 95",
+  "user-stopped",
+  "round_signal_begin_",
+  "graceful-stop regression",
+]) {
+  if (!session18Handoff.includes(handoffContract)) {
+    fail(`Session 18 handoff is missing ${handoffContract}`);
+  }
+}
+if (!readme.includes("Session 18 source checkpoint") ||
     !readme.includes("v1alpha16") ||
     !readme.includes("cyclic-shortlist trace") ||
-    !readme.includes("session-17-handoff") ||
-    !status.includes("Port status — session 17") ||
+    !readme.includes("session-18-handoff") ||
+    !status.includes("Port status — session 18") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 17 README/status documentation is stale");
+  fail("Session 18 README/status documentation is stale");
 }
-if (!exportStep.includes("Session 17 snapshot") ||
+if (!exportStep.includes("Session 18 snapshot") ||
     !exportStep.includes("target-rotated 3SEQ") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)")) {
-  fail("Session 17 export fidelity boundary is stale");
+  fail("Session 18 export fidelity boundary is stale");
+}
+for (const win95Contract of [
+  "Windows 95 visual skin",
+  "--win-face: #c0c0c0",
+  "--win-blue: #000080",
+  "window-titlebar",
+  "window-menubar",
+  "app-statusbar",
+  "repeating-linear-gradient",
+]) {
+  if (!styles.includes(win95Contract) && !app.includes(win95Contract)) {
+    fail(`Windows 95 visual contract is missing ${win95Contract}`);
+  }
+}
+for (const stopContract of [
+  'cycle_termination_ = "user-stopped"',
+  "signals_.resize(round_signal_begin_)",
+  "cancelled_.store(false)",
+]) {
+  if (!method.includes(stopContract)) {
+    fail(`graceful cyclic stop is missing ${stopContract}`);
+  }
+}
+if (!scan.includes("Stop and review completed events") ||
+    !scan.includes("The unfinished cyclic round was discarded") ||
+    !pagesVerifier.includes("graceful-stop results") ||
+    !pagesVerifier.includes('cycleTermination !== "user-stopped"')) {
+  fail("graceful cyclic stop UI/runtime regression coverage is incomplete");
 }
 if (!method.includes("std::numeric_limits<std::uint64_t>::max() / reference_group_pairs")) {
   fail("query-vs-reference correction multiplication is not overflow guarded");

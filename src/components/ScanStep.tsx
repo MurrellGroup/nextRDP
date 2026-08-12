@@ -95,6 +95,19 @@ export function ScanStep({
         </div>
       ) : null}
 
+      {hasResults && progress.cycleTermination === "user-stopped" ? (
+        <div className="notice notice-blue" role="status">
+          <Check size={19} />
+          <div>
+            <strong>Scan stopped cleanly</strong>
+            <p>
+              The unfinished cyclic round was discarded. Events completed in earlier rounds were
+              retained and finalized for review.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="scan-console content-card">
         <div className="scan-summary">
           <div>
@@ -334,7 +347,7 @@ export function ScanStep({
               disabled={progress.phase === "reconciliation"}
             >
               {progress.phase === "reconciliation" ? <LoaderCircle className="spin" size={18} /> : <Pause size={18} />}
-              {progress.phase === "reconciliation" ? "Finalizing evidence sets" : "Stop after current batch"}
+              {progress.phase === "reconciliation" ? "Finalizing evidence sets" : "Stop and review completed events"}
             </button>
           ) : null}
           {hasResults ? (

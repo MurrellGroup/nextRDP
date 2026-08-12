@@ -938,38 +938,55 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="mobile-menu" type="button" onClick={() => setNavOpen((open) => !open)} aria-label="Toggle workflow navigation">
-          {navOpen ? <PanelLeftClose /> : <Menu />}
-        </button>
-        <div className="brand">
-          <span className="brand-mark"><Atom size={23} /></span>
-          <span>
-            <strong>RDP Web</strong>
-            <small>Recombination detection, browser-native</small>
-          </span>
-        </div>
-        <div className="topbar-status">
-          <span className={`engine-pill engine-${engine.status}`} title={engine.message}>
-            <Cpu size={15} />
-            {engine.status === "ready" ? "WASM ready" : engine.status === "loading" ? "Starting engine" : "Source snapshot"}
-          </span>
-          {results ? (
-            <span
-              className={`checkpoint-pill${hasUnsavedCheckpoint ? " is-dirty" : " is-current"}`}
-              aria-live="polite"
-            >
-              {checkpointSaving
-                ? "Saving checkpoint…"
-                : hasUnsavedCheckpoint
-                  ? "Checkpoint needed"
-                  : "Checkpoint current"}
+        <div className="window-titlebar">
+          <button className="mobile-menu" type="button" onClick={() => setNavOpen((open) => !open)} aria-label="Toggle workflow navigation">
+            {navOpen ? <PanelLeftClose /> : <Menu />}
+          </button>
+          <div className="brand">
+            <span className="brand-mark"><Atom size={16} strokeWidth={2.4} /></span>
+            <span>
+              <strong>RDP Web - Recombination Detection Program</strong>
+              <small>Browser-native analysis workstation</small>
             </span>
-          ) : null}
-          <span className="session-pill">Fidelity port · session 11</span>
+          </div>
+          <div className="window-controls" aria-hidden="true">
+            <span className="window-control window-minimize">_</span>
+            <span className="window-control window-maximize">□</span>
+            <span className="window-control window-close">×</span>
+          </div>
+        </div>
+        <div className="window-menubar">
+          <nav className="classic-menu" aria-label="Application menu">
+            <span><u>F</u>ile</span>
+            <span><u>D</u>ataset</span>
+            <span><u>A</u>nalysis</span>
+            <span><u>V</u>iew</span>
+            <span><u>H</u>elp</span>
+          </nav>
+          <div className="topbar-status">
+            <span className={`engine-pill engine-${engine.status}`} title={engine.message}>
+              <Cpu size={13} />
+              {engine.status === "ready" ? "WASM ready" : engine.status === "loading" ? "Starting engine" : "Source snapshot"}
+            </span>
+            {results ? (
+              <span
+                className={`checkpoint-pill${hasUnsavedCheckpoint ? " is-dirty" : " is-current"}`}
+                aria-live="polite"
+              >
+                {checkpointSaving
+                  ? "Saving checkpoint…"
+                  : hasUnsavedCheckpoint
+                    ? "Checkpoint needed"
+                    : "Checkpoint current"}
+              </span>
+            ) : null}
+            <span className="session-pill">Win95 edition · session 18</span>
+          </div>
         </div>
       </header>
 
       <aside className={`sidebar${navOpen ? " is-open" : ""}`}>
+        <div className="sidebar-caption">Analysis workflow</div>
         <WorkflowNav
           current={step}
           enabled={enabledSteps}
@@ -1097,6 +1114,12 @@ export function App() {
           />
         ) : null}
       </main>
+
+      <footer className="app-statusbar" aria-live="polite">
+        <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
+        <span>{filename || "No alignment loaded"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.18"}</span>
+      </footer>
     </div>
   );
 }

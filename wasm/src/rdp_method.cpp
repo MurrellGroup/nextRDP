@@ -2731,8 +2731,21 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
   const std::size_t budget = std::max<std::size_t>(1, triplet_budget);
   for (std::size_t index = 0; index < budget && !done_; ++index) {
     if (cancelled_.load()) {
+      // A UI stop is a graceful boundary, not a failed analysis. Events are
+      // committed only after a complete detection round, so discard the
+      // unfinished round's transient signals and retain every event already
+      // fixed by earlier erase/re-screen cycles. Clearing the flag allows the
+      // ordinary reconciliation stage to finalize those retained events.
+      signals_.resize(round_signal_begin_);
+      round_triplet_signal_summaries_.clear();
+      carried_triplet_signal_summaries_.clear();
+      cyclic_shortlist_active_ = false;
+      refresh_threeseq_on_unchanged_triplets_ = false;
+      cancelled_.store(false);
       running_ = false;
-      return 2;
+      primary_done_ = true;
+      cycle_termination_ = "user-stopped";
+      return 3;
     }
     std::array<std::uint32_t, 3> triplet{};
     if (!current_triplet(triplet)) {
@@ -7458,7 +7471,7 @@ bool RdpScanner::restore(
   scan_round_ = std::max<std::size_t>(1, scan_rounds);
   round_signal_begin_ = signals_.size();
   fixed_event_count_ = 0;
-  constexpr std::array<std::string_view, 8> valid_cycle_terminations{
+  constexpr std::array<std::string_view, 9> valid_cycle_terminations{
       "not-started",
       "scanning",
       "no-significant-signals",
@@ -7466,6 +7479,7 @@ bool RdpScanner::restore(
       "no-eligible-query-reference-triplets",
       "event-assignment-error",
       "no-new-tract-sites",
+      "user-stopped",
       "restored-project",
   };
   cycle_termination_ = std::find(
@@ -7676,7 +7690,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.17.0-session-17\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.18.0-session-18\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.maxchi_enabled) out << "+MAXCHI";

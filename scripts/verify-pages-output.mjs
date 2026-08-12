@@ -264,6 +264,89 @@ try {
       "5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa") {
     fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
   }
+
+  // A user stop during a later cyclic pass is a graceful workflow boundary:
+  // discard the unfinished pass, preserve its already committed event prefix,
+  // and continue through reconciliation so Review receives usable results.
+  const stoppedContext = engine._rdp_create();
+  if (!stoppedContext) fail("the WASM engine could not create the graceful-stop context");
+  try {
+    if (engine._rdp_load_alignment(
+      stoppedContext,
+      syntheticPointer,
+      syntheticFasta.byteLength,
+    ) !== 1) {
+      fail(`graceful-stop alignment load failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(stoppedContext),
+      )}`);
+    }
+    const stopScanStarted = engine._rdp_scan_begin(
+      stoppedContext,
+      1, 1, 0.05, 30,
+      0, 70,
+      0, 60,
+      0, 1, 1,
+      0,
+      0, 200, 20, 100, 0.7, 3,
+      0,
+      0,
+      referenceGroupsPointer,
+      syntheticSequences.length,
+      zeroFlagsPointer,
+      syntheticSequences.length,
+      zeroFlagsPointer,
+      syntheticSequences.length,
+    );
+    if (stopScanStarted !== 1) {
+      fail(`graceful-stop scan could not start: ${engine.UTF8ToString(
+        engine._rdp_get_error(stoppedContext),
+      )}`);
+    }
+    let stopStatus = 0;
+    for (let batch = 0; batch < 10000 && stopStatus !== 4; ++batch) {
+      stopStatus = engine._rdp_scan_batch(stoppedContext, 10000);
+      if (stopStatus < 0) {
+        fail(`graceful-stop opening round failed: ${engine.UTF8ToString(
+          engine._rdp_get_error(stoppedContext),
+        )}`);
+      }
+    }
+    const beforeStop = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_progress_json(stoppedContext),
+    ));
+    if (stopStatus !== 4 || beforeStop.eventCount < 1 || beforeStop.scanRound < 2) {
+      fail("graceful-stop fixture did not enter a later cyclic round");
+    }
+    stopStatus = engine._rdp_scan_batch(stoppedContext, 5);
+    if (stopStatus !== 0) {
+      fail("graceful-stop fixture did not pause inside the unfinished cyclic round");
+    }
+    engine._rdp_cancel(stoppedContext);
+    stopStatus = engine._rdp_scan_batch(stoppedContext, 5);
+    const stoppedProgress = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_progress_json(stoppedContext),
+    ));
+    if (stopStatus !== 3 || stoppedProgress.phase !== "reconciliation" ||
+        stoppedProgress.cycleTermination !== "user-stopped" ||
+        stoppedProgress.eventCount !== beforeStop.eventCount) {
+      fail("a cyclic stop did not preserve completed events for reconciliation");
+    }
+    if (engine._rdp_reconcile(stoppedContext) !== 1) {
+      fail(`graceful-stop reconciliation failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(stoppedContext),
+      )}`);
+    }
+    const stoppedResults = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_results_json(stoppedContext),
+    ));
+    if (stoppedResults.cycleTermination !== "user-stopped" ||
+        stoppedResults.events.length !== beforeStop.eventCount ||
+        stoppedResults.signals.some((signal) => signal.eventId < 0)) {
+      fail("graceful-stop results contain an unfinished-round signal or lost event");
+    }
+  } finally {
+    engine._rdp_destroy(stoppedContext);
+  }
 } finally {
   engine._free(syntheticPointer);
   engine._free(referenceGroupsPointer);
@@ -273,5 +356,5 @@ try {
 
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload and cyclic-shortlist smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, cyclic-shortlist, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );

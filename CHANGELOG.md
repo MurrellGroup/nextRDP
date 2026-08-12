@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.18.0-session-18
+
+- Re-skinned the complete application as a Windows 95 workstation without changing analytical
+  behavior: teal desktop, navy active title bar, classic menu and status strips, gray system face,
+  square raised/recessed bevels, Tahoma/MS Sans Serif fallbacks, inset tables and plots, and
+  segmented navy progress blocks.
+- Applied the same visual system to workflow navigation, upload/curation controls, settings,
+  notices, scan phases, review lists, breakpoint/tree/alignment inspectors, evidence cards, and
+  export panels, including a compact raised drawer on narrow screens. No external visual asset or
+  network dependency was added.
+- Fixed stop handling during cyclic discovery. At the next 512-triplet boundary, the engine now
+  discards only transient signals from the unfinished round, retains every event committed by
+  prior complete rounds, clears incomplete shortlist summaries, records `user-stopped`, and runs
+  normal final reconciliation so the UI moves to Review with usable results.
+- Added an explicit stopped-cleanly notice and changed the control label to “Stop and review
+  completed events.” Stopping the opening round safely returns a zero-event result when no event
+  has yet reached a complete round boundary.
+- Added a production-WASM graceful-stop regression that enters a second cyclic round, evaluates a
+  partial batch, stops, reconciles, and verifies the exact completed-event prefix with no orphaned
+  signals. The existing FASTA-upload and exact cyclic-shortlist digest regressions remain active.
+- Advanced the engine/package version to `0.18.0-session-18`; project schema remains
+  `org.rdp-web.project/v1alpha16` because the saved analysis shape did not change.
+
 ## 0.17.0-session-17
 
 - Traced the supplied GENECONV probability lifecycle through `GCCalcPValP2`, `GCXoverD`,

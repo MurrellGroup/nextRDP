@@ -4,14 +4,17 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 17 source checkpoint — cyclic shortlist and probability-scope build verified.** This
+> **Session 18 source checkpoint — Windows 95 skin and graceful cyclic stop verified.** This
 > archive contains source only. Its Node 20 / Emscripten 5.0.1 production build,
 > TypeScript/source contracts, Pages artifact, real WASM FASTA-upload test, and deterministic
-> two-event cyclic-shortlist test passed before packaging.
+> cyclic-shortlist/graceful-stop tests passed before packaging.
 
 ## What this checkpoint contains
 
 - The RDP5 dataset → settings → primary scan → event reconciliation → ordered review → export workflow.
+- A purely cosmetic Windows 95 application skin: teal desktop, navy title bar, gray beveled
+  controls, recessed data panes, system-font typography, menu/status chrome, and segmented scan
+  progress. It adds no external font/image dependency and changes no analytical computation.
 - FASTA, GDE, CLUSTAL/MUSCLE, sequential/interleaved PHYLIP, NEXUS, and MEGA alignment readers.
 - Alignment diagnostics, pairwise identity checks, and the supplied RDP5 auto-mask workflow.
 - The manual's distinct enabled/masked/disabled row states: masked sequences skip primary triplets
@@ -61,12 +64,15 @@ core runs in WebAssembly.
   larger origin-extended boundary excursion, matching the supplied call order. 3SEQ applies the
   source's `p > 10^-15` Dunn–Šidák / smaller-tail product branch and adds no alignment-byte pass
   because it reuses the MaxChi/CHIMAERA equality profile.
-- Bounded 512-triplet worker batches, cancellation, reusable scan buffers, and method-aware plot
+- Bounded 512-triplet worker batches, reusable scan buffers, and method-aware plot
   downsampling that forces both breakpoints, the selected method peak, and applicable profile maxima
   into the browser payload. CHIMAERA displays only its selected target/parent-one trace; GENECONV
   displays a three-colour `-log10(raw KA P)` inner/outer fragment envelope; 3SEQ displays all three
   signed target-specific random walks on a zero-aware axis. Later-round
   reconstructions are labelled when the exact historical erased/fragment profile was not serialized.
+- Graceful batch-boundary stopping during primary or cyclic discovery. An unfinished round's
+  transient signals are discarded, previously completed events are retained, ordinary evidence
+  finalization runs, and Review receives a normal result marked `user-stopped`.
 - Combined strongest-first cyclic detection: scan all eligible triplets in the supplied
   RDP/GENECONV/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
   tract, then retain XOverList-style summaries for unchanged exact working triplets. Triplets that
@@ -210,7 +216,7 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [GENECONV discovery trace](docs/native-geneconv-discovery-trace.md), the
 [3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), the
 [cyclic-shortlist trace](docs/native-cyclic-shortlist-trace.md), and the
-[Session 17 handoff](docs/session-17-handoff.md) before interpreting results or starting the next phase.
+[Session 18 handoff](docs/session-18-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 

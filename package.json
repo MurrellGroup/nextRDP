@@ -1,7 +1,7 @@
 {
   "name": "rdp-wasm",
   "private": true,
-  "version": "0.17.0-session-17",
+  "version": "0.18.0-session-18",
   "type": "module",
   "engines": {
     "node": ">=20"
