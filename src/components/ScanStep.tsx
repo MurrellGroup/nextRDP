@@ -91,6 +91,10 @@ export function ScanStep({
             <span>Correction</span>
             <strong>{options.correction === "bonferroni" ? "Bonferroni" : "None"}</strong>
           </div>
+          <div>
+            <span>Breakpoint confidence</span>
+            <strong>{options.polishBreakpoints ? "BURT enabled" : "Preserve RDP calls"}</strong>
+          </div>
         </div>
 
         <div className="progress-block" aria-live="polite">
@@ -136,14 +140,23 @@ export function ScanStep({
             <span>{hasResults ? <Check size={16} /> : progress.phase === "reconciliation" ? <LoaderCircle className="spin" size={16} /> : "3"}</span>
             <div>
               <strong>Finalize event evidence</strong>
-              <small>Stop when no signal remains, preserve event order, and prepare the review hypothesis.</small>
+              <small>
+                {options.polishBreakpoints
+                  ? "Polish detected breakpoints with BURT, preserve event order, and prepare the review hypothesis."
+                  : "Preserve detected breakpoints, retain event order, and prepare the review hypothesis."}
+              </small>
             </div>
           </li>
         </ol>
 
         <div className="scan-controls">
           {!running && !hasResults ? (
-            <button className="button button-primary button-large" type="button" onClick={onStart}>
+            <button
+              className="button button-primary button-large"
+              type="button"
+              onClick={onStart}
+              disabled={sequenceCount < 3 || tripletCount === 0}
+            >
               <Play size={18} fill="currentColor" /> Start scan
             </button>
           ) : null}

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "alignment.hpp"
+#include "burt_confidence.hpp"
+#include "maxchi.hpp"
 
 #include <array>
 #include <atomic>
@@ -28,8 +30,16 @@ struct ScanOptions {
   CorrectionMode correction = CorrectionMode::bonferroni;
   double p_value_cutoff = 0.05;
   std::size_t window_sites = 30;
+  bool polish_breakpoints = true;
   std::vector<std::uint8_t> mask;
+  std::vector<std::uint8_t> disabled;
 };
+
+[[nodiscard]] std::string curated_sequences_fasta(
+    const Alignment& alignment,
+    const std::vector<std::uint8_t>& mask,
+    const std::vector<std::uint8_t>& disabled,
+    bool include_enabled);
 
 struct Signal {
   std::uint32_t id = 0;
@@ -64,6 +74,89 @@ struct TraceEvidence {
   bool significant = false;
 };
 
+struct FinalTrimMatrixEvidence {
+  double collapsed_tree_position_score = 0.0;
+  double raw_tree_position_score = 0.0;
+  double relative_distance_score = 0.0;
+  std::array<double, 2> breakpoint_distance_scores{};
+  std::array<std::uint8_t, 2> breakpoint_score_available{};
+  double detected_region_distance_score = 0.0;
+  std::array<double, 7> detected_region_match_distances{};
+  double detected_event_overlap = 0.0;
+  std::size_t detected_event_beginning = 0;
+  std::size_t detected_event_ending = 0;
+  std::int32_t detected_event_signal_id = -1;
+  double active_consensus_matrix_score = 0.0;
+  bool detected_event_match = false;
+  bool detected_region_saturated = false;
+  bool source_sequence_index_quirk_applied = true;
+  bool tree_distance_fallback = false;
+  bool applies_to_nonrepresentative = false;
+};
+
+struct CalcMatchEvidence {
+  bool available = false;
+  std::size_t fragment_variable_sites = 0;
+  std::size_t target_half_window = 0;
+  std::size_t smoothing_half_window = 0;
+  double regional_match_score = 0.0;
+  std::int8_t raw_breakpoint_match_class = 0;
+  std::int8_t breakpoint_match_class = 0;
+  std::array<double, 6> checkpoint_matches{};
+  std::array<std::uint8_t, 2> breakpoints_exist{};
+  bool topology_filtered = false;
+  bool topology_distance_fallback = false;
+};
+
+struct PostGroupRdpRecheckEvidence {
+  bool requested = false;
+  bool representative_skipped = false;
+  bool profile_available = false;
+  double local_p_value_cutoff = 1.0;
+  std::size_t emitted_signal_count = 0;
+  std::size_t candidate_signal_count = 0;
+  std::size_t overlapping_signal_count = 0;
+  bool event_redetected = false;
+  bool significant = false;
+  std::size_t best_beginning = 0;
+  std::size_t best_ending = 0;
+  bool best_wraps_origin = false;
+  double best_overlap = 0.0;
+  double best_local_p_value = 1.0;
+  double best_corrected_p_value = 1.0;
+};
+
+struct ConsensusScoreEvidence {
+  double corrected_correlation_p_value = 0.0;
+  double detected_event_overlap = 0.0;
+  double pattern_score = 0.0;
+  double maximum_direct_correlation = 0.0;
+  double base_score_before_final_membership = 0.0;
+  double source_long_matrix_multiplier = 0.0;
+  double score_after_final_membership = 0.0;
+  double score_after_rcorrx = 0.0;
+  double final_score = 0.0;
+  bool detectable_set_member = false;
+  bool initial_rlist_member = false;
+  bool duplicate_cleaned_member = false;
+  bool nearest_nonrecombinant_member = false;
+  bool final_trim_first_expansion_added = false;
+  bool final_trim_second_expansion_added = false;
+  bool selected_role_pruned_out = false;
+  bool final_trim_member = false;
+  bool consensus_primary_member = false;
+  bool consensus_equivalent_member = false;
+  bool consensus_straggler_member = false;
+  bool consensus_rebuilt_member = false;
+  bool consensus_fallback_restored = false;
+  bool selected_tree_cleanup_pruned_out = false;
+  bool selected_tree_cleanup_added = false;
+  bool final_distance_member = false;
+  bool representative_sentinel = false;
+  bool other_representative_zero = false;
+  bool complete = false;
+};
+
 struct DistanceCorrelationEvidence {
   std::uint32_t sequence = 0;
   std::array<double, 3> correlations{};
@@ -86,6 +179,11 @@ struct DistanceCorrelationEvidence {
   bool inverse_support = false;
   bool stripped_inverse_only = false;
   bool duplicate_cleaned_support = false;
+  FinalTrimMatrixEvidence final_trim_matrix;
+  CalcMatchEvidence calc_match;
+  ConsensusScoreEvidence consensus_score;
+  PostGroupRdpRecheckEvidence post_group_rdp_recheck;
+  MaxChiRecheckEvidence post_group_maxchi_recheck;
 };
 
 struct PhylogeneticCorrelationEvidence {
@@ -98,7 +196,16 @@ struct PhylogeneticCorrelationEvidence {
   std::uint8_t supporting_tree_pairs = 0;
   bool included = false;
   bool distance_fallback = false;
-  bool masked_excluded = false;
+  bool disabled_excluded = false;
+};
+
+struct TreeTopologyEdgeSummary {
+  std::uint32_t first = 0;
+  std::uint32_t second = 0;
+  double length = 0.0;
+  double bootstrap_support = 1.0;
+  bool internal = false;
+  bool collapsed = false;
 };
 
 struct TreeRegionSummary {
@@ -107,7 +214,16 @@ struct TreeRegionSummary {
   std::size_t bootstrap_replicates = 0;
   std::size_t supported_internal_branches = 0;
   std::size_t internal_branches = 0;
+  std::size_t node_count = 0;
+  std::size_t root = 0;
+  std::vector<TreeTopologyEdgeSummary> topology_edges;
   bool usable = false;
+};
+
+struct TreePanelLeafSummary {
+  std::uint32_t working_sequence = 0;
+  std::uint32_t original_sequence = 0;
+  std::int32_t fragment_event = -1;
 };
 
 enum class RoleMetricKind : std::uint8_t {
@@ -158,6 +274,18 @@ struct RoleHypothesisEvidence {
   std::size_t valid_sequences = 0;
 };
 
+struct BreakpointUncertaintyEvidence {
+  bool native_check_ends_applied = false;
+  bool information_profile_available = false;
+  bool native_check_ends_warning = false;
+  bool input_missing_data_in_range = false;
+  bool linear_edge_within_window = false;
+  std::size_t check_range_beginning = 0;
+  std::size_t check_range_ending = 0;
+  std::size_t check_coordinate_count = 0;
+  bool check_range_wraps_origin = false;
+};
+
 struct UniqueEvent {
   std::uint32_t id = 0;
   std::uint32_t anchor_signal_id = 0;
@@ -179,6 +307,7 @@ struct UniqueEvent {
   std::array<TreeRegionSummary, 6> tree_regions;
   std::size_t tree_panel_sequences = 0;
   bool tree_panel_subsampled = false;
+  std::vector<TreePanelLeafSummary> tree_panel_leaves;
   RoleConsensusEvidence role_consensus;
   std::size_t detection_round = 0;
   std::size_t erased_nucleotide_sites = 0;
@@ -189,6 +318,12 @@ struct UniqueEvent {
   ReviewState review_state = ReviewState::unreviewed;
   bool manual_adjusted = false;
   bool group_manual_adjusted = false;
+  std::array<std::vector<std::uint32_t>, 2> adjacent_erasure_event_ids;
+  std::array<std::vector<std::uint32_t>, 2> uncertain_erasure_event_ids;
+  std::array<std::int32_t, 2> nearest_erasure_informative_sites{-1, -1};
+  std::array<BreakpointUncertaintyEvidence, 2> breakpoint_uncertainty;
+  BreakpointConfidenceEvidence breakpoint_confidence;
+  MaxChiRecheckEvidence maxchi_triplet_recheck;
 };
 
 struct PlotPoint {
@@ -214,10 +349,22 @@ class RdpScanner {
   [[nodiscard]] std::string progress_json() const;
   [[nodiscard]] std::string results_json() const;
   [[nodiscard]] std::string csv() const;
+  [[nodiscard]] std::string enabled_sequences_fasta() const;
+  [[nodiscard]] std::string masked_or_disabled_sequences_fasta() const;
+  [[nodiscard]] std::string recombinant_sequences_removed_fasta() const;
+  [[nodiscard]] std::string recombinant_columns_removed_fasta() const;
   [[nodiscard]] std::string recombination_free_fasta() const;
   [[nodiscard]] std::string fragmented_fasta() const;
   [[nodiscard]] bool final_alignment_ready(std::string& error) const;
   [[nodiscard]] SignalPlot signal_plot(std::uint32_t signal_id, std::string& error) const;
+  [[nodiscard]] std::string event_alignment_json(
+      std::uint32_t event_id,
+      std::size_t flank_sites,
+      std::size_t row_limit,
+      std::string& error) const;
+  [[nodiscard]] std::string event_trees_json(
+      std::uint32_t event_id,
+      std::string& error) const;
   bool set_review_state(std::uint32_t signal_id, ReviewState state);
   bool set_event_review_state(
       std::uint32_t event_id,
@@ -285,6 +432,7 @@ class RdpScanner {
 
   const Alignment& alignment_;
   Alignment working_alignment_;
+  std::vector<std::uint8_t> native_input_missing_data_;
   std::vector<std::uint32_t> working_origins_;
   std::vector<std::int32_t> working_fragment_events_;
   ScanOptions options_;
@@ -293,6 +441,15 @@ class RdpScanner {
   std::vector<UniqueEvent> events_;
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> round_signal_index_;
   TripletProfile profile_scratch_;
+  MaxChiWorkspace maxchi_workspace_;
+  std::vector<Signal> signal_candidates_scratch_;
+  std::array<std::vector<std::uint8_t>, 3> breakpoint_erasure_scratch_;
+  std::vector<std::uint8_t> breakpoint_input_missing_scratch_;
+  std::vector<std::uint8_t> breakpoint_polish_missing_scratch_;
+  std::vector<std::size_t> breakpoint_informative_coordinates_scratch_;
+  std::array<std::vector<std::size_t>, 2> breakpoint_check_coordinates_scratch_;
+  std::vector<std::uint32_t> breakpoint_relevant_event_indices_scratch_;
+  BurtConfidenceWorkspace breakpoint_confidence_scratch_;
   std::size_t cursor_a_ = 0;
   std::size_t cursor_b_ = 1;
   std::size_t cursor_c_ = 2;
@@ -314,6 +471,8 @@ class RdpScanner {
   [[nodiscard]] bool build_profile(
       const std::array<std::uint32_t, 3>& triplet,
       TripletProfile& profile) const;
+  [[nodiscard]] bool sequence_masked(std::uint32_t sequence) const;
+  [[nodiscard]] bool sequence_disabled(std::uint32_t sequence) const;
   [[nodiscard]] bool build_profile_on(
       const Alignment& alignment,
       const std::array<std::uint32_t, 3>& triplet,
@@ -321,23 +480,30 @@ class RdpScanner {
   void scan_triplet(const std::array<std::uint32_t, 3>& triplet);
   void compute_rolling_counts(TripletProfile& profile) const;
   [[nodiscard]] std::array<std::uint8_t, 3> ranked_pairs(const TripletProfile& profile) const;
-  [[nodiscard]] std::vector<Signal> candidate_signals(
+  void append_candidate_signals(
       const TripletProfile& profile,
       std::uint8_t high_pair,
       std::uint8_t candidate_pair,
       std::uint8_t low_pair,
-      bool enforce_cutoff = true) const;
+      bool enforce_cutoff,
+      std::vector<Signal>& output) const;
   [[nodiscard]] std::vector<Signal> triplet_signals(
       const std::array<std::uint32_t, 3>& triplet,
-      bool enforce_cutoff) const;
+      bool enforce_cutoff,
+      bool* profile_available = nullptr,
+      TripletProfile* scratch = nullptr) const;
   [[nodiscard]] double tract_overlap(
       std::size_t first_beginning,
       std::size_t first_ending,
       std::size_t second_beginning,
       std::size_t second_ending) const;
   void build_event_evidence(UniqueEvent& event);
+  void refresh_breakpoint_confidence(UniqueEvent& event, bool apply_polished);
+  void refresh_breakpoint_context(UniqueEvent& event);
   void refresh_trace_evidence(UniqueEvent& event);
   void refresh_role_hypotheses(UniqueEvent& event);
+  [[nodiscard]] MaxChiRecheckEvidence maxchi_triplet_recheck(
+      const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool finish_detection_round(std::string& error);
   [[nodiscard]] ErasureResult erase_event_tract(const UniqueEvent& event);
   void refresh_active_sequences();

@@ -20,8 +20,11 @@ int rdp_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     uint32_t window_sites,
+    int polish_breakpoints,
     const uint8_t* masked_sequences,
-    size_t mask_length);
+    size_t mask_length,
+    const uint8_t* disabled_sequences,
+    size_t disabled_length);
 int rdp_scan_batch(uint32_t handle, uint32_t triplet_budget);
 int rdp_reconcile(uint32_t handle);
 void rdp_cancel(uint32_t handle);
@@ -29,6 +32,12 @@ void rdp_cancel(uint32_t handle);
 const char* rdp_get_progress_json(uint32_t handle);
 const char* rdp_get_results_json(uint32_t handle);
 const char* rdp_get_signal_plot_json(uint32_t handle, uint32_t signal_id);
+const char* rdp_get_event_alignment_json(
+    uint32_t handle,
+    uint32_t event_id,
+    uint32_t flank_sites,
+    uint32_t row_limit);
+const char* rdp_get_event_trees_json(uint32_t handle, uint32_t event_id);
 int rdp_set_review_state(uint32_t handle, uint32_t signal_id, int state);
 int rdp_set_event_review_state(uint32_t handle, uint32_t event_id, int state);
 int rdp_update_event(
@@ -65,8 +74,11 @@ int rdp_restore_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     uint32_t window_sites,
+    int polish_breakpoints,
     const uint8_t* masked_sequences,
-    size_t mask_length);
+    size_t mask_length,
+    const uint8_t* disabled_sequences,
+    size_t disabled_length);
 int rdp_restore_signal(
     uint32_t handle,
     uint32_t triplet_0,
@@ -114,6 +126,20 @@ int rdp_restore_event_state(
 int rdp_restore_reconciliation_required_after(uint32_t handle, uint32_t event_id);
 
 const char* rdp_export_csv(uint32_t handle);
+const char* rdp_export_enabled_sequences_fasta(
+    uint32_t handle,
+    const uint8_t* masked_sequences,
+    size_t mask_length,
+    const uint8_t* disabled_sequences,
+    size_t disabled_length);
+const char* rdp_export_masked_or_disabled_sequences_fasta(
+    uint32_t handle,
+    const uint8_t* masked_sequences,
+    size_t mask_length,
+    const uint8_t* disabled_sequences,
+    size_t disabled_length);
+const char* rdp_export_recombinant_sequences_removed_fasta(uint32_t handle);
+const char* rdp_export_recombinant_columns_removed_fasta(uint32_t handle);
 const char* rdp_export_recombination_free_fasta(uint32_t handle);
 const char* rdp_export_fragmented_fasta(uint32_t handle);
 const char* rdp_export_project_json(uint32_t handle);

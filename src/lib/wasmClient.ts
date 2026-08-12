@@ -1,5 +1,7 @@
 import type {
   DatasetSummary,
+  EventAlignmentView,
+  EventTreeView,
   EventEdit,
   ImportedProject,
   ReviewState,
@@ -12,6 +14,7 @@ import type {
   WorkerRequestPayload,
   WorkerResponse,
 } from "./types";
+import packageMetadata from "../../package.json";
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -57,7 +60,11 @@ export class RdpWorkerClient {
 
   init(): Promise<{ threaded: boolean; version: string }> {
     const wasmBaseUrl = new URL("wasm/", document.baseURI).href;
-    return this.send({ type: "init", wasmBaseUrl }) as Promise<{
+    return this.send({
+      type: "init",
+      wasmBaseUrl,
+      assetVersion: packageMetadata.version,
+    }) as Promise<{
       threaded: boolean;
       version: string;
     }>;
@@ -88,6 +95,19 @@ export class RdpWorkerClient {
     return this.send({ type: "plot", signalId }) as Promise<SignalPlot>;
   }
 
+  eventAlignment(eventId: number, flankSites = 30, rowLimit = 28): Promise<EventAlignmentView> {
+    return this.send({
+      type: "event-alignment",
+      eventId,
+      flankSites,
+      rowLimit,
+    }) as Promise<EventAlignmentView>;
+  }
+
+  eventTrees(eventId: number): Promise<EventTreeView> {
+    return this.send({ type: "event-trees", eventId }) as Promise<EventTreeView>;
+  }
+
   setReviewState(signalId: number, state: ReviewState): Promise<void> {
     return this.send({ type: "set-review-state", signalId, state }) as Promise<void>;
   }
@@ -114,6 +134,36 @@ export class RdpWorkerClient {
 
   exportCsv(): Promise<string> {
     return this.send({ type: "export-csv" }) as Promise<string>;
+  }
+
+  exportEnabledSequences(
+    maskedSequenceIndices: number[],
+    disabledSequenceIndices: number[],
+  ): Promise<string> {
+    return this.send({
+      type: "export-enabled-sequences",
+      maskedSequenceIndices,
+      disabledSequenceIndices,
+    }) as Promise<string>;
+  }
+
+  exportMaskedOrDisabledSequences(
+    maskedSequenceIndices: number[],
+    disabledSequenceIndices: number[],
+  ): Promise<string> {
+    return this.send({
+      type: "export-masked-or-disabled-sequences",
+      maskedSequenceIndices,
+      disabledSequenceIndices,
+    }) as Promise<string>;
+  }
+
+  exportRecombinantSequencesRemoved(): Promise<string> {
+    return this.send({ type: "export-recombinant-sequences-removed" }) as Promise<string>;
+  }
+
+  exportRecombinantColumnsRemoved(): Promise<string> {
+    return this.send({ type: "export-recombinant-columns-removed" }) as Promise<string>;
   }
 
   exportRecombinationFree(): Promise<string> {

@@ -1,7 +1,7 @@
 import { AlertTriangle, FileText, Search, ShieldCheck, UploadCloud } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
-import type { DatasetSummary } from "../lib/types";
+import type { DatasetSummary, SequenceAnalysisState } from "../lib/types";
 import { Metric } from "./Metric";
 
 interface DatasetStepProps {
@@ -11,9 +11,16 @@ interface DatasetStepProps {
   filename: string;
   fileSize: number;
   masked: Set<number>;
+  disabled: Set<number>;
   busy: boolean;
   onLoad: (file: File) => void;
-  onMaskChange: (index: number, masked: boolean) => void;
+  onSequenceStateChange: (index: number, state: SequenceAnalysisState) => void;
+  onAllSequenceStatesChange: (
+    action: "auto-mask" | "enable-all" | "mask-all" | "disable-all",
+  ) => void;
+  onExportFullAlignment: () => void;
+  onExportEnabledSequences: () => void;
+  onExportMaskedOrDisabledSequences: () => void;
   onContinue: () => void;
 }
 
@@ -37,15 +44,23 @@ export function DatasetStep({
   filename,
   fileSize,
   masked,
+  disabled,
   busy,
   onLoad,
-  onMaskChange,
+  onSequenceStateChange,
+  onAllSequenceStatesChange,
+  onExportFullAlignment,
+  onExportEnabledSequences,
+  onExportMaskedOrDisabledSequences,
   onContinue,
 }: DatasetStepProps) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filter, setFilter] = useState("");
-  const activeSequenceCount = Math.max(0, (dataset?.sequenceCount ?? 0) - masked.size);
+  const activeSequenceCount = Math.max(
+    0,
+    (dataset?.sequenceCount ?? 0) - masked.size - disabled.size,
+  );
   const activeTripletCount = chooseThree(activeSequenceCount);
 
   const visibleSequences = useMemo(() => {
@@ -139,7 +154,11 @@ export function DatasetStep({
             <Metric label="Alignment" value={integer.format(dataset.alignmentLength)} detail="nucleotide columns" />
             <Metric label="Variable sites" value={integer.format(dataset.variableSiteCount)} />
             <Metric label="Mean identity" value={dataset.meanPairIdentity == null ? "—" : percent.format(dataset.meanPairIdentity)} />
-            <Metric label="Triplets" value={integer.format(activeTripletCount)} detail={`${masked.size} masked`} />
+            <Metric
+              label="Triplets"
+              value={integer.format(activeTripletCount)}
+              detail={`${masked.size} masked · ${disabled.size} disabled`}
+            />
           </div>
 
           {dataset.warnings.map((warning) => (
@@ -155,48 +174,135 @@ export function DatasetStep({
                 <span className="eyebrow">Sequence curation</span>
                 <h2>Choose the exploratory set</h2>
                 <p>
-                  Masked sequences are excluded from the initial triplet search, but remain in the
-                  project for later trace-signal checks.
+                  Enabled rows enter every screen. Masked rows skip the primary triplet catalogue
+                  but remain in secondary checks and trees; disabled rows remain only as tree context.
                 </p>
               </div>
-              <label className="search-box">
-                <Search size={16} />
-                <span className="sr-only">Filter sequence names</span>
-                <input
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Filter sequences"
-                />
-              </label>
+              <div className="sequence-heading-controls">
+                <label className="search-box">
+                  <Search size={16} />
+                  <span className="sr-only">Filter sequence names</span>
+                  <input
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value)}
+                    placeholder="Filter sequences"
+                  />
+                </label>
+                <div className="sequence-bulk-actions" aria-label="Bulk sequence curation">
+                  <button
+                    className="button button-secondary button-compact"
+                    type="button"
+                    onClick={() => onAllSequenceStatesChange("auto-mask")}
+                    title="Restore the supplied RDP closest-pair auto-mask recommendation"
+                    disabled={busy}
+                  >
+                    Auto-mask
+                  </button>
+                  <button
+                    className="button button-quiet button-compact"
+                    type="button"
+                    onClick={() => onAllSequenceStatesChange("enable-all")}
+                    disabled={busy}
+                  >
+                    Enable all
+                  </button>
+                  <button
+                    className="button button-quiet button-compact"
+                    type="button"
+                    onClick={() => onAllSequenceStatesChange("mask-all")}
+                    disabled={busy}
+                  >
+                    Mask all
+                  </button>
+                  <button
+                    className="button button-quiet button-compact"
+                    type="button"
+                    onClick={() => onAllSequenceStatesChange("disable-all")}
+                    disabled={busy}
+                  >
+                    Disable all
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="sequence-table" role="table" aria-label="Alignment sequences">
               <div className="sequence-row sequence-header" role="row">
-                <span role="columnheader">Use</span>
+                <span role="columnheader">Analysis</span>
                 <span role="columnheader">Sequence</span>
                 <span role="columnheader">Valid sites</span>
                 <span role="columnheader">Missing</span>
               </div>
               {visibleSequences.map((sequence) => {
                 const isMasked = masked.has(sequence.index);
+                const isDisabled = disabled.has(sequence.index);
+                const analysisState: SequenceAnalysisState = isDisabled
+                  ? "disabled"
+                  : isMasked
+                    ? "masked"
+                    : "enabled";
                 return (
-                  <label className={`sequence-row${isMasked ? " is-masked" : ""}`} key={sequence.index}>
+                  <div
+                    className={`sequence-row${isMasked ? " is-masked" : ""}${isDisabled ? " is-disabled" : ""}`}
+                    key={sequence.index}
+                    role="row"
+                  >
                     <span>
-                      <input
-                        type="checkbox"
-                        checked={!isMasked}
-                        onChange={(event) => onMaskChange(sequence.index, !event.target.checked)}
-                      />
+                      <select
+                        className={`sequence-state sequence-state-${analysisState}`}
+                        aria-label={`Analysis state for ${sequence.name}`}
+                        value={analysisState}
+                        disabled={busy}
+                        onChange={(event) => onSequenceStateChange(
+                          sequence.index,
+                          event.target.value as SequenceAnalysisState,
+                        )}
+                      >
+                        <option value="enabled">Enabled</option>
+                        <option value="masked">Masked</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
                     </span>
                     <strong title={sequence.name}>{sequence.name}</strong>
                     <span>{integer.format(sequence.validSites)}</span>
                     <span>{percent.format(sequence.missingFraction)}</span>
-                  </label>
+                  </div>
                 );
               })}
             </div>
             {dataset.sequences.length > 500 ? (
               <p className="table-footnote">Showing the first 500 matching sequences for browser rendering performance.</p>
             ) : null}
+            <div className="sequence-export-actions">
+              <span>
+                Save the full alignment or either curated partition now; no scan is required.
+              </span>
+              <div>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={onExportFullAlignment}
+                  disabled={busy}
+                >
+                  Save full FASTA
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={onExportEnabledSequences}
+                  disabled={busy || activeSequenceCount === 0}
+                >
+                  Save enabled FASTA
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={onExportMaskedOrDisabledSequences}
+                  disabled={busy || masked.size + disabled.size === 0}
+                >
+                  Save masked / disabled FASTA
+                </button>
+              </div>
+            </div>
             <div className="manual-note">
               <strong>RDP5 dataset check</strong>
               <span>
@@ -207,8 +313,17 @@ export function DatasetStep({
           </div>
 
           <footer className="step-actions">
-            <span>{activeSequenceCount} sequences will enter the primary scan.</span>
-            <button className="button button-primary" type="button" onClick={onContinue}>
+            <span>
+              {activeSequenceCount < 3
+                ? "Enable at least three unmasked sequences to continue."
+                : `${activeSequenceCount} sequences will enter the primary scan.`}
+            </span>
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={onContinue}
+              disabled={busy || activeSequenceCount < 3}
+            >
               Set analysis options
             </button>
           </footer>

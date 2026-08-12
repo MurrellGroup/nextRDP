@@ -10,11 +10,14 @@ import { WorkflowNav } from "./components/WorkflowNav";
 import { downloadBlob, safeStem } from "./lib/download";
 import type {
   DatasetSummary,
+  EventAlignmentView,
+  EventTreeView,
   EventEdit,
   ReviewState,
   ScanOptions,
   ScanProgress,
   ScanResults,
+  SequenceAnalysisState,
   SignalPlot,
   WorkflowStep,
 } from "./lib/types";
@@ -25,7 +28,9 @@ const initialOptions: ScanOptions = {
   pValueCutoff: 0.05,
   correction: "bonferroni",
   windowSites: 30,
+  polishBreakpoints: true,
   maskedSequenceIndices: [],
+  disabledSequenceIndices: [],
 };
 
 const initialProgress: ScanProgress = {
@@ -64,13 +69,17 @@ export function App() {
   const [filename, setFilename] = useState("");
   const [fileSize, setFileSize] = useState(0);
   const [masked, setMasked] = useState<Set<number>>(new Set());
+  const [disabled, setDisabled] = useState<Set<number>>(new Set());
   const [options, setOptions] = useState<ScanOptions>(initialOptions);
   const [progress, setProgress] = useState<ScanProgress>(initialProgress);
   const [results, setResults] = useState<ScanResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [checkpointDirty, setCheckpointDirty] = useState(false);
+  const [checkpointSaving, setCheckpointSaving] = useState(false);
   const [error, setError] = useState("");
+  const hasUnsavedCheckpoint = checkpointDirty && results !== null;
 
   useEffect(() => {
     const worker = new RdpWorkerClient();
@@ -103,8 +112,27 @@ export function App() {
     };
   }, []);
 
-  const activeSequenceCount = Math.max(0, (dataset?.sequenceCount ?? 0) - masked.size);
+  useEffect(() => {
+    if (!hasUnsavedCheckpoint && !running && !reconciling) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedCheckpoint, reconciling, running]);
+
+  const activeSequenceCount = Math.max(
+    0,
+    (dataset?.sequenceCount ?? 0) - masked.size - disabled.size,
+  );
   const activeTripletCount = chooseThree(activeSequenceCount);
+
+  const confirmDiscardUnsavedAnalysis = () =>
+    !hasUnsavedCheckpoint ||
+    window.confirm(
+      "This analysis has changes that are not in a downloaded project checkpoint. Continue and discard them?",
+    );
 
   const enabledSteps = useMemo(() => {
     if (running) return new Set<WorkflowStep>(["scan"]);
@@ -141,6 +169,7 @@ export function App() {
 
   const loadAlignment = async (file: File) => {
     if (!client.current || engine.status !== "ready") return;
+    if (!confirmDiscardUnsavedAnalysis()) return;
     setLoading(true);
     setError("");
     try {
@@ -150,11 +179,15 @@ export function App() {
           restored.results?.maskedSequenceIndices ??
             restored.dataset.sequences.filter((sequence) => sequence.masked).map((sequence) => sequence.index),
         );
+        const restoredDisabled = new Set(restored.results?.disabledSequenceIndices ?? []);
+        restoredDisabled.forEach((index) => restoredMask.delete(index));
         setDataset(restored.dataset);
         setFilename(restored.sourceFilename);
         setFileSize(file.size);
         setMasked(restoredMask);
+        setDisabled(restoredDisabled);
         setResults(restored.results);
+        setCheckpointDirty(false);
         setOptions(
           restored.results
             ? {
@@ -162,17 +195,27 @@ export function App() {
                 pValueCutoff: restored.results.pValueCutoff,
                 correction: restored.results.correction,
                 windowSites: restored.results.windowSites,
+                polishBreakpoints: restored.results.polishBreakpoints ?? true,
                 maskedSequenceIndices: [...restoredMask],
+                disabledSequenceIndices: [...restoredDisabled],
               }
-            : { ...initialOptions, maskedSequenceIndices: [...restoredMask] },
+            : {
+                ...initialOptions,
+                maskedSequenceIndices: [...restoredMask],
+                disabledSequenceIndices: [...restoredDisabled],
+              },
         );
         setProgress(
           restored.results
             ? {
                 state: "done",
                 phase: "complete",
-                processedTriplets: chooseThree(restored.dataset.sequenceCount - restoredMask.size),
-                totalTriplets: chooseThree(restored.dataset.sequenceCount - restoredMask.size),
+                processedTriplets: chooseThree(
+                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
+                ),
+                totalTriplets: chooseThree(
+                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
+                ),
                 cumulativeTriplets: restored.results.cumulativeTriplets,
                 scanRound: restored.results.scanRounds,
                 fixedEventCount: 0,
@@ -183,7 +226,9 @@ export function App() {
               }
             : {
                 ...initialProgress,
-                totalTriplets: chooseThree(restored.dataset.sequenceCount - restoredMask.size),
+                totalTriplets: chooseThree(
+                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
+                ),
               },
         );
         setStep(restored.results ? "review" : "dataset");
@@ -195,9 +240,15 @@ export function App() {
       setFileSize(file.size);
       const initialMask = new Set(summary.sequences.filter((sequence) => sequence.masked).map((sequence) => sequence.index));
       setMasked(initialMask);
-      setOptions({ ...initialOptions, maskedSequenceIndices: [...initialMask] });
+      setDisabled(new Set());
+      setOptions({
+        ...initialOptions,
+        maskedSequenceIndices: [...initialMask],
+        disabledSequenceIndices: [],
+      });
       setProgress({ ...initialProgress, totalTriplets: summary.tripletCount });
       setResults(null);
+      setCheckpointDirty(false);
       setStep("dataset");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -206,29 +257,83 @@ export function App() {
     }
   };
 
-  const changeMask = (index: number, shouldMask: boolean) => {
-    const next = new Set(masked);
-    if (shouldMask) next.add(index);
-    else next.delete(index);
-    const nextActiveCount = Math.max(0, (dataset?.sequenceCount ?? 0) - next.size);
-    setMasked(next);
+  const changeSequenceState = (index: number, state: SequenceAnalysisState) => {
+    if (!confirmDiscardUnsavedAnalysis()) return;
+    const nextMasked = new Set(masked);
+    const nextDisabled = new Set(disabled);
+    nextMasked.delete(index);
+    nextDisabled.delete(index);
+    if (state === "masked") nextMasked.add(index);
+    if (state === "disabled") nextDisabled.add(index);
+    const nextActiveCount = Math.max(
+      0,
+      (dataset?.sequenceCount ?? 0) - nextMasked.size - nextDisabled.size,
+    );
+    setMasked(nextMasked);
+    setDisabled(nextDisabled);
+    setOptions((current) => ({
+      ...current,
+      maskedSequenceIndices: [...nextMasked].sort((left, right) => left - right),
+      disabledSequenceIndices: [...nextDisabled].sort((left, right) => left - right),
+    }));
     setProgress({ ...initialProgress, totalTriplets: chooseThree(nextActiveCount) });
     setResults(null);
+    setCheckpointDirty(false);
+  };
+
+  const changeAllSequenceStates = (
+    action: "auto-mask" | "enable-all" | "mask-all" | "disable-all",
+  ) => {
+    if (!dataset || !confirmDiscardUnsavedAnalysis()) return;
+    const nextMasked = new Set<number>();
+    const nextDisabled = new Set<number>();
+    if (action === "auto-mask") {
+      dataset.sequences.forEach((sequence) => {
+        if (sequence.masked) nextMasked.add(sequence.index);
+      });
+    } else if (action === "mask-all") {
+      dataset.sequences.forEach((sequence) => nextMasked.add(sequence.index));
+    } else if (action === "disable-all") {
+      dataset.sequences.forEach((sequence) => nextDisabled.add(sequence.index));
+    }
+    const nextActiveCount = Math.max(
+      0,
+      dataset.sequenceCount - nextMasked.size - nextDisabled.size,
+    );
+    setMasked(nextMasked);
+    setDisabled(nextDisabled);
+    setOptions((current) => ({
+      ...current,
+      maskedSequenceIndices: [...nextMasked].sort((left, right) => left - right),
+      disabledSequenceIndices: [...nextDisabled].sort((left, right) => left - right),
+    }));
+    setProgress({ ...initialProgress, totalTriplets: chooseThree(nextActiveCount) });
+    setResults(null);
+    setCheckpointDirty(false);
+    setError("");
   };
 
   const changeOptions = (next: ScanOptions) => {
+    if (!confirmDiscardUnsavedAnalysis()) return;
     setOptions(next);
     setProgress({ ...initialProgress, totalTriplets: activeTripletCount });
     setResults(null);
+    setCheckpointDirty(false);
     setError("");
   };
 
   const startScan = async () => {
     if (!client.current || !dataset) return;
+    if (!confirmDiscardUnsavedAnalysis()) return;
     setError("");
     setRunning(true);
     setResults(null);
-    const scanOptions = { ...options, maskedSequenceIndices: [...masked].sort((a, b) => a - b) };
+    setCheckpointDirty(false);
+    const scanOptions = {
+      ...options,
+      maskedSequenceIndices: [...masked].sort((a, b) => a - b),
+      disabledSequenceIndices: [...disabled].sort((a, b) => a - b),
+    };
     setProgress({
       ...initialProgress,
       state: "running",
@@ -237,6 +342,7 @@ export function App() {
     try {
       const value = await client.current.scan(scanOptions);
       setResults(value);
+      setCheckpointDirty(true);
       setProgress((current) => ({ ...current, state: "done", phase: "complete", fraction: 1 }));
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -263,6 +369,19 @@ export function App() {
     return client.current.plot(signalId);
   }, []);
 
+  const getEventAlignment = useCallback(
+    async (eventId: number, flankSites: number, rowLimit: number): Promise<EventAlignmentView> => {
+      if (!client.current) throw new Error("The analysis worker is not available.");
+      return client.current.eventAlignment(eventId, flankSites, rowLimit);
+    },
+    [],
+  );
+
+  const getEventTrees = useCallback(async (eventId: number): Promise<EventTreeView> => {
+    if (!client.current) throw new Error("The analysis worker is not available.");
+    return client.current.eventTrees(eventId);
+  }, []);
+
   const setEventReviewState = async (eventId: number, state: ReviewState) => {
     const previous = results;
     if (!previous) return;
@@ -280,7 +399,10 @@ export function App() {
     });
     try {
       const updated = await client.current?.setEventReviewState(eventId, state);
-      if (updated) setResults(updated);
+      if (updated) {
+        setResults(updated);
+        setCheckpointDirty(true);
+      }
     } catch (caught) {
       setResults(previous);
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -292,6 +414,7 @@ export function App() {
     setError("");
     try {
       setResults(await client.current.updateEvent(eventId, edit));
+      setCheckpointDirty(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
@@ -307,6 +430,7 @@ export function App() {
     setError("");
     try {
       setResults(await client.current.updateEventGroup(eventId, sequenceIndices, manualOverride));
+      setCheckpointDirty(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
@@ -319,6 +443,7 @@ export function App() {
     setReconciling(true);
     try {
       setResults(await client.current.reconcileAfter(eventId));
+      setCheckpointDirty(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -338,11 +463,60 @@ export function App() {
 
   const exportProject = async () => {
     if (!client.current) return;
+    setCheckpointSaving(true);
     try {
       const project = await client.current.exportProject();
       downloadBlob(
         new Blob([project], { type: "application/json;charset=utf-8" }),
         `${safeStem(filename)}.rdpweb.json`,
+      );
+      setCheckpointDirty(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setCheckpointSaving(false);
+    }
+  };
+
+  const exportEnabledSequences = async () => {
+    if (!client.current) return;
+    try {
+      const fasta = await client.current.exportEnabledSequences(
+        [...masked].sort((left, right) => left - right),
+        [...disabled].sort((left, right) => left - right),
+      );
+      downloadBlob(
+        new Blob([fasta], { type: "text/plain;charset=utf-8" }),
+        `${safeStem(filename)}-enabled-sequences.fasta`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const exportFullAlignment = async () => {
+    if (!client.current) return;
+    try {
+      const fasta = await client.current.exportEnabledSequences([], []);
+      downloadBlob(
+        new Blob([fasta], { type: "text/plain;charset=utf-8" }),
+        `${safeStem(filename)}-full-alignment.fasta`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const exportMaskedOrDisabledSequences = async () => {
+    if (!client.current) return;
+    try {
+      const fasta = await client.current.exportMaskedOrDisabledSequences(
+        [...masked].sort((left, right) => left - right),
+        [...disabled].sort((left, right) => left - right),
+      );
+      downloadBlob(
+        new Blob([fasta], { type: "text/plain;charset=utf-8" }),
+        `${safeStem(filename)}-masked-or-disabled-sequences.fasta`,
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -356,6 +530,32 @@ export function App() {
       downloadBlob(
         new Blob([fasta], { type: "text/plain;charset=utf-8" }),
         `${safeStem(filename)}-recombination-free.fasta`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const exportRecombinantSequencesRemoved = async () => {
+    if (!client.current) return;
+    try {
+      const fasta = await client.current.exportRecombinantSequencesRemoved();
+      downloadBlob(
+        new Blob([fasta], { type: "text/plain;charset=utf-8" }),
+        `${safeStem(filename)}-recombinant-sequences-removed.fasta`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const exportRecombinantColumnsRemoved = async () => {
+    if (!client.current) return;
+    try {
+      const fasta = await client.current.exportRecombinantColumnsRemoved();
+      downloadBlob(
+        new Blob([fasta], { type: "text/plain;charset=utf-8" }),
+        `${safeStem(filename)}-recombinant-columns-removed.fasta`,
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -393,7 +593,19 @@ export function App() {
             <Cpu size={15} />
             {engine.status === "ready" ? "WASM ready" : engine.status === "loading" ? "Starting engine" : "Source snapshot"}
           </span>
-          <span className="session-pill">Fidelity port · session 5</span>
+          {results ? (
+            <span
+              className={`checkpoint-pill${hasUnsavedCheckpoint ? " is-dirty" : " is-current"}`}
+              aria-live="polite"
+            >
+              {checkpointSaving
+                ? "Saving checkpoint…"
+                : hasUnsavedCheckpoint
+                  ? "Checkpoint needed"
+                  : "Checkpoint current"}
+            </span>
+          ) : null}
+          <span className="session-pill">Fidelity port · session 9</span>
         </div>
       </header>
 
@@ -430,9 +642,14 @@ export function App() {
             filename={filename}
             fileSize={fileSize}
             masked={masked}
+            disabled={disabled}
             busy={loading}
             onLoad={loadAlignment}
-            onMaskChange={changeMask}
+            onSequenceStateChange={changeSequenceState}
+            onAllSequenceStatesChange={changeAllSequenceStates}
+            onExportFullAlignment={exportFullAlignment}
+            onExportEnabledSequences={exportEnabledSequences}
+            onExportMaskedOrDisabledSequences={exportMaskedOrDisabledSequences}
             onContinue={() => go("settings")}
           />
         ) : null}
@@ -470,12 +687,16 @@ export function App() {
             alignmentLength={dataset.alignmentLength}
             sequences={dataset.sequences}
             onGetPlot={getPlot}
+            onGetEventAlignment={getEventAlignment}
+            onGetEventTrees={getEventTrees}
             onReviewState={setEventReviewState}
             onUpdateEvent={updateEvent}
             onUpdateEventGroup={updateEventGroup}
             onReconcileAfter={reconcileAfter}
             reconciling={reconciling}
             onSaveProject={exportProject}
+            checkpointDirty={hasUnsavedCheckpoint}
+            checkpointSaving={checkpointSaving}
             onBack={() => go("scan")}
             onExport={() => go("export")}
           />
@@ -487,6 +708,13 @@ export function App() {
             filename={filename}
             onCsv={exportCsv}
             onProject={exportProject}
+            checkpointDirty={hasUnsavedCheckpoint}
+            checkpointSaving={checkpointSaving}
+            onFullAlignment={exportFullAlignment}
+            onEnabledSequences={exportEnabledSequences}
+            onMaskedOrDisabledSequences={exportMaskedOrDisabledSequences}
+            onRecombinantSequencesRemoved={exportRecombinantSequencesRemoved}
+            onRecombinantColumnsRemoved={exportRecombinantColumnsRemoved}
             onRecombinationFree={exportRecombinationFree}
             onFragmented={exportFragmented}
             onBack={() => go("review")}

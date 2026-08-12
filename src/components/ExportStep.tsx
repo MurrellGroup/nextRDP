@@ -16,6 +16,13 @@ interface ExportStepProps {
   filename: string;
   onCsv: () => void;
   onProject: () => void;
+  checkpointDirty: boolean;
+  checkpointSaving: boolean;
+  onFullAlignment: () => void;
+  onEnabledSequences: () => void;
+  onMaskedOrDisabledSequences: () => void;
+  onRecombinantSequencesRemoved: () => void;
+  onRecombinantColumnsRemoved: () => void;
   onRecombinationFree: () => void;
   onFragmented: () => void;
   onBack: () => void;
@@ -26,6 +33,13 @@ export function ExportStep({
   filename,
   onCsv,
   onProject,
+  checkpointDirty,
+  checkpointSaving,
+  onFullAlignment,
+  onEnabledSequences,
+  onMaskedOrDisabledSequences,
+  onRecombinantSequencesRemoved,
+  onRecombinantColumnsRemoved,
   onRecombinationFree,
   onFragmented,
   onBack,
@@ -33,6 +47,8 @@ export function ExportStep({
   const accepted = results.events.filter((event) => event.reviewState === "accepted").length;
   const reviewed = results.events.filter((event) => event.reviewState !== "unreviewed").length;
   const alignmentsReady = results.finalAlignmentReady;
+  const excludedSequenceCount =
+    results.maskedSequenceIndices.length + results.disabledSequenceIndices.length;
   return (
     <section className="step-page export-page" aria-labelledby="export-title">
       <header className="page-heading">
@@ -61,7 +77,7 @@ export function ExportStep({
             {results.events.length} events across {results.scanRounds} full passes · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted
           </span>
         </div>
-        <span className="fidelity-badge">Session 5 snapshot</span>
+        <span className="fidelity-badge">Session 9 snapshot</span>
       </div>
 
       <div className="export-grid">
@@ -75,8 +91,18 @@ export function ExportStep({
               evidence, automatic/current groups, edits, and review state.
             </p>
           </div>
-          <button className="button button-primary" type="button" onClick={onProject}>
-            <Download size={17} /> Download .rdpweb.json
+          <button
+            className="button button-primary"
+            type="button"
+            disabled={checkpointSaving}
+            onClick={onProject}
+          >
+            <Download size={17} />
+            {checkpointSaving
+              ? "Saving checkpoint…"
+              : checkpointDirty
+                ? "Download latest .rdpweb.json"
+                : "Download .rdpweb.json"}
           </button>
         </article>
 
@@ -92,6 +118,91 @@ export function ExportStep({
           </div>
           <button className="button button-secondary" type="button" onClick={onCsv}>
             <Download size={17} /> Download .csv
+          </button>
+        </article>
+
+        <article className="export-card">
+          <span className="export-icon export-fasta"><Dna size={23} /></span>
+          <div>
+            <span className="eyebrow">Loaded alignment</span>
+            <h2>Entire alignment</h2>
+            <p>
+              Save every normalized aligned row as FASTA without applying sequence curation or event decisions.
+            </p>
+          </div>
+          <button className="button button-secondary" type="button" onClick={onFullAlignment}>
+            <Download size={17} /> Download full .fasta
+          </button>
+        </article>
+
+        <article className="export-card">
+          <span className="export-icon export-sequences"><Dna size={23} /></span>
+          <div>
+            <span className="eyebrow">Sequence curation</span>
+            <h2>Enabled sequences only</h2>
+            <p>
+              Save only rows that entered the primary exploratory screen; masked and disabled rows are omitted unchanged.
+            </p>
+          </div>
+          <button className="button button-secondary" type="button" onClick={onEnabledSequences}>
+            <Download size={17} /> Download enabled-only .fasta
+          </button>
+        </article>
+
+        <article className={excludedSequenceCount > 0 ? "export-card" : "export-card is-locked"}>
+          <span className="export-icon export-columns"><Dna size={23} /></span>
+          <div>
+            <span className="eyebrow">Sequence curation</span>
+            <h2>Masked or disabled only</h2>
+            <p>
+              Save the complementary curated rows: masked secondary-analysis sequences plus disabled tree-context sequences.
+            </p>
+          </div>
+          <button
+            className={excludedSequenceCount > 0 ? "button button-secondary" : "button button-disabled"}
+            type="button"
+            disabled={excludedSequenceCount === 0}
+            onClick={onMaskedOrDisabledSequences}
+          >
+            <Download size={17} /> Download excluded rows .fasta
+          </button>
+        </article>
+
+        <article className={alignmentsReady ? "export-card" : "export-card is-locked"}>
+          <span className="export-icon export-sequences"><Dna size={23} /></span>
+          <div>
+            <span className="eyebrow">Accepted events</span>
+            <h2>Remove recombinant sequences</h2>
+            <p>
+              Omit every sequence in an accepted current co-recombinant group and retain all other aligned records unchanged.
+            </p>
+          </div>
+          <button
+            className={alignmentsReady ? "button button-secondary" : "button button-disabled"}
+            type="button"
+            disabled={!alignmentsReady}
+            onClick={onRecombinantSequencesRemoved}
+          >
+            <Download size={17} /> Download sequence-filtered .fasta
+          </button>
+        </article>
+
+        <article className={alignmentsReady ? "export-card" : "export-card is-locked"}>
+          <span className="export-icon export-columns"><Scissors size={23} /></span>
+          <div>
+            <span className="eyebrow">Accepted events</span>
+            <h2>Remove recombinant columns</h2>
+            <p>
+              Delete the union of all columns covered by accepted event tracts from every sequence, producing a shorter alignment.
+            </p>
+          </div>
+          <button
+            className={alignmentsReady ? "button button-secondary" : "button button-disabled"}
+            type="button"
+            disabled={!alignmentsReady}
+            onClick={onRecombinantColumnsRemoved}
+          >
+            <Download size={17} /> Download column-filtered .fasta
           </button>
         </article>
 
@@ -147,9 +258,12 @@ export function ExportStep({
         <strong>Interpretation boundary</strong>
         <p>
           This snapshot completes the manual’s detectable, distance-correlation, and bootstrap-tree
-          evidence sets and produces the accepted-event alignment variants. Unported native role
-          methods, the remaining late correlation/tree filter stack, and parity validation remain
-          explicit fidelity work.
+          evidence sets, exposes original-alignment breakpoint windows, and produces the
+          sequence-curation subsets plus accepted-event alignment variants. A source-shaped MaxChi
+          strongest-peak recheck now corroborates representative triplets and finalized distance
+          lists, but it does not discover or move events. MaxChi exploratory discovery, the remaining
+          method families, and native golden parity validation remain explicit fidelity work;
+          BURT/BenHMM confidence is active but still carries that validation boundary.
         </p>
       </div>
 

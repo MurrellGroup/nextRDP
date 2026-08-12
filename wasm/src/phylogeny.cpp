@@ -373,15 +373,54 @@ TreeRegionEvidence build_tree_region_evidence(
   evidence.bootstrap_replicates = bootstrap_replicates;
 
   std::unordered_set<std::string> collapsed;
+  std::unordered_map<std::uint64_t, double> internal_edge_support;
+  std::unordered_set<std::uint64_t> collapsed_edges;
   for (const auto& [key, count] : support) {
     const double fraction = bootstrap_replicates == 0
         ? 1.0
         : static_cast<double>(count) / static_cast<double>(bootstrap_replicates);
-    if (fraction < kBootstrapCollapseCutoff) collapsed.insert(key);
-    else ++evidence.supported_internal_branches;
+    const auto split = base_splits.find(key);
+    if (split != base_splits.end()) {
+      const auto [first, second] = split->second;
+      const std::uint64_t edge_key =
+          (static_cast<std::uint64_t>(std::min(first, second)) << 32U) |
+          static_cast<std::uint64_t>(std::max(first, second));
+      internal_edge_support.emplace(edge_key, fraction);
+      if (fraction < kBootstrapCollapseCutoff) collapsed_edges.insert(edge_key);
+    }
+    if (fraction < kBootstrapCollapseCutoff) {
+      collapsed.insert(key);
+    } else {
+      ++evidence.supported_internal_branches;
+    }
   }
   evidence.raw_patristic = patristic_distances(base_tree, {});
   evidence.collapsed_patristic = patristic_distances(base_tree, collapsed);
+  evidence.topology_node_count = base_tree.adjacency.size();
+  evidence.topology_root = base_tree.leaf_count < base_tree.adjacency.size()
+      ? base_tree.leaf_count
+      : 0;
+  evidence.topology_edges.reserve(
+      base_tree.adjacency.empty() ? 0 : base_tree.adjacency.size() - 1);
+  for (std::size_t first = 0; first < base_tree.adjacency.size(); ++first) {
+    for (const Edge& edge : base_tree.adjacency[first]) {
+      if (first >= edge.to) continue;
+      const std::uint64_t edge_key =
+          (static_cast<std::uint64_t>(first) << 32U) |
+          static_cast<std::uint64_t>(edge.to);
+      const bool internal = first >= base_tree.leaf_count &&
+          edge.to >= base_tree.leaf_count;
+      const auto support_value = internal_edge_support.find(edge_key);
+      evidence.topology_edges.push_back({
+          static_cast<std::uint32_t>(first),
+          static_cast<std::uint32_t>(edge.to),
+          edge.length,
+          support_value == internal_edge_support.end() ? 1.0 : support_value->second,
+          internal,
+          internal && collapsed_edges.contains(edge_key),
+      });
+    }
+  }
   evidence.usable = true;
   return evidence;
 }

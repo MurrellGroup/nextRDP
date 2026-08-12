@@ -8,12 +8,24 @@
 
 namespace rdp {
 
+struct TreeTopologyEdge {
+  std::uint32_t first = 0;
+  std::uint32_t second = 0;
+  double length = 0.0;
+  double bootstrap_support = 1.0;
+  bool internal = false;
+  bool collapsed = false;
+};
+
 struct TreeRegionEvidence {
   std::vector<std::uint32_t> sequences;
   std::vector<std::int32_t> alignment_to_tree;
   std::vector<double> jukes_cantor;
   std::vector<double> raw_patristic;
   std::vector<double> collapsed_patristic;
+  std::vector<TreeTopologyEdge> topology_edges;
+  std::size_t topology_node_count = 0;
+  std::size_t topology_root = 0;
   std::size_t site_count = 0;
   std::size_t bootstrap_replicates = 0;
   std::size_t supported_internal_branches = 0;

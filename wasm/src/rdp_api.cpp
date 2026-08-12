@@ -69,8 +69,8 @@ std::string bytes_to_string(const std::uint8_t* bytes, std::size_t length) {
 
 std::string project_json(const Context& context) {
   std::ostringstream out;
-  out << "{\"schema\":\"org.rdp-web.project/v1alpha6\","
-         "\"engineVersion\":\"0.5.0-session-5\",\"dataset\":{";
+  out << "{\"schema\":\"org.rdp-web.project/v1alpha9\","
+         "\"engineVersion\":\"0.9.0-session-9\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -111,7 +111,7 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.5.0-session-5";
+  return "0.9.0-session-9";
 }
 
 RDP_KEEPALIVE int rdp_load_alignment(
@@ -159,8 +159,11 @@ RDP_KEEPALIVE int rdp_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     std::uint32_t window_sites,
+    int polish_breakpoints,
     const std::uint8_t* masked_sequences,
-    std::size_t mask_length) {
+    std::size_t mask_length,
+    const std::uint8_t* disabled_sequences,
+    std::size_t disabled_length) {
   Context* context = context_for(handle);
   if (!context || !context->loaded) return 0;
   context->error.clear();
@@ -171,9 +174,14 @@ RDP_KEEPALIVE int rdp_scan_begin(
       : rdp::CorrectionMode::none;
   options.p_value_cutoff = p_value_cutoff;
   options.window_sites = window_sites;
+  options.polish_breakpoints = polish_breakpoints != 0;
   options.mask.assign(context->alignment.sequence_count(), 0);
   if (masked_sequences && mask_length == options.mask.size()) {
     options.mask.assign(masked_sequences, masked_sequences + mask_length);
+  }
+  options.disabled.assign(context->alignment.sequence_count(), 0);
+  if (disabled_sequences && disabled_length == options.disabled.size()) {
+    options.disabled.assign(disabled_sequences, disabled_sequences + disabled_length);
   }
 
   context->scanner = std::make_unique<rdp::RdpScanner>(context->alignment);
@@ -224,6 +232,31 @@ RDP_KEEPALIVE const char* rdp_get_signal_plot_json(
   const auto plot = context->scanner->signal_plot(signal_id, context->error);
   if (!context->error.empty()) return "";
   return cached(*context, rdp::signal_plot_json(plot));
+}
+
+RDP_KEEPALIVE const char* rdp_get_event_alignment_json(
+    std::uint32_t handle,
+    std::uint32_t event_id,
+    std::uint32_t flank_sites,
+    std::uint32_t row_limit) {
+  Context* context = context_for(handle);
+  if (!context || !context->scanner) return "";
+  context->error.clear();
+  const std::string view = context->scanner->event_alignment_json(
+      event_id, flank_sites, row_limit, context->error);
+  if (!context->error.empty()) return "";
+  return cached(*context, view);
+}
+
+RDP_KEEPALIVE const char* rdp_get_event_trees_json(
+    std::uint32_t handle,
+    std::uint32_t event_id) {
+  Context* context = context_for(handle);
+  if (!context || !context->scanner) return "";
+  context->error.clear();
+  const std::string view = context->scanner->event_trees_json(event_id, context->error);
+  if (!context->error.empty()) return "";
+  return cached(*context, view);
 }
 
 RDP_KEEPALIVE int rdp_set_review_state(
@@ -363,11 +396,15 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     std::uint32_t window_sites,
+    int polish_breakpoints,
     const std::uint8_t* masked_sequences,
-    std::size_t mask_length) {
+    std::size_t mask_length,
+    const std::uint8_t* disabled_sequences,
+    std::size_t disabled_length) {
   Context* context = context_for(handle);
   if (!context || !context->loaded || !masked_sequences ||
-      mask_length != context->alignment.sequence_count()) {
+      mask_length != context->alignment.sequence_count() || !disabled_sequences ||
+      disabled_length != context->alignment.sequence_count()) {
     return 0;
   }
   context->error.clear();
@@ -378,7 +415,10 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
       : rdp::CorrectionMode::none;
   context->restore_options.p_value_cutoff = p_value_cutoff;
   context->restore_options.window_sites = window_sites;
+  context->restore_options.polish_breakpoints = polish_breakpoints != 0;
   context->restore_options.mask.assign(masked_sequences, masked_sequences + mask_length);
+  context->restore_options.disabled.assign(
+      disabled_sequences, disabled_sequences + disabled_length);
   context->restore_signals.clear();
   context->restoring_scan = true;
   return 1;
@@ -518,6 +558,98 @@ RDP_KEEPALIVE const char* rdp_export_csv(std::uint32_t handle) {
   Context* context = context_for(handle);
   if (!context || !context->scanner) return "";
   return cached(*context, context->scanner->csv());
+}
+
+RDP_KEEPALIVE const char* rdp_export_enabled_sequences_fasta(
+    std::uint32_t handle,
+    const std::uint8_t* masked_sequences,
+    std::size_t mask_length,
+    const std::uint8_t* disabled_sequences,
+    std::size_t disabled_length) {
+  Context* context = context_for(handle);
+  if (!context || !context->loaded) return "";
+  context->error.clear();
+  if (!masked_sequences || !disabled_sequences ||
+      mask_length != context->alignment.sequence_count() ||
+      disabled_length != context->alignment.sequence_count()) {
+    context->error = "The sequence curation state does not match the loaded alignment.";
+    return "";
+  }
+  std::vector<std::uint8_t> mask(masked_sequences, masked_sequences + mask_length);
+  std::vector<std::uint8_t> disabled(
+      disabled_sequences, disabled_sequences + disabled_length);
+  for (std::size_t sequence = 0; sequence < mask.size(); ++sequence) {
+    if (disabled[sequence] != 0) mask[sequence] = 0;
+  }
+  std::string fasta = rdp::curated_sequences_fasta(
+      context->alignment, mask, disabled, true);
+  if (fasta.empty()) {
+    context->error =
+        "No enabled, unmasked sequence is available for the enabled-only alignment.";
+    return "";
+  }
+  return cached(*context, std::move(fasta));
+}
+
+RDP_KEEPALIVE const char* rdp_export_masked_or_disabled_sequences_fasta(
+    std::uint32_t handle,
+    const std::uint8_t* masked_sequences,
+    std::size_t mask_length,
+    const std::uint8_t* disabled_sequences,
+    std::size_t disabled_length) {
+  Context* context = context_for(handle);
+  if (!context || !context->loaded) return "";
+  context->error.clear();
+  if (!masked_sequences || !disabled_sequences ||
+      mask_length != context->alignment.sequence_count() ||
+      disabled_length != context->alignment.sequence_count()) {
+    context->error = "The sequence curation state does not match the loaded alignment.";
+    return "";
+  }
+  std::vector<std::uint8_t> mask(masked_sequences, masked_sequences + mask_length);
+  std::vector<std::uint8_t> disabled(
+      disabled_sequences, disabled_sequences + disabled_length);
+  for (std::size_t sequence = 0; sequence < mask.size(); ++sequence) {
+    if (disabled[sequence] != 0) mask[sequence] = 0;
+  }
+  std::string fasta = rdp::curated_sequences_fasta(
+      context->alignment, mask, disabled, false);
+  if (fasta.empty()) {
+    context->error =
+        "No masked or disabled sequence is available for the excluded-row alignment.";
+    return "";
+  }
+  return cached(*context, std::move(fasta));
+}
+
+RDP_KEEPALIVE const char* rdp_export_recombinant_sequences_removed_fasta(
+    std::uint32_t handle) {
+  Context* context = context_for(handle);
+  if (!context || !context->scanner) return "";
+  context->error.clear();
+  if (!context->scanner->final_alignment_ready(context->error)) return "";
+  std::string fasta = context->scanner->recombinant_sequences_removed_fasta();
+  if (fasta.empty()) {
+    context->error =
+        "Every sequence belongs to an accepted recombinant group; the sequence-removed alignment would be empty.";
+    return "";
+  }
+  return cached(*context, std::move(fasta));
+}
+
+RDP_KEEPALIVE const char* rdp_export_recombinant_columns_removed_fasta(
+    std::uint32_t handle) {
+  Context* context = context_for(handle);
+  if (!context || !context->scanner) return "";
+  context->error.clear();
+  if (!context->scanner->final_alignment_ready(context->error)) return "";
+  std::string fasta = context->scanner->recombinant_columns_removed_fasta();
+  if (fasta.empty()) {
+    context->error =
+        "Accepted event tracts cover every alignment column; the column-removed alignment would be empty.";
+    return "";
+  }
+  return cached(*context, std::move(fasta));
 }
 
 RDP_KEEPALIVE const char* rdp_export_recombination_free_fasta(std::uint32_t handle) {

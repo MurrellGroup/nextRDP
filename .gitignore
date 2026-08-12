@@ -1,6 +1,5 @@
 node_modules/
 dist/
-.DS_Store
 public/wasm/*.wasm
 public/wasm/*.mjs
 public/wasm/*.worker.js

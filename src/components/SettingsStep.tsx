@@ -24,8 +24,8 @@ const methods = [
   },
   {
     name: "MAXCHI",
-    description: "Variable-site maximum χ² breakpoint scan.",
-    state: "porting",
+    description: "Strongest-peak triplet confirmation is active; exploratory event discovery is still porting.",
+    state: "recheck",
   },
   {
     name: "BOOTSCAN",
@@ -57,6 +57,13 @@ export function SettingsStep({
   onBack,
   onContinue,
 }: SettingsStepProps) {
+  const settingsValid = sequenceCount >= 3 &&
+    Number.isFinite(options.pValueCutoff) &&
+    options.pValueCutoff > 0 &&
+    options.pValueCutoff <= 1 &&
+    Number.isInteger(options.windowSites) &&
+    options.windowSites >= 5 &&
+    options.windowSites <= 1001;
   const set = <Key extends keyof ScanOptions>(key: Key, value: ScanOptions[Key]) => {
     onChange({ ...options, [key]: value });
   };
@@ -120,18 +127,26 @@ export function SettingsStep({
                 <span className="eyebrow">Primary methods</span>
                 <h2>Signal detection panel</h2>
               </div>
-              <span className="fidelity-badge">1 of 7 ported</span>
+              <span className="fidelity-badge">RDP full · MaxChi recheck</span>
             </div>
             <div className="method-grid">
               {methods.map((method) => (
                 <article className={`method-card method-${method.state}`} key={method.name}>
                   <div className="method-state">
-                    {method.state === "ready" ? <Check size={16} /> : <LockKeyhole size={15} />}
+                    {method.state === "ready" || method.state === "recheck"
+                      ? <Check size={16} />
+                      : <LockKeyhole size={15} />}
                   </div>
                   <div>
                     <h3>{method.name}</h3>
                     <p>{method.description}</p>
-                    <span>{method.state === "ready" ? "Included in this scan" : method.state}</span>
+                    <span>
+                      {method.state === "ready"
+                        ? "Included in event discovery"
+                        : method.state === "recheck"
+                          ? "Included in confirmation"
+                          : method.state}
+                    </span>
                   </div>
                 </article>
               ))}
@@ -185,6 +200,20 @@ export function SettingsStep({
               </div>
               <small>The supplied RDP5 default is 30.</small>
             </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.polishBreakpoints}
+                onChange={(event) => set("polishBreakpoints", event.target.checked)}
+              />
+              <span>
+                <strong>Polish breakpoints with BURT</strong>
+                <small>
+                  Enabled by default in the supplied RDP5 workflow. Runs the seeded BenHMM
+                  confidence pass and may reposition automatically detected breakpoints.
+                </small>
+              </span>
+            </label>
             <div className="inline-note">
               <Info size={17} />
               <p>
@@ -200,7 +229,12 @@ export function SettingsStep({
         <button className="button button-quiet" type="button" onClick={onBack}>
           Back to dataset
         </button>
-        <button className="button button-primary" type="button" onClick={onContinue}>
+        <button
+          className="button button-primary"
+          type="button"
+          onClick={onContinue}
+          disabled={!settingsValid}
+        >
           Review scan plan
         </button>
       </footer>

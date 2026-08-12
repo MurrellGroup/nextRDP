@@ -25,8 +25,11 @@ interface EmscriptenModule {
     correction: number,
     pValueCutoff: number,
     windowSites: number,
+    polishBreakpoints: number,
     mask: number,
     maskLength: number,
+    disabled: number,
+    disabledLength: number,
   ): number;
   _rdp_scan_batch(handle: number, tripletBudget: number): number;
   _rdp_reconcile(handle: number): number;
@@ -34,6 +37,13 @@ interface EmscriptenModule {
   _rdp_get_progress_json(handle: number): number;
   _rdp_get_results_json(handle: number): number;
   _rdp_get_signal_plot_json(handle: number, signalId: number): number;
+  _rdp_get_event_alignment_json(
+    handle: number,
+    eventId: number,
+    flankSites: number,
+    rowLimit: number,
+  ): number;
+  _rdp_get_event_trees_json(handle: number, eventId: number): number;
   _rdp_set_review_state(handle: number, signalId: number, state: number): number;
   _rdp_set_event_review_state(handle: number, eventId: number, state: number): number;
   _rdp_update_event(
@@ -69,8 +79,11 @@ interface EmscriptenModule {
     correction: number,
     pValueCutoff: number,
     windowSites: number,
+    polishBreakpoints: number,
     mask: number,
     maskLength: number,
+    disabled: number,
+    disabledLength: number,
   ): number;
   _rdp_restore_signal(
     handle: number,
@@ -120,6 +133,22 @@ interface EmscriptenModule {
   ): number;
   _rdp_restore_reconciliation_required_after(handle: number, eventId: number): number;
   _rdp_export_csv(handle: number): number;
+  _rdp_export_enabled_sequences_fasta(
+    handle: number,
+    mask: number,
+    maskLength: number,
+    disabled: number,
+    disabledLength: number,
+  ): number;
+  _rdp_export_masked_or_disabled_sequences_fasta(
+    handle: number,
+    mask: number,
+    maskLength: number,
+    disabled: number,
+    disabledLength: number,
+  ): number;
+  _rdp_export_recombinant_sequences_removed_fasta(handle: number): number;
+  _rdp_export_recombinant_columns_removed_fasta(handle: number): number;
   _rdp_export_recombination_free_fasta(handle: number): number;
   _rdp_export_fragmented_fasta(handle: number): number;
   _rdp_export_project_json(handle: number): number;
@@ -165,10 +194,18 @@ async function importFactory(url: string): Promise<ModuleFactory> {
   return imported.default;
 }
 
-async function initialise(wasmBaseUrl: string): Promise<{ threaded: boolean; version: string }> {
+async function initialise(
+  wasmBaseUrl: string,
+  assetVersion: string,
+): Promise<{ threaded: boolean; version: string }> {
   if (module) return { threaded, version: value(module._rdp_version()) };
 
   const base = wasmBaseUrl.endsWith("/") ? wasmBaseUrl : `${wasmBaseUrl}/`;
+  const assetUrl = (path: string) => {
+    const url = new URL(path, base);
+    url.searchParams.set("v", assetVersion);
+    return url.href;
+  };
   const canThread = scope.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined";
   const candidates = canThread
     ? [
@@ -180,15 +217,23 @@ async function initialise(wasmBaseUrl: string): Promise<{ threaded: boolean; ver
   let lastError: unknown = null;
   for (const candidate of candidates) {
     try {
-      const factory = await importFactory(`${base}${candidate.name}`);
+      const factory = await importFactory(assetUrl(candidate.name));
       module = await factory({
         noInitialRun: true,
-        locateFile: (path) => `${base}${path}`,
+        locateFile: assetUrl,
       });
       context = module._rdp_create();
       if (!context) throw new Error("The WASM engine could not allocate an analysis context.");
+      const loadedVersion = value(module._rdp_version());
+      if (loadedVersion !== assetVersion) {
+        module._rdp_destroy(context);
+        context = 0;
+        throw new Error(
+          `The UI expects engine ${assetVersion}, but the host returned ${loadedVersion || "an unversioned engine"}.`,
+        );
+      }
       threaded = candidate.threaded;
-      return { threaded, version: value(module._rdp_version()) };
+      return { threaded, version: loadedVersion };
     } catch (error) {
       module = null;
       context = 0;
@@ -213,6 +258,58 @@ function copyBytes(bytes: Uint8Array): number {
 function copyUint32(values: number[]): number {
   const encoded = new Uint32Array(values);
   return copyBytes(new Uint8Array(encoded.buffer));
+}
+
+function exportCuratedSequences(
+  maskedSequenceIndices: number[],
+  disabledSequenceIndices: number[],
+  includeEnabled: boolean,
+): string {
+  if (!module || !context || !dataset) throw new Error("Load an alignment before exporting it.");
+  const mask = new Uint8Array(dataset.sequenceCount);
+  maskedSequenceIndices.forEach((value) => {
+    const index = integer(value, -1);
+    if (index >= 0 && index < mask.length) mask[index] = 1;
+  });
+  const disabled = new Uint8Array(dataset.sequenceCount);
+  disabledSequenceIndices.forEach((value) => {
+    const index = integer(value, -1);
+    if (index >= 0 && index < disabled.length) {
+      disabled[index] = 1;
+      mask[index] = 0;
+    }
+  });
+  const maskPointer = copyBytes(mask);
+  const disabledPointer = copyBytes(disabled);
+  try {
+    const pointer = includeEnabled
+      ? module._rdp_export_enabled_sequences_fasta(
+          context,
+          maskPointer,
+          mask.length,
+          disabledPointer,
+          disabled.length,
+        )
+      : module._rdp_export_masked_or_disabled_sequences_fasta(
+          context,
+          maskPointer,
+          mask.length,
+          disabledPointer,
+          disabled.length,
+        );
+    const fasta = value(pointer);
+    if (!fasta) {
+      throw engineError(
+        includeEnabled
+          ? "The enabled-only alignment is empty."
+          : "The masked/disabled-only alignment is empty.",
+      );
+    }
+    return fasta;
+  } finally {
+    module._free(maskPointer);
+    module._free(disabledPointer);
+  }
 }
 
 function reviewStateCode(state: unknown): number {
@@ -280,7 +377,10 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema !== "org.rdp-web.project/v1alpha3" &&
     schema !== "org.rdp-web.project/v1alpha4" &&
     schema !== "org.rdp-web.project/v1alpha5" &&
-    schema !== "org.rdp-web.project/v1alpha6"
+    schema !== "org.rdp-web.project/v1alpha6" &&
+    schema !== "org.rdp-web.project/v1alpha7" &&
+    schema !== "org.rdp-web.project/v1alpha8" &&
+    schema !== "org.rdp-web.project/v1alpha9"
   ) {
     throw new Error(`Unsupported RDP Web project schema: ${schema}`);
   }
@@ -390,7 +490,18 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
       if (index >= 0 && index < masked.length) masked[index] = 1;
     });
   }
+  const disabled = new Uint8Array(restoredDataset.sequenceCount);
+  if (Array.isArray(analysis.disabledSequenceIndices)) {
+    analysis.disabledSequenceIndices.forEach((value) => {
+      const index = integer(value, -1);
+      if (index >= 0 && index < disabled.length) {
+        disabled[index] = 1;
+        masked[index] = 0;
+      }
+    });
+  }
   const maskPointer = copyBytes(masked);
+  const disabledPointer = copyBytes(disabled);
   try {
     if (
       module._rdp_restore_scan_begin(
@@ -399,14 +510,18 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         analysis.correction === "none" ? 1 : 0,
         finiteNumber(analysis.pValueCutoff, 0.05),
         integer(analysis.windowSites, 30),
+        analysis.polishBreakpoints === false ? 0 : 1,
         maskPointer,
         masked.length,
+        disabledPointer,
+        disabled.length,
       ) !== 1
     ) {
       throw engineError("The saved scan settings could not be restored.");
     }
   } finally {
     module._free(maskPointer);
+    module._free(disabledPointer);
   }
 
   const inferredEventIds = new Map<number, number>();
@@ -546,7 +661,15 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
   request.options.maskedSequenceIndices.forEach((index) => {
     if (index >= 0 && index < mask.length) mask[index] = 1;
   });
+  const disabled = new Uint8Array(dataset.sequenceCount);
+  request.options.disabledSequenceIndices.forEach((index) => {
+    if (index >= 0 && index < disabled.length) {
+      disabled[index] = 1;
+      mask[index] = 0;
+    }
+  });
   const maskPointer = copyBytes(mask);
+  const disabledPointer = copyBytes(disabled);
   try {
     const correction = request.options.correction === "bonferroni" ? 0 : 1;
     const started = module._rdp_scan_begin(
@@ -555,12 +678,16 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       correction,
       request.options.pValueCutoff,
       request.options.windowSites,
+      request.options.polishBreakpoints ? 1 : 0,
       maskPointer,
       mask.length,
+      disabledPointer,
+      disabled.length,
     );
     if (started !== 1) throw engineError("The RDP scan could not be started.");
   } finally {
     module._free(maskPointer);
+    module._free(disabledPointer);
   }
 
   scanActive = true;
@@ -627,7 +754,7 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
     let result: unknown;
     switch (request.type) {
       case "init":
-        result = await initialise(request.wasmBaseUrl);
+        result = await initialise(request.wasmBaseUrl, request.assetVersion);
         break;
       case "load":
         result = loadAlignment(request.name, request.bytes);
@@ -647,6 +774,25 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         result = parseJson(
           module._rdp_get_signal_plot_json(context, request.signalId),
           "Plot data was not returned.",
+        );
+        break;
+      case "event-alignment":
+        if (!module || !context) throw new Error("The engine has not been initialised.");
+        result = parseJson(
+          module._rdp_get_event_alignment_json(
+            context,
+            request.eventId,
+            request.flankSites,
+            request.rowLimit,
+          ),
+          "Breakpoint alignment data was not returned.",
+        );
+        break;
+      case "event-trees":
+        if (!module || !context) throw new Error("The engine has not been initialised.");
+        result = parseJson(
+          module._rdp_get_event_trees_json(context, request.eventId),
+          "Regional tree data was not returned.",
         );
         break;
       case "set-review-state": {
@@ -728,6 +874,36 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         if (!module || !context) throw new Error("The engine has not been initialised.");
         result = value(module._rdp_export_csv(context));
         break;
+      case "export-enabled-sequences": {
+        result = exportCuratedSequences(
+          request.maskedSequenceIndices,
+          request.disabledSequenceIndices,
+          true,
+        );
+        break;
+      }
+      case "export-masked-or-disabled-sequences": {
+        result = exportCuratedSequences(
+          request.maskedSequenceIndices,
+          request.disabledSequenceIndices,
+          false,
+        );
+        break;
+      }
+      case "export-recombinant-sequences-removed": {
+        if (!module || !context) throw new Error("The engine has not been initialised.");
+        const fasta = value(module._rdp_export_recombinant_sequences_removed_fasta(context));
+        if (!fasta) throw engineError("The final sequence-removed alignment is not ready.");
+        result = fasta;
+        break;
+      }
+      case "export-recombinant-columns-removed": {
+        if (!module || !context) throw new Error("The engine has not been initialised.");
+        const fasta = value(module._rdp_export_recombinant_columns_removed_fasta(context));
+        if (!fasta) throw engineError("The final column-removed alignment is not ready.");
+        result = fasta;
+        break;
+      }
       case "export-recombination-free": {
         if (!module || !context) throw new Error("The engine has not been initialised.");
         const fasta = value(module._rdp_export_recombination_free_fasta(context));

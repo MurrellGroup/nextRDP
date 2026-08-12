@@ -18,13 +18,18 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  BreakpointErasureBoundary,
+  EventAlignmentView,
   EventEdit,
+  EventTreeView,
   ReconciledEvent,
   ReviewState,
   ScanResults,
   SequenceSummary,
   SignalPlot as SignalPlotData,
 } from "../lib/types";
+import { EventAlignmentInspector } from "./EventAlignmentInspector";
+import { EventTreeInspector } from "./EventTreeInspector";
 import { SignalPlot } from "./SignalPlot";
 
 interface ReviewStepProps {
@@ -32,6 +37,12 @@ interface ReviewStepProps {
   alignmentLength: number;
   sequences: SequenceSummary[];
   onGetPlot: (signalId: number) => Promise<SignalPlotData>;
+  onGetEventAlignment: (
+    eventId: number,
+    flankSites: number,
+    rowLimit: number,
+  ) => Promise<EventAlignmentView>;
+  onGetEventTrees: (eventId: number) => Promise<EventTreeView>;
   onReviewState: (eventId: number, state: ReviewState) => void;
   onUpdateEvent: (eventId: number, edit: EventEdit) => Promise<void>;
   onUpdateEventGroup: (
@@ -42,6 +53,8 @@ interface ReviewStepProps {
   onReconcileAfter: (eventId: number) => void;
   reconciling: boolean;
   onSaveProject: () => void;
+  checkpointDirty: boolean;
+  checkpointSaving: boolean;
   onBack: () => void;
   onExport: () => void;
 }
@@ -57,6 +70,46 @@ function roleScore(value: number): string {
     return value.toExponential(2);
   }
   return value.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function confidenceCoordinate(value: number): string {
+  return value === -1 ? "—" : Math.abs(value).toLocaleString();
+}
+
+function breakpointUncertaintyReason(
+  name: "beginning" | "ending",
+  boundary: BreakpointErasureBoundary,
+): string {
+  const reasons: string[] = [];
+  if (boundary.uncertainDueToErasure) {
+    if (boundary.erasureAdjacent) {
+      reasons.push(`The ${name} breakpoint touches sequence erased during an earlier cyclic pass.`);
+    } else if (boundary.nearestErasureInformativeSites === 0) {
+      reasons.push(
+        `The ${name} breakpoint has no intervening RDP information-rich positions before earlier erased sequence.`,
+      );
+    } else {
+      reasons.push(
+        `The ${name} breakpoint's supplied CheckEnds range reaches earlier erased sequence within ${
+          boundary.nearestErasureInformativeSites ?? boundary.rdpWindowInformativeSites
+        } RDP information-rich position${
+          boundary.nearestErasureInformativeSites === 1 ? "" : "s"
+        }.`,
+      );
+    }
+  }
+  if (boundary.inputMissingDataInCheckRange) {
+    reasons.push("The same native range contains a source-shaped input MissingData run.");
+  }
+  if (boundary.linearEdgeWithinRdpWindow) {
+    reasons.push(
+      `A complete RDP window cannot be formed ${name === "beginning" ? "before" : "after"} the breakpoint at the linear alignment edge.`,
+    );
+  }
+  if (!boundary.informationProfileAvailable) {
+    reasons.push("No usable information-rich position profile is available for the native check.");
+  }
+  return reasons.join(" ");
 }
 
 function EventSchematic({ event, alignmentLength }: { event: ReconciledEvent; alignmentLength: number }) {
@@ -99,24 +152,45 @@ export function ReviewStep({
   alignmentLength,
   sequences,
   onGetPlot,
+  onGetEventAlignment,
+  onGetEventTrees,
   onReviewState,
   onUpdateEvent,
   onUpdateEventGroup,
   onReconcileAfter,
   reconciling,
   onSaveProject,
+  checkpointDirty,
+  checkpointSaving,
   onBack,
   onExport,
 }: ReviewStepProps) {
   const [selectedId, setSelectedId] = useState(results.events[0]?.id ?? -1);
   const [plot, setPlot] = useState<SignalPlotData | null>(null);
   const [plotLoading, setPlotLoading] = useState(false);
+  const [alignmentOpen, setAlignmentOpen] = useState(false);
+  const [alignmentView, setAlignmentView] = useState<EventAlignmentView | null>(null);
+  const [alignmentLoading, setAlignmentLoading] = useState(false);
+  const [alignmentError, setAlignmentError] = useState("");
+  const [alignmentFlankSites, setAlignmentFlankSites] = useState(30);
+  const [treesOpen, setTreesOpen] = useState(false);
+  const [treeView, setTreeView] = useState<EventTreeView | null>(null);
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [treeError, setTreeError] = useState("");
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState("");
   const [editingGroup, setEditingGroup] = useState(false);
   const [groupDraft, setGroupDraft] = useState<number[]>([]);
   const [groupSearch, setGroupSearch] = useState("");
   const [groupError, setGroupError] = useState("");
+  const maskedSequences = useMemo(
+    () => new Set(results.maskedSequenceIndices),
+    [results.maskedSequenceIndices],
+  );
+  const disabledSequences = useMemo(
+    () => new Set(results.disabledSequenceIndices),
+    [results.disabledSequenceIndices],
+  );
   const selectedIndex = results.events.findIndex((event) => event.id === selectedId);
   const selected = results.events[selectedIndex];
   const anchor = selected
@@ -177,6 +251,84 @@ export function ReviewStep({
     };
   }, [anchor?.id, onGetPlot]);
 
+  useEffect(() => {
+    setAlignmentOpen(false);
+    setAlignmentView(null);
+    setAlignmentError("");
+    setTreesOpen(false);
+    setTreeView(null);
+    setTreeError("");
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!alignmentOpen || !selected) return;
+    let live = true;
+    setAlignmentLoading(true);
+    setAlignmentView(null);
+    setAlignmentError("");
+    onGetEventAlignment(selected.id, alignmentFlankSites, 28)
+      .then((value) => {
+        if (live) setAlignmentView(value);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setAlignmentError(
+          caught instanceof Error ? caught.message : "Breakpoint alignment data was not returned.",
+        );
+      })
+      .finally(() => {
+        if (live) setAlignmentLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [
+    alignmentFlankSites,
+    alignmentOpen,
+    onGetEventAlignment,
+    selected?.automaticCoRecombinantSequenceIndices,
+    selected?.beginning,
+    selected?.coRecombinantSequenceIndices,
+    selected?.ending,
+    selected?.id,
+    selected?.majorParent,
+    selected?.minorParent,
+    selected?.recombinant,
+  ]);
+
+  useEffect(() => {
+    if (!treesOpen || !selected) return;
+    let live = true;
+    setTreeLoading(true);
+    setTreeView(null);
+    setTreeError("");
+    onGetEventTrees(selected.id)
+      .then((value) => {
+        if (live) setTreeView(value);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setTreeError(caught instanceof Error ? caught.message : "Regional tree data was not returned.");
+      })
+      .finally(() => {
+        if (live) setTreeLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [
+    onGetEventTrees,
+    selected?.automaticCoRecombinantSequenceIndices,
+    selected?.beginning,
+    selected?.coRecombinantSequenceIndices,
+    selected?.ending,
+    selected?.id,
+    selected?.majorParent,
+    selected?.minorParent,
+    selected?.recombinant,
+    treesOpen,
+  ]);
+
   const counts = useMemo(
     () => ({
       accepted: results.events.filter((event) => event.reviewState === "accepted").length,
@@ -201,8 +353,9 @@ export function ReviewStep({
     return [...indices]
       .sort((left, right) => left - right)
       .map((index) => sequences[index])
-      .filter((sequence): sequence is SequenceSummary => sequence !== undefined);
-  }, [selected, sequences]);
+      .filter((sequence): sequence is SequenceSummary =>
+        sequence !== undefined && !disabledSequences.has(sequence.index));
+  }, [disabledSequences, selected, sequences]);
 
   const groupMatches = useMemo(() => {
     if (!selected) return [];
@@ -211,6 +364,7 @@ export function ReviewStep({
     const automaticSet = new Set(selected.automaticCoRecombinantSequenceIndices);
     return sequences
       .filter((sequence) =>
+        !disabledSequences.has(sequence.index) &&
         sequence.index !== selected.majorParent &&
         sequence.index !== selected.minorParent &&
         (!query ||
@@ -224,7 +378,7 @@ export function ReviewStep({
         return automaticDifference || left.index - right.index;
       })
       .slice(0, 40);
-  }, [groupDraft, groupSearch, selected, sequences]);
+  }, [disabledSequences, groupDraft, groupSearch, selected, sequences]);
 
   if (!selected) {
     return (
@@ -312,6 +466,18 @@ export function ReviewStep({
     ? pendingEvent !== selected.id
     : nextUnreviewedEvent !== null && selected.id > nextUnreviewedEvent;
   const currentHypothesis = selected.roleHypotheses[0];
+  const breakpointConfidence = selected.breakpointConfidence;
+  const maxChiRecheck = selected.maxChiTripletRecheck;
+  const beginningBreakpointUncertain =
+    selected.breakpointContext.beginning.nativeCheckEndsWarning;
+  const endingBreakpointUncertain =
+    selected.breakpointContext.ending.nativeCheckEndsWarning;
+  const breakpointUncertaintyMessage =
+    beginningBreakpointUncertain && endingBreakpointUncertain
+      ? "Both breakpoints trigger the supplied RDP CheckEnds uncertainty check."
+      : beginningBreakpointUncertain
+        ? breakpointUncertaintyReason("beginning", selected.breakpointContext.beginning)
+        : breakpointUncertaintyReason("ending", selected.breakpointContext.ending);
   const recommendationDiffers =
     selected.roleConsensus.recommendedRecombinant !== selected.recombinant ||
     selected.roleConsensus.recommendedMajorParent !== selected.majorParent ||
@@ -321,6 +487,12 @@ export function ReviewStep({
     if (pair === 1) return "3′ breakpoint";
     if (pair === 2) return "tract / outside";
     return "insufficient sites";
+  };
+  const maxChiPairLabel = (pair: number | null) => {
+    if (pair === 0) return `${selected.recombinantName} / ${selected.majorParentName}`;
+    if (pair === 1) return `${selected.recombinantName} / ${selected.minorParentName}`;
+    if (pair === 2) return `${selected.majorParentName} / ${selected.minorParentName}`;
+    return "No screened peak";
   };
   const applyRecommendation = async () => {
     setEditError("");
@@ -354,8 +526,19 @@ export function ReviewStep({
             <span><i className="status-rejected" />{counts.rejected} rejected</span>
             <span><i className="status-unreviewed" />{counts.unreviewed} unreviewed</span>
           </div>
-          <button className="button button-secondary" type="button" onClick={onSaveProject}>
-            <Save size={15} /> Save project checkpoint
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={checkpointSaving}
+            onClick={onSaveProject}
+            title={checkpointDirty ? "Download the latest review state" : "Download another copy of the current checkpoint"}
+          >
+            <Save size={15} />
+            {checkpointSaving
+              ? "Saving checkpoint…"
+              : checkpointDirty
+                ? "Save project checkpoint"
+                : "Checkpoint current"}
           </button>
         </div>
       </header>
@@ -462,6 +645,158 @@ export function ReviewStep({
 
           <EventSchematic event={selected} alignmentLength={alignmentLength} />
 
+          {beginningBreakpointUncertain || endingBreakpointUncertain ? (
+            <div className="event-breakpoint-warning">
+              <AlertTriangle size={16} />
+              <p>
+                {breakpointUncertaintyMessage} The RDP5 workflow treats the affected position as
+                uncertain; open the original-alignment context before accepting this call.
+              </p>
+            </div>
+          ) : null}
+
+          <section className={`breakpoint-confidence-card${breakpointConfidence.available ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Statistical breakpoint confidence</span>
+                <h3>BURT / BenHMM polishing</h3>
+              </div>
+              <span className="fidelity-badge">
+                {breakpointConfidence.available
+                  ? `${breakpointConfidence.informationRichSites.toLocaleString()} information-rich sites`
+                  : "No usable interval"}
+              </span>
+            </header>
+            {breakpointConfidence.available ? (
+              <>
+                <div className="breakpoint-confidence-grid">
+                  {breakpointConfidence.boundaries.map((boundary) => (
+                    <article key={boundary.name} className={boundary.intervalAvailable ? "" : "is-unavailable"}>
+                      <div>
+                        <span>{boundary.name === "beginning" ? "Beginning boundary" : "Ending boundary"}</span>
+                        <strong>
+                          {boundary.inputCoordinate.toLocaleString()} → {boundary.polishedCoordinate.toLocaleString()}
+                        </strong>
+                        <small>
+                          {boundary.intervalAvailable
+                            ? boundary.sourceIntervalContainsInput
+                              ? "input inside selected interval"
+                              : "nearest interval did not contain input"
+                            : "no matched state transition"}
+                        </small>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>99% source range</dt>
+                          <dd>
+                            {boundary.intervalAvailable
+                              ? `${confidenceCoordinate(boundary.confidence99.beginning)} → ${confidenceCoordinate(boundary.confidence99.ending)}${boundary.confidence99.wrapsOrigin ? " · wraps" : ""}`
+                              : "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>HMM position</dt>
+                          <dd>{boundary.intervalAvailable ? confidenceCoordinate(boundary.hmmCoordinate) : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>95% source range</dt>
+                          <dd>
+                            {boundary.intervalAvailable
+                              ? `${confidenceCoordinate(boundary.confidence95.beginning)} → ${confidenceCoordinate(boundary.confidence95.ending)}${boundary.confidence95.wrapsOrigin ? " · wraps" : ""}`
+                              : "—"}
+                          </dd>
+                        </div>
+                      </dl>
+                      <p>
+                        {boundary.repositioned ? "Breakpoint repositioned" : "Breakpoint retained"}
+                        {boundary.missingDataAdjusted ? " · input MissingData adjustment" : ""}
+                        {boundary.finalGapAdjusted ? " · final gap relocation" : ""}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+                <footer>
+                  <span>
+                    {breakpointConfidence.candidateIntervalCount} candidate HMM interval{breakpointConfidence.candidateIntervalCount === 1 ? "" : "s"}
+                    {breakpointConfidence.singleTransitionAssignment ? " · single-transition endpoint assignment" : ""}
+                    {breakpointConfidence.insufficientInsideOrOutsideReverted ? " · coordinates reverted by the three-usable-site guard" : ""}
+                  </span>
+                  <span>
+                    21 seeded starts · strict 0.995 / 0.999 posterior bounds · MSVC rand adapter
+                  </span>
+                </footer>
+              </>
+            ) : (
+              <p className="breakpoint-confidence-empty">
+                {breakpointConfidence.unavailableReason === "disabled"
+                  ? "BURT polishing was disabled in the scan settings; the detected or manually edited coordinates were preserved."
+                  : `BURT was attempted for this representative triplet but did not produce a matched interval (${breakpointConfidence.unavailableReason?.replaceAll("-", " ") ?? "unknown reason"}). The primary RDP coordinates remain available for manual review.`}
+              </p>
+            )}
+          </section>
+
+          <section className={`maxchi-recheck-card${maxChiRecheck.profileAvailable ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Independent triplet corroboration</span>
+                <h3>MaxChi recheck</h3>
+              </div>
+              <span className={`maxchi-status${maxChiRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
+                {maxChiRecheck.profileAvailable
+                  ? maxChiRecheck.bestPair === null
+                    ? "No qualifying peak"
+                    : maxChiRecheck.sourceRecheckHit ? "Corrected hit" : "No corrected hit"
+                  : "Profile unavailable"}
+              </span>
+            </header>
+            {maxChiRecheck.profileAvailable ? (
+              <>
+                <div className="maxchi-recheck-grid">
+                  <div>
+                    <span>Maximum χ²</span>
+                    <strong>{maxChiRecheck.maximumChiSquare === null ? "—" : roleScore(maxChiRecheck.maximumChiSquare)}</strong>
+                    <small>{maxChiPairLabel(maxChiRecheck.bestPair)}</small>
+                  </div>
+                  <div>
+                    <span>Raw χ² tail</span>
+                    <strong>{maxChiRecheck.localPValue === null ? "—" : pValue(maxChiRecheck.localPValue)}</strong>
+                    <small>Before position or triplet correction</small>
+                  </div>
+                  <div>
+                    <span>Within triplet</span>
+                    <strong>{maxChiRecheck.withinTripletPValue === null ? "—" : pValue(maxChiRecheck.withinTripletPValue)}</strong>
+                    <small>Variable positions × three pair profiles</small>
+                  </div>
+                  <div>
+                    <span>Project corrected</span>
+                    <strong>{maxChiRecheck.correctedPValue === null ? "—" : pValue(maxChiRecheck.correctedPValue)}</strong>
+                    <small>{maxChiRecheck.bonferroniApplied ? `${maxChiRecheck.correctionTests.toLocaleString()} event-round triplet opportunities` : "Correction disabled"}</small>
+                  </div>
+                </div>
+                <footer>
+                  <span>
+                    {maxChiRecheck.variableSites.toLocaleString()} MaxChi-variable sites · initial half-window {maxChiRecheck.halfWindow} · grown {maxChiRecheck.bestPair === null ? "—" : maxChiRecheck.grownHalfWindow}
+                  </span>
+                  <span>
+                    Peak at alignment position {maxChiRecheck.peakAlignmentPosition ?? "—"} · critical match difference {maxChiRecheck.criticalDifference}
+                    {maxChiRecheck.missingDataWindowFilterApplied ? " · MissingData/erasure filter applied" : ""}
+                    {maxChiRecheck.linearEdgeWindowFilterApplied ? " · linear-edge filter applied" : ""}
+                  </span>
+                </footer>
+              </>
+            ) : (
+              <p>
+                The representative triplet did not retain the seven variable sites and six-site
+                half-window required by the supplied MaxChi path after gaps, missing data, and
+                earlier erased tracts were applied.
+              </p>
+            )}
+            <p className="maxchi-scope-note">
+              This is the source-shaped FastRecCheckMC2 strongest-peak statistic. It corroborates
+              the triplet but does not discover an event or replace the primary RDP coordinates.
+            </p>
+          </section>
+
           <div className="role-grid">
             <div className="role-recombinant">
               <span>Current recombinant</span>
@@ -492,6 +827,23 @@ export function ReviewStep({
             <span><strong>{currentHypothesis.phylogeneticCorrelationSetIndices.length}</strong> tree-correlated</span>
             <span><strong>{selected.coRecombinantSequenceIndices.length}</strong> co-recombinant</span>
             <span><strong>{selected.traceEvidence.length}</strong> masked traces</span>
+            <span>
+              <GitCompareArrows size={14} />
+              <strong>{breakpointConfidence.candidateIntervalCount}</strong> BURT intervals
+            </span>
+            <span className={maxChiRecheck.sourceRecheckHit ? "maxchi-hit-badge" : undefined}>
+              <strong>MaxChi</strong> {maxChiRecheck.profileAvailable
+                ? maxChiRecheck.bestPair === null
+                  ? "no qualifying peak"
+                  : maxChiRecheck.sourceRecheckHit ? "corrected hit" : "no corrected hit"
+                : "unavailable"}
+            </span>
+            {beginningBreakpointUncertain ? (
+              <span className="uncertainty-badge">Beginning boundary uncertain</span>
+            ) : null}
+            {endingBreakpointUncertain ? (
+              <span className="uncertainty-badge">Ending boundary uncertain</span>
+            ) : null}
             {selected.groupManualAdjusted ? <span className="manual-badge">Manual group</span> : null}
             {selected.manualAdjusted ? <span className="manual-badge">Manually corrected</span> : null}
           </div>
@@ -623,6 +975,38 @@ export function ReviewStep({
             )}
           </div>
 
+          {alignmentOpen ? (
+            <EventAlignmentInspector
+              event={selected}
+              view={alignmentView}
+              loading={alignmentLoading}
+              error={alignmentError}
+              flankSites={alignmentFlankSites}
+              onFlankSites={setAlignmentFlankSites}
+              onClose={() => setAlignmentOpen(false)}
+            />
+          ) : (
+            <section className="alignment-launch-card">
+              <div>
+                <span className="eyebrow">Graphical breakpoint check</span>
+                <h3>Inspect the original alignment at both boundaries</h3>
+                <p>
+                  Load a bounded role-, group-, and evidence-focused view only when you need it;
+                  the full alignment remains inside the analysis worker. This checkpoint applies
+                  the supplied CheckEnds warning path and keeps the independent BURT/BenHMM
+                  99%/95% ranges visible alongside the parent-pattern review brackets.
+                </p>
+              </div>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setAlignmentOpen(true)}
+              >
+                <GitCompareArrows size={16} /> Open alignment context
+              </button>
+            </section>
+          )}
+
           <div className="event-evidence-grid">
             <section className="co-group-card">
               <div className="co-group-heading">
@@ -689,7 +1073,7 @@ export function ReviewStep({
                               ? "recombinant"
                               : automatic
                                 ? "2-of-3"
-                                : sequence.masked
+                                : maskedSequences.has(sequence.index)
                                   ? "masked"
                                   : `row ${sequence.index + 1}`}
                           </small>
@@ -790,8 +1174,8 @@ export function ReviewStep({
               or category-relabelled correlation is shown. Native dominant-category warnings suppress
               ambiguous breakpoint pairs; MakeACOR topology affinity (or the exact dual-correlation
               override) gates the positive P-score aggregate before MakeRList group membership is assigned.
-              The active first FinalTrim pass also marks direct-correlation pairs duplicated across
-              competing role lists; those diagnostics do not yet prune the two-of-three group.
+              FinalTrim then removes duplicated correlation pairs, performs its fixed-point and expansion
+              passes, and hands active membership to ConsensusOK before the two-of-three group is formed.
             </p>
             <div className="distance-evidence-list">
               {currentHypothesis.distanceCorrelationEvidence.slice(0, 16).map((evidence) => {
@@ -876,6 +1260,28 @@ export function ReviewStep({
                 </span>
               ))}
             </div>
+            {treesOpen ? (
+              <EventTreeInspector
+                event={selected}
+                view={treeView}
+                loading={treeLoading}
+                error={treeError}
+                onClose={() => setTreesOpen(false)}
+              />
+            ) : (
+              <button
+                className="tree-inspector-launch"
+                type="button"
+                onClick={() => setTreesOpen(true)}
+              >
+                <GitBranch size={16} />
+                <span>
+                  <strong>Compare the six regional topologies</strong>
+                  <small>Lazy edge-list view · inside/outside and both breakpoint pairs</small>
+                </span>
+                <ArrowRight size={15} />
+              </button>
+            )}
             <div className="distance-evidence-list phylogenetic-evidence-list">
               {currentHypothesis.phylogeneticCorrelationEvidence.slice(0, 16).map((evidence) => (
                 <div key={evidence.sequenceIndex}>
@@ -883,8 +1289,8 @@ export function ReviewStep({
                   <small>{matrixPairLabel(evidence.bestTreePair)}</small>
                   <strong>{evidence.supportingTreePairs} / 3 pairs</strong>
                   <small>
-                    {evidence.maskedExcluded
-                      ? "masked from trees"
+                    {evidence.disabledExcluded
+                      ? "disabled from secondary evidence"
                       : evidence.distanceFallback
                         ? "JC fallback"
                         : "bootstrap NJ"}
@@ -898,6 +1304,193 @@ export function ReviewStep({
             {currentHypothesis.phylogeneticCorrelationEvidence.length > 16 ? (
               <p className="evidence-overflow">
                 {currentHypothesis.phylogeneticCorrelationEvidence.length - 16} additional tree-evidence rows are retained in the project export.
+              </p>
+            ) : null}
+          </section>
+
+          <section className="late-matrix-card">
+            <div className="card-heading split-heading">
+              <div>
+                <span className="eyebrow">Late native consensus · active primary-RDP recheck</span>
+                <h3>FinalTrim and ConsensusOK membership</h3>
+              </div>
+              <span className="fidelity-badge">OKSeq 0–18 · RDP + MaxChi rechecks</span>
+            </div>
+            <p className="evidence-method-note">
+              The supplied list-build and selected-role paths now drive grouping: duplicate cleanup and the
+              nearest-nonrecombinant fixed point feed both ordered FinalTrim expansion passes,
+              selected-role pruning, OKSeq 15, completed CScore, and ConsensusOK’s primary,
+              distance-equivalence, and straggler rebuilds, followed by the shared selected-role
+              raw/direct-tree outlier cleanup and strict inlier admission. Empty-role fallback,
+              swap-last list removals, the inherited third-list loop index, exact matrix comparisons,
+              and the native Long accumulator rounding are preserved. OKSeq 10 and 11 remain
+              explicit source-zero slots. An asterisk on a breakpoint class marks rejection by the
+              supplied opening topology-consistency check. Each finalized list candidate is then
+              rerun through the primary RDP profile with the supplied LowP × 100,000 threshold lift;
+              emitted, event-overlapping, and ordinarily significant results remain distinct. The
+              same finalized list also receives a missing-data-aware FastRecCheckMC2 strongest-peak
+              MaxChi recheck, retaining raw, within-triplet, and project-corrected probabilities as
+              separate values. MaxChi evidence does not change RDP event coordinates. Rechecks for
+              the remaining method families are still outside this slice.
+            </p>
+            <div className="late-matrix-scroll" tabIndex={0}>
+              <div className="late-matrix-heading" aria-hidden="true">
+                <span>Sequence</span>
+                <span>Collapsed</span>
+                <span>Raw tree</span>
+                <span>Whole JC</span>
+                <span>5′ JC</span>
+                <span>3′ JC</span>
+                <span>Event JC</span>
+                <span>Match ×</span>
+                <span>BP class</span>
+                <span>Raw matrix Σ</span>
+                <span>OK15</span>
+                <span>CScore</span>
+                <span>Final list</span>
+                <span>RDP recheck</span>
+                <span>MaxChi</span>
+              </div>
+              <div className="late-matrix-list">
+                {currentHypothesis.distanceCorrelationEvidence
+                  .filter((evidence) => evidence.finalTrimMatrix.appliesToNonrepresentative)
+                  .slice(0, 16)
+                  .map((evidence) => {
+                    const matrix = evidence.finalTrimMatrix;
+                    const match = evidence.calcMatch;
+                    const consensusScore = evidence.consensusScore;
+                    const rdpRecheck = evidence.postGroupRdpRecheck;
+                    const maxChi = evidence.postGroupMaxChiRecheck;
+                    const checkpointSummary = match.status === "complete-active-rff0"
+                      ? `Beginning L/C/R ${roleScore(match.checkpointMatches[0])} / ${roleScore(match.checkpointMatches[4])} / ${roleScore(match.checkpointMatches[1])}; ending L/C/R ${roleScore(match.checkpointMatches[2])} / ${roleScore(match.checkpointMatches[5])} / ${roleScore(match.checkpointMatches[3])}; raw class ${match.rawBreakpointMatchClass}; ${match.topologyFiltered ? "rejected by the ConsensusOK topology check" : "topology-consistent"}${match.topologyDistanceFallback ? " with bounded JC fallback" : ""}; smoothing half-window ${match.smoothingHalfWindow}`
+                      : "CalcMatchY unavailable: insufficient variable sites or the supplied three-alignment-length fragment bound was reached";
+                    const detectedRegionSummary = matrix.detectedEventMatch
+                      ? `Best direct event signal ${matrix.detectedEventSignalId === null ? "unknown" : matrix.detectedEventSignalId + 1}, tract ${matrix.detectedEventBeginning}–${matrix.detectedEventEnding}, ${(matrix.detectedEventOverlap * 100).toFixed(1)}% symmetric overlap. MatchMat order: anchor/candidate, anchor/parent 0, active bare-CompMat parent-1 lookup, anchor/parent 1, candidate/parent 0, candidate/parent 1, parent pair = ${matrix.detectedRegionMatchDistances.map(roleScore).join(" / ")}.${matrix.detectedRegionSaturated ? " Anchor/candidate comparison saturated at source sentinel 3." : ""}`
+                      : `No qualifying direct event-catalogue tract for this pre-StripDupInv RList row. MatchMat fallback values = ${matrix.detectedRegionMatchDistances.map(roleScore).join(" / ")}.`;
+                    const consensusStage = consensusScore.consensusPrimaryMember
+                      ? "primary"
+                      : consensusScore.consensusEquivalentMember
+                        ? "equivalent"
+                        : consensusScore.consensusStragglerMember
+                          ? "straggler"
+                          : consensusScore.consensusRebuiltMember
+                            ? "restored"
+                            : "out";
+                    const finalListStage = consensusScore.finalDistanceMember
+                      ? consensusScore.selectedTreeCleanupAdded
+                        ? "tree add"
+                        : consensusStage
+                      : consensusScore.selectedTreeCleanupPrunedOut
+                        ? "tree out"
+                        : "out";
+                    const consensusScoreSummary = `Completed native CScore: corrected P (OK0) ${consensusScore.correctedCorrelationPValue.toExponential(3)}; event overlap (OK1) ${consensusScore.detectedEventOverlap.toFixed(3)}; detectable set (OK2) ${consensusScore.detectableSetMember ? "yes" : "no"}; pattern (OK3) ${roleScore(consensusScore.patternScore)}; initial RList (OK4) ${consensusScore.initialRListMember ? "yes" : "no"}; duplicate-cleaned list (OK5) ${consensusScore.duplicateCleanedMember ? "yes" : "no"}; nearest-nonrecombinant membership (OK6) ${consensusScore.nearestNonrecombinantMember ? "yes" : "no"}; first expansion ${consensusScore.finalTrimFirstExpansionAdded ? "added" : "no"}; second expansion ${consensusScore.finalTrimSecondExpansionAdded ? "added" : "no"}; selected-role prune ${consensusScore.selectedRolePrunedOut ? "removed" : "no"}; final FinalTrim membership (OK15) ${consensusScore.finalTrimMember ? "yes" : "no"}; base before OK15 ${roleScore(consensusScore.baseScoreBeforeFinalMembership)}; after OK15 ${roleScore(consensusScore.scoreAfterFinalMembership)}; RCorrX ${roleScore(consensusScore.maximumDirectCorrelation)}; after RCorrX ${roleScore(consensusScore.scoreAfterRcorrx)}; source Long NS multiplier ${roleScore(consensusScore.sourceLongMatrixMultiplier)}; final CScore ${roleScore(consensusScore.finalScore)}; ConsensusOK stage ${consensusStage}${consensusScore.consensusFallbackRestored ? "; one empty role restored all three pre-rebuild lists" : ""}; selected-tree cleanup ${consensusScore.selectedTreeCleanupPrunedOut ? "removed" : consensusScore.selectedTreeCleanupAdded ? "added" : "unchanged"}; final distance membership ${consensusScore.finalDistanceMember ? "yes" : "no"}.`;
+                    const rdpRecheckLabel = rdpRecheck.status === "representative-skipped"
+                      ? "rep"
+                      : rdpRecheck.status === "not-in-final-distance-list"
+                        ? "—"
+                        : rdpRecheck.status === "profile-unavailable"
+                          ? "n/a"
+                          : rdpRecheck.eventRedetected
+                            ? rdpRecheck.significant ? "sig" : "trace"
+                            : "none";
+                    const rdpRecheckSummary = rdpRecheck.status === "complete"
+                      ? `Primary RDP post-group recheck completed with local-P cutoff ${rdpRecheck.localPValueCutoff.toExponential(3)}: ${rdpRecheck.emittedSignalCount} emitted signal(s), ${rdpRecheck.candidateSignalCount} with this candidate as recombinant, and ${rdpRecheck.overlappingSignalCount} overlapping the event by more than 30%. ${rdpRecheck.eventRedetected ? `Best tract ${rdpRecheck.bestBeginning}–${rdpRecheck.bestEnding}${rdpRecheck.bestWrapsOrigin ? " (origin-wrapping)" : ""}, overlap ${(rdpRecheck.bestOverlap * 100).toFixed(1)}%, local P ${rdpRecheck.bestLocalPValue?.toExponential(3)}, corrected P ${rdpRecheck.bestCorrectedPValue?.toExponential(3)} (${rdpRecheck.significant ? "ordinary project cutoff passed" : "retained as a loosened-threshold trace"}).` : "The RDP profile was available but did not redetect an overlapping candidate-recombinant tract."}`
+                      : rdpRecheck.status === "profile-unavailable"
+                        ? "The native-shaped post-group RDP recheck was requested, but this triplet did not have enough informative sites for an RDP profile."
+                        : rdpRecheck.status === "representative-skipped"
+                          ? "The supplied loop skips the role representative itself."
+                          : "This sequence was not in the finalized distance list, so the supplied post-group loop does not recheck it.";
+                    const maxChiLabel = maxChi.status === "not-in-final-distance-list"
+                      ? "—"
+                      : maxChi.status === "profile-unavailable"
+                        ? "n/a"
+                        : maxChi.sourceRecheckHit ? "hit" : "none";
+                    const maxChiSummary = maxChi.status === "complete-active-unvalidated"
+                      ? maxChi.bestPair === null
+                        ? `The MaxChi profile retained ${maxChi.variableSites} variable sites and a ${maxChi.halfWindow}-site half-window, but no peak passed the source critical match-difference screen.`
+                        : `FastRecCheckMC2 strongest-peak recheck: ${maxChi.variableSites} variable sites; half-window ${maxChi.halfWindow}, grown to ${maxChi.grownHalfWindow}; pair ${maxChi.bestPair}; peak alignment position ${maxChi.peakAlignmentPosition}; χ² ${roleScore(maxChi.maximumChiSquare ?? 0)}; raw tail ${maxChi.localPValue?.toExponential(3)}; within-triplet P ${maxChi.withinTripletPValue?.toExponential(3)}; corrected P ${maxChi.correctedPValue?.toExponential(3)}${maxChi.bonferroniApplied ? ` across ${maxChi.correctionTests.toLocaleString()} event-round triplet opportunities` : " with project correction disabled"} (${maxChi.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"})${maxChi.missingDataWindowFilterApplied ? "; MissingData/prior-erasure windows filtered" : ""}${maxChi.linearEdgeWindowFilterApplied ? "; linear-edge windows filtered" : ""}. This is triplet corroboration, not MaxChi event discovery.`
+                      : maxChi.status === "profile-unavailable"
+                        ? `The MaxChi recheck was requested, but only ${maxChi.variableSites} usable variable sites remained after gaps, missing data, and earlier erasures.`
+                        : "This sequence was not in the finalized distance list, so no late MaxChi recheck was requested.";
+                    return (
+                      <div key={evidence.sequenceIndex}>
+                        <span title={evidence.sequenceName}>
+                          {evidence.sequenceName}
+                          <small>
+                            {matrix.treeDistanceFallback ? "bounded JC fallback" : "saved tree panel"}
+                          </small>
+                        </span>
+                        <strong>{roleScore(matrix.collapsedTreePositionScore)}</strong>
+                        <strong>{roleScore(matrix.rawTreePositionScore)}</strong>
+                        <strong>{roleScore(matrix.relativeDistanceScore)}</strong>
+                        <strong className={!matrix.breakpointScoreAvailable[0] ? "is-unavailable" : ""}>
+                          {matrix.breakpointScoreAvailable[0]
+                            ? roleScore(matrix.breakpointDistanceScores[0])
+                            : "warn"}
+                        </strong>
+                        <strong className={!matrix.breakpointScoreAvailable[1] ? "is-unavailable" : ""}>
+                          {matrix.breakpointScoreAvailable[1]
+                            ? roleScore(matrix.breakpointDistanceScores[1])
+                            : "warn"}
+                        </strong>
+                        <strong title={detectedRegionSummary}>
+                          {roleScore(matrix.detectedRegionDistanceScore)}
+                        </strong>
+                        <strong
+                          className={match.status === "unavailable" ? "is-unavailable" : ""}
+                          title={checkpointSummary}
+                        >
+                          {match.status === "complete-active-rff0"
+                            ? roleScore(match.regionalMatchScore)
+                            : "n/a"}
+                        </strong>
+                        <strong
+                          className={match.status === "unavailable" ? "is-unavailable" : "calc-match-class"}
+                          title={checkpointSummary}
+                        >
+                          {match.status === "complete-active-rff0"
+                            ? `${match.breakpointMatchClass > 0 ? "+" : ""}${match.breakpointMatchClass}${match.topologyFiltered ? "*" : ""}`
+                            : "n/a"}
+                        </strong>
+                        <b>{roleScore(matrix.activeConsensusMatrixScore)}</b>
+                        <strong
+                          className={consensusScore.finalTrimMember ? "membership-yes" : "membership-no"}
+                          title={consensusScoreSummary}
+                        >
+                          {consensusScore.finalTrimMember ? "in" : "out"}
+                        </strong>
+                        <b title={consensusScoreSummary}>
+                          {roleScore(consensusScore.finalScore)}
+                        </b>
+                        <strong
+                          className={consensusScore.finalDistanceMember ? "membership-yes" : "membership-no"}
+                          title={consensusScoreSummary}
+                        >
+                          {finalListStage}
+                        </strong>
+                        <strong
+                          className={rdpRecheck.significant ? "membership-yes" : rdpRecheck.eventRedetected ? "is-detectable-only" : "membership-no"}
+                          title={rdpRecheckSummary}
+                        >
+                          {rdpRecheckLabel}
+                        </strong>
+                        <strong
+                          className={maxChi.sourceRecheckHit ? "membership-yes" : maxChi.profileAvailable ? "membership-no" : "is-unavailable"}
+                          title={maxChiSummary}
+                        >
+                          {maxChiLabel}
+                        </strong>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+            {currentHypothesis.distanceCorrelationEvidence.filter(
+              (evidence) => evidence.finalTrimMatrix.appliesToNonrepresentative,
+            ).length > 16 ? (
+              <p className="evidence-overflow">
+                Additional mapped matrix-score rows for this and the two alternative roles remain
+                in project JSON.
               </p>
             ) : null}
           </section>
