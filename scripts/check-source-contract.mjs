@@ -33,10 +33,12 @@ const [
   viteConfig,
   pagesVerifier,
   sessionHandoff,
+  session17Handoff,
   chimaeraTrace,
   geneconvTrace,
   threeSeqTrace,
   lateTrace,
+  shortlistTrace,
   readme,
   status,
 ] = await Promise.all([
@@ -69,10 +71,12 @@ const [
   read("vite.config.ts"),
   read("scripts/verify-pages-output.mjs"),
   read("docs/session-15-handoff.md"),
+  read("docs/session-17-handoff.md"),
   read("docs/native-chimaera-discovery-trace.md"),
   read("docs/native-geneconv-discovery-trace.md"),
   read("docs/native-threeseq-discovery-trace.md"),
   read("docs/native-late-consensus-trace.md"),
+  read("docs/native-cyclic-shortlist-trace.md"),
   read("README.md"),
   read("STATUS.md"),
 ]);
@@ -271,6 +275,7 @@ for (const artifactContract of [
   '"wasm/rdp-core.wasm"',
   "WebAssembly header",
   "FASTA upload smoke test",
+  "cyclic-shortlist",
   "engine.HEAPU8.set(fasta, fastaPointer)",
   "is a symbolic link",
   "is hard-linked",
@@ -535,8 +540,8 @@ for (const sourceContract of [
     fail(`MaxChi source contract is missing ${sourceContract}`);
   }
 }
-if (!method.includes("options_.maxchi_enabled || options_.chimaera_enabled ||") ||
-    !method.includes("options_.geneconv_enabled || options_.threeseq_enabled") ||
+if (!method.includes("kScanGeneconv | kScanMaxchi | kScanChimaera") ||
+    !method.includes("kScanThreeseq") ||
     !method.includes("maxchi_discover_prepared(")) {
   fail("combined discovery scan does not reuse its one-pass prepared profile");
 }
@@ -1270,6 +1275,44 @@ for (const progressRoleContract of [
     fail(`live cyclic role progress is missing ${progressRoleContract}`);
   }
 }
+for (const shortlistProgressContract of [
+  "tripletKernelEvaluations",
+  "tripletSummariesReused",
+  "cachedSignalsReused",
+  "methodScansSkipped",
+]) {
+  if (!method.includes(`\\\"${shortlistProgressContract}\\\"`) ||
+      !types.includes(`${shortlistProgressContract}: number`) ||
+      !app.includes(shortlistProgressContract) ||
+      !scan.includes(shortlistProgressContract)) {
+    fail(`cyclic-shortlist progress is missing ${shortlistProgressContract}`);
+  }
+}
+for (const shortlistCoreContract of [
+  "working_triplet_available",
+  "round_triplet_signal_summaries_",
+  "carried_triplet_signal_summaries_",
+  "dirty_working_sequences_",
+  "reuse_carried_triplet_signals",
+  "triplet_touches_dirty_sequence",
+  "refresh_threeseq_on_unchanged_triplets_",
+  "correction_tests_frozen_",
+  "first_post_erasure_threeseq_refresh",
+]) {
+  if (!method.includes(shortlistCoreContract)) {
+    fail(`cyclic-shortlist core is missing ${shortlistCoreContract}`);
+  }
+}
+if (!pagesVerifier.includes("progress.correctionTests !== 120") ||
+    !pagesVerifier.includes("progress.tripletKernelEvaluations < progress.cumulativeTriplets") ||
+    !pagesVerifier.includes("progress.cachedSignalsReused > 0")) {
+  fail("Pages verification does not exercise fixed correction and shortlist reuse");
+}
+if (!review.includes("RDP5 XOverList equivalent") ||
+    !review.includes("BURT can move the displayed event") ||
+    !review.includes("initial scan-plan opportunities")) {
+  fail("GENECONV probability scope and BURT ordering are not explicit in review");
+}
 if (!worker.includes("supportsReferenceGroups && analysis.analysisMode") ||
     !app.includes("restored.results.analysisMode")) {
   fail("query-vs-reference projects do not preserve their schema-gated scan plan");
@@ -1310,21 +1353,53 @@ for (const handoffContract of [
     fail(`Session 15 handoff is missing ${handoffContract}`);
   }
 }
-if (!readme.includes("Session 15 source checkpoint") ||
-    !readme.includes("v1alpha15") ||
-    !readme.includes("3SEQ discovery trace") ||
-    !readme.includes("session-15 handoff") ||
-    !status.includes("Port status — session 15") ||
+for (const handoffContract of [
+  "0.17.0-session-17",
+  "org.rdp-web.project/v1alpha16",
+  "Raw KA P",
+  "Project corrected",
+  "GCCalcPValP2",
+  "MakeMCCorrection",
+  "BestXOList",
+  "Worthwhilescan",
+  "triplet-kernel evaluations",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session17Handoff.includes(handoffContract)) {
+    fail(`Session 17 handoff is missing ${handoffContract}`);
+  }
+}
+for (const shortlistContract of [
+  "XOverList",
+  "XOverDefine",
+  "BestXOList",
+  "Worthwhilescan",
+  "StoreLPV",
+  "FindBetterRecSignal",
+  "correctionTests",
+  "tripletKernelEvaluations",
+  "CheckSplit3Seq",
+  "No alternate RDP implementation",
+]) {
+  if (!shortlistTrace.includes(shortlistContract)) {
+    fail(`cyclic-shortlist supplied-source trace is missing ${shortlistContract}`);
+  }
+}
+if (!readme.includes("Session 17 source checkpoint") ||
+    !readme.includes("v1alpha16") ||
+    !readme.includes("cyclic-shortlist trace") ||
+    !readme.includes("session-17-handoff") ||
+    !status.includes("Port status — session 17") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
-    !status.includes("active five-family late corroboration")) {
-  fail("Session 15 README/status documentation is stale");
+    !status.includes("XOverList/BestXOList-style shortlist")) {
+  fail("Session 17 README/status documentation is stale");
 }
-if (!exportStep.includes("Session 15 snapshot") ||
+if (!exportStep.includes("Session 17 snapshot") ||
     !exportStep.includes("target-rotated 3SEQ") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)")) {
-  fail("Session 15 export fidelity boundary is stale");
+  fail("Session 17 export fidelity boundary is stale");
 }
 if (!method.includes("std::numeric_limits<std::uint64_t>::max() / reference_group_pairs")) {
   fail("query-vs-reference correction multiplication is not overflow guarded");

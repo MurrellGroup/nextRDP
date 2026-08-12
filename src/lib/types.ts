@@ -68,6 +68,10 @@ export interface ScanProgress {
   referenceWorkingSequenceCount: number;
   activeReferenceGroupCount: number;
   cumulativeTriplets: number;
+  tripletKernelEvaluations: number;
+  tripletSummariesReused: number;
+  cachedSignalsReused: number;
+  methodScansSkipped: number;
   scanRound: number;
   fixedEventCount: number;
   signalCount: number;

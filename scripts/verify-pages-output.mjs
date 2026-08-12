@@ -1,6 +1,7 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 
 const output = resolve(process.cwd(), "dist");
 const requiredFiles = [
@@ -99,7 +100,178 @@ try {
   engine._rdp_destroy(context);
 }
 
+// Exercise two cyclic detections, not just parsing. The synthetic alignment
+// has two independent mosaics plus four background records. A later round
+// gains fragment rows, so this also proves that MakeMCCorrection remains tied
+// to the initial 10-record plan while unchanged triplets use the native-style
+// XOverList/BestXOList shortlist instead of re-running their RDP kernel.
+let syntheticSeed = 123456789;
+const syntheticRandom = () => {
+  syntheticSeed = (1664525 * syntheticSeed + 1013904223) >>> 0;
+  return syntheticSeed;
+};
+const bases = "ACGT";
+const randomSequence = (length) => Array.from(
+  { length },
+  () => bases[syntheticRandom() % bases.length],
+).join("");
+const periodicMutant = (sequence, period) => Array.from(
+  sequence,
+  (base, index) => index % period === 0
+    ? bases[(bases.indexOf(base) + 1 + (index % 2)) % bases.length]
+    : base,
+).join("");
+const mosaic = (first, second, split) => Array.from(first, (base, index) => {
+  let result = index < split ? base : second[index];
+  if (index % 47 === 0 && first[index] === second[index]) {
+    result = bases[(bases.indexOf(result) + 2) % bases.length];
+  }
+  return result;
+}).join("");
+
+const syntheticLength = 900;
+const parentA = randomSequence(syntheticLength);
+const parentB = periodicMutant(parentA, 3);
+const recombinantA = mosaic(parentA, parentB, 450);
+const parentC = randomSequence(syntheticLength);
+const parentD = periodicMutant(parentC, 4);
+const recombinantB = mosaic(parentC, parentD, 300);
+const syntheticSequences = [
+  parentA,
+  parentB,
+  recombinantA,
+  parentC,
+  parentD,
+  recombinantB,
+  ...Array.from({ length: 4 }, () => randomSequence(syntheticLength)),
+];
+const syntheticFasta = new TextEncoder().encode(
+  `${syntheticSequences.map((sequence, index) =>
+    `>cyclic-${index}\n${sequence}`).join("\n")}\n`,
+);
+const cyclicContext = engine._rdp_create();
+const syntheticPointer = engine._malloc(syntheticFasta.byteLength);
+const referenceGroupsPointer = engine._malloc(syntheticSequences.length * 4);
+const zeroFlagsPointer = engine._malloc(syntheticSequences.length);
+if (!cyclicContext || !syntheticPointer || !referenceGroupsPointer || !zeroFlagsPointer) {
+  fail("the WASM engine could not allocate the cyclic-shortlist smoke test");
+}
+try {
+  engine.HEAPU8.set(syntheticFasta, syntheticPointer);
+  engine.HEAPU8.fill(
+    0,
+    referenceGroupsPointer,
+    referenceGroupsPointer + syntheticSequences.length * 4,
+  );
+  engine.HEAPU8.fill(
+    0,
+    zeroFlagsPointer,
+    zeroFlagsPointer + syntheticSequences.length,
+  );
+  if (engine._rdp_load_alignment(
+    cyclicContext,
+    syntheticPointer,
+    syntheticFasta.byteLength,
+  ) !== 1) {
+    fail(`cyclic-shortlist alignment load failed: ${engine.UTF8ToString(
+      engine._rdp_get_error(cyclicContext),
+    )}`);
+  }
+  const scanStarted = engine._rdp_scan_begin(
+    cyclicContext,
+    1, // circular
+    1, // no correction, while retaining the source opportunity count
+    0.05,
+    30,
+    0, 70, // MaxChi
+    0, 60, // CHIMAERA
+    0, 1, 1, // GENECONV
+    0, // 3SEQ
+    0, 200, 20, 100, 0.7, 3, // secondary BootScan
+    0, // preserve detected breakpoints
+    0, // exploratory mode
+    referenceGroupsPointer,
+    syntheticSequences.length,
+    zeroFlagsPointer,
+    syntheticSequences.length,
+    zeroFlagsPointer,
+    syntheticSequences.length,
+  );
+  if (scanStarted !== 1) {
+    fail(`cyclic-shortlist scan could not start: ${engine.UTF8ToString(
+      engine._rdp_get_error(cyclicContext),
+    )}`);
+  }
+  let status = 0;
+  for (let batch = 0; batch < 10000 && status !== 3; ++batch) {
+    status = engine._rdp_scan_batch(cyclicContext, 10000);
+    if (status < 0) {
+      fail(`cyclic-shortlist scan failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(cyclicContext),
+      )}`);
+    }
+  }
+  const progress = JSON.parse(engine.UTF8ToString(
+    engine._rdp_get_progress_json(cyclicContext),
+  ));
+  if (status !== 3 || progress.eventCount < 2 || progress.scanRound < 3) {
+    fail("cyclic-shortlist smoke test did not complete two detection rounds");
+  }
+  if (progress.correctionTests !== 120) {
+    fail("the project correction count changed after cyclic fragment re-entry");
+  }
+  if (!(progress.tripletSummariesReused > 0) ||
+      !(progress.methodScansSkipped > 0) ||
+      !(progress.cachedSignalsReused > 0) ||
+      !(progress.tripletKernelEvaluations < progress.cumulativeTriplets)) {
+    fail("cyclic shortlist summaries were not reused across rounds");
+  }
+  if (engine._rdp_reconcile(cyclicContext) !== 1) {
+    fail(`cyclic-shortlist reconciliation failed: ${engine.UTF8ToString(
+      engine._rdp_get_error(cyclicContext),
+    )}`);
+  }
+  const results = JSON.parse(engine.UTF8ToString(
+    engine._rdp_get_results_json(cyclicContext),
+  ));
+  const selectedResult = {
+    events: results.events.map((event) => [
+      event.recombinant,
+      event.majorParent,
+      event.minorParent,
+      event.beginning,
+      event.ending,
+      event.wrapsOrigin,
+      event.detectionRound,
+      event.supportSignalIds,
+    ]),
+    signals: results.signals.map((signal) => [
+      signal.method,
+      signal.triplet,
+      signal.recombinant,
+      signal.majorParent,
+      signal.minorParent,
+      signal.beginning,
+      signal.ending,
+      signal.correctedPValue,
+      signal.eventId,
+    ]),
+  };
+  const selectedResultDigest = createHash("sha256")
+    .update(JSON.stringify(selectedResult))
+    .digest("hex");
+  if (selectedResultDigest !==
+      "5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa") {
+    fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
+  }
+} finally {
+  engine._free(syntheticPointer);
+  engine._free(referenceGroupsPointer);
+  engine._free(zeroFlagsPointer);
+  engine._rdp_destroy(cyclicContext);
+}
+
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload smoke test passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload and cyclic-shortlist smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );

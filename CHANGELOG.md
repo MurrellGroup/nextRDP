@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.17.0-session-17
+
+- Traced the supplied GENECONV probability lifecycle through `GCCalcPValP2`, `GCXoverD`,
+  `MakeMCCorrection`, and later BURT polishing. WebRDP's raw KA probability is calculated from the
+  detected fragment before BURT; RDP5's stored `XOverList.Probability` corresponds to WebRDP's
+  project-corrected value. Review UI now states both scopes and the exact initial opportunity
+  multiplier explicitly.
+- Fixed cyclic multiple-comparison fidelity by freezing the source `MakeMCCorrection` factor from
+  the initial exploratory or query/reference scan plan. Later fragment-expanded schedules still
+  report their real triplet workload, but no longer silently change stored probability scope.
+- Added source-shaped cyclic shortlist reuse based on `XOverList`/`XOverDefine`, `BestXOList`,
+  `Worthwhilescan`, and `StoreLPV`: significant summaries for unchanged exact working triplets are
+  replayed, empty unchanged summaries skip their method kernels, and only triplets touching erased
+  rows or new fragments run fresh full discovery.
+- Preserved 3SEQ's semantic boundary by refreshing it once on every unchanged triplet when the scan
+  first enters the supplied post-erasure `CheckSplit3Seq` mode; later rounds can safely reuse it.
+  Manual event repair/rejection rebuilds clear the shortlist and start with a full pass.
+- Added live counters for triplet kernel evaluations, summaries/signals reused, and method scans
+  skipped. A deterministic two-event production-WASM Pages regression asserts fixed correction,
+  cached signal replay, skipped work, and fewer kernel evaluations than scheduled triplets.
+- Compared the optimized and temporary full-rescan builds on an all-five-family cyclic fixture;
+  event roles, breakpoints, rounds, support order, signal triplets, and p-values produced the same
+  digest across 22 events/422 signals while kernel evaluations fell from 131,488 to 32,911.
+- Recorded two deliberate GENECONV safety fixes: a bounded root-bracketing fallback is used only
+  when the supplied Newton iteration becomes unstable (and is counted), and the apparent
+  `NDiff[3] == 1` typo is treated as the intended assignment to avoid degenerate division by zero.
+- Completed WASM and web production builds plus FASTA-upload, cyclic-shortlist, source-contract,
+  TypeScript, and GitHub Pages artifact verification.
+
 ## 0.16.1-session-16
 
 - Fixed FASTA and project uploads under Emscripten 5.0.1 by exporting the `HEAPU8` view used by

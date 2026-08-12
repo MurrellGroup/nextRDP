@@ -68,6 +68,15 @@ and evaluates `1 - exp(-exp(-(lambda * score - log(K * V))))` with a high-score 
 The raw KA probability and active triplet/analysis-plan-corrected probability must remain separate.
 An underflowed exact zero is retained by `GCGetHiPValP` and the normal `GCXoverD` emission branch;
 only plotting applies a positive display floor.
+In RDP5's stored `XOverList`, `GCXoverD(0)` writes `PVals * MCCorrection`; that corresponds to the
+WebRDP value labelled **Project corrected**, not the separately displayed **Raw KA P**. A raw value
+near `1e-18` and an RDP5/XOverList value near `1e-14` are therefore expected when the initial scan
+plan contains roughly `10^4` correction opportunities.
+
+GENECONV discovery maps its fragment endpoints and calculates both probabilities before the event
+enters shared role reconciliation. `PolishBP`/BURT runs only after an anchor event has been chosen.
+It can change the event coordinates shown later, but does not recalculate the stored discovery
+fragment score, raw KA probability, or project-corrected probability.
 The distinct `GCMCCorrection` pair-count value used by parts of the desktop presentation is a
 documented native display boundary, not the ordinary `GCXoverD(0)` discovery threshold. Permutation
 probabilities, pairwise manual scans, and alternative indel-block handling are separate workflows
@@ -101,6 +110,11 @@ manual-pair, alternative-indel, or full method-stack event-reconstruction workfl
   states, ambiguous symbols, and the ignored-indel default.
 - Preserve VB/DLL single-precision narrowing in mismatch extension and high-score probability
   branches where it changes thresholds.
+- The supplied `GCXoverDP2` contains `NDiff[3] == 1` (comparison) where tracks 4 and 5 use an
+  assignment when an outer-track discordance count is zero. WebRDP deliberately applies the
+  intended zero guard to all three outer tracks rather than allowing a divide-by-zero/undefined
+  conversion on track 3. This can differ only on that degenerate track-3 profile and is recorded as
+  an explicit native defect fix, not attributed to BURT.
 - Compare linear and circular origin runs, first/last-run duplication, equal P-value ordering,
   one-overlap deletion, and coordinate aliases around the first/last polymorphic site.
 - The traced `Module31.bas::GCXoverD` consumes the stable lowest-P list, while supplied
@@ -117,4 +131,5 @@ manual-pair, alternative-indel, or full method-stack event-reconstruction workfl
   remain unvalidated until authorized native fixtures cover every boundary above. The browser
   overlap tree measures intended polymorphic-position coverage rather than reproducing the
   supplied helper's fragment-count-bound indexing quirk. A bounded bisection fallback on the
-  Newton path prevents an unresponsive worker.
+  Newton path prevents an unresponsive worker; `geneconvNumericalFallbackTracks` shows whether a
+  dataset actually used that fallback.

@@ -184,6 +184,16 @@ export function ScanStep({
               {options.threeSeqEnabled ? " · 3SEQ exact/Siegmund" : ""}
             </span>
           </div>
+          {progress.tripletSummariesReused > 0 ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.tripletSummariesReused)} unchanged triplet summaries reused · {integer.format(progress.cachedSignalsReused)} cached signals replayed
+              </span>
+              <span>
+                {integer.format(progress.methodScansSkipped)} method scans skipped · {integer.format(progress.tripletKernelEvaluations)} triplet kernel evaluations
+              </span>
+            </div>
+          ) : null}
           {options.maxChiEnabled ? (
             <div className="progress-meta">
               <span>
@@ -288,7 +298,7 @@ export function ScanStep({
             <div>
               <strong>Erase and re-screen cyclically</strong>
               <small>
-                Strongest event, three-set co-group, tract erasure, fragment re-entry, then a complete fresh {options.analysisMode === "query-reference" ? "constrained" : "triplet"} pass.
+                Strongest event, three-set co-group, tract erasure, fragment re-entry, then XOverList-style summary reuse for unchanged triplets and fresh kernels for affected rows.
               </small>
             </div>
           </li>

@@ -2262,6 +2262,11 @@ void RdpScanner::reset_working_alignment() {
   std::iota(working_origins_.begin(), working_origins_.end(), 0);
   working_fragment_events_.assign(alignment_.sequence_count(), -1);
   fragment_reentry_capped_ = false;
+  round_triplet_signal_summaries_.clear();
+  carried_triplet_signal_summaries_.clear();
+  dirty_working_sequences_.clear();
+  cyclic_shortlist_active_ = false;
+  refresh_threeseq_on_unchanged_triplets_ = false;
 }
 
 void RdpScanner::rebuild_working_before_event(std::size_t event_index) {
@@ -2376,10 +2381,14 @@ void RdpScanner::refresh_active_sequences() {
                 std::numeric_limits<std::uint64_t>::max() / reference_group_pairs
         ? std::numeric_limits<std::uint64_t>::max()
         : reference_group_pairs * query_origin_count;
-    correction_tests_ = std::min(source_correction, kNativeCorrectionCap);
+    if (!correction_tests_frozen_) {
+      correction_tests_ = std::min(source_correction, kNativeCorrectionCap);
+    }
   } else {
     total_triplets_ = valid_triplet_count();
-    correction_tests_ = std::min(total_triplets_, kNativeCorrectionCap);
+    if (!correction_tests_frozen_) {
+      correction_tests_ = std::min(total_triplets_, kNativeCorrectionCap);
+    }
   }
 }
 
@@ -2501,6 +2510,84 @@ void RdpScanner::reset_round_cursor() {
   for (auto& counts : profile_scratch_.rolling_counts) counts.clear();
   signal_candidates_scratch_.clear();
   round_signal_index_.clear();
+  round_triplet_signal_summaries_.clear();
+}
+
+std::uint8_t RdpScanner::enabled_method_mask() const {
+  std::uint8_t mask = kScanRdp;
+  if (options_.geneconv_enabled) mask |= kScanGeneconv;
+  if (options_.maxchi_enabled) mask |= kScanMaxchi;
+  if (options_.chimaera_enabled) mask |= kScanChimaera;
+  if (options_.threeseq_enabled) mask |= kScanThreeseq;
+  return mask;
+}
+
+std::size_t RdpScanner::method_count(std::uint8_t method_mask) {
+  std::size_t count = 0;
+  while (method_mask != 0) {
+    count += method_mask & 1U;
+    method_mask >>= 1U;
+  }
+  return count;
+}
+
+bool RdpScanner::triplet_touches_dirty_sequence(
+    const std::array<std::uint32_t, 3>& triplet) const {
+  return std::any_of(
+      triplet.begin(), triplet.end(), [&](std::uint32_t sequence) {
+        return sequence < dirty_working_sequences_.size() &&
+            dirty_working_sequences_[sequence] != 0;
+      });
+}
+
+void RdpScanner::append_round_signal(Signal signal) {
+  const auto triplet = canonical_triplet(signal.triplet);
+  auto& bucket = round_signal_index_[signal_signature(signal)];
+  Signal* duplicate = nullptr;
+  for (const std::uint32_t signal_id : bucket) {
+    if (signal_id < round_signal_begin_ || signal_id >= signals_.size()) continue;
+    auto& existing = signals_[signal_id];
+    if (canonical_triplet(existing.triplet) == triplet &&
+        existing.method == signal.method &&
+        existing.recombinant == signal.recombinant &&
+        existing.beginning == signal.beginning &&
+        existing.ending == signal.ending) {
+      duplicate = &existing;
+      break;
+    }
+  }
+  if (duplicate) {
+    if (signal.corrected_p_value < duplicate->corrected_p_value) {
+      const auto id = duplicate->id;
+      const auto review = duplicate->review_state;
+      *duplicate = std::move(signal);
+      duplicate->id = id;
+      duplicate->review_state = review;
+    }
+    return;
+  }
+  signal.id = static_cast<std::uint32_t>(signals_.size());
+  bucket.push_back(signal.id);
+  signals_.push_back(std::move(signal));
+}
+
+void RdpScanner::reuse_carried_triplet_signals(
+    const std::array<std::uint32_t, 3>& triplet) {
+  const auto key = canonical_triplet(triplet);
+  const auto cached = carried_triplet_signal_summaries_.find(key);
+  if (cached == carried_triplet_signal_summaries_.end()) return;
+  auto& current = round_triplet_signal_summaries_[key];
+  current.reserve(current.size() + cached->second.size());
+  for (const Signal& stored : cached->second) {
+    Signal signal = stored;
+    signal.id = 0;
+    signal.event_id = -1;
+    signal.review_state = ReviewState::unreviewed;
+    current.push_back(signal);
+    append_round_signal(std::move(signal));
+    ++cached_signals_reused_;
+  }
+  carried_triplet_signal_summaries_.erase(cached);
 }
 
 bool RdpScanner::begin(ScanOptions options, std::string& error) {
@@ -2575,6 +2662,7 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
   }
 
   options_ = std::move(options);
+  correction_tests_frozen_ = false;
   reset_working_alignment();
   refresh_active_sequences();
   if (active_sequences_.size() < 3 || total_triplets_ == 0) {
@@ -2583,11 +2671,19 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
         : "At least three enabled, unmasked sequences are required for an exploratory recombination scan.";
     return false;
   }
+  // MakeMCCorrection is established from the original scan plan before the
+  // cyclic event loop. Erasure and fragment re-entry change the amount of
+  // work in later rounds, but not the project-wide probability factor.
+  correction_tests_frozen_ = true;
 
   signals_.clear();
   events_.clear();
   reset_round_cursor();
   cumulative_triplets_ = 0;
+  triplet_kernel_evaluations_ = 0;
+  triplet_summaries_reused_ = 0;
+  cached_signals_reused_ = 0;
+  method_scans_skipped_ = 0;
   maxchi_profiles_scanned_ = 0;
   maxchi_peak_attempts_ = 0;
   maxchi_candidates_found_ = 0;
@@ -2645,7 +2741,24 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
       return -1;
     }
     if (working_triplet_is_valid(triplet)) {
-      scan_triplet(triplet);
+      std::uint8_t method_mask = enabled_method_mask();
+      if (cyclic_shortlist_active_ && !triplet_touches_dirty_sequence(triplet)) {
+        // WorthwhileScan/BestXOList behavior: the unchanged rows have exactly
+        // the same profile and correction factor, so replay only the compact
+        // signal summary and omit kernels that already produced no signal.
+        reuse_carried_triplet_signals(triplet);
+        ++triplet_summaries_reused_;
+        const std::uint8_t refresh_mask =
+            refresh_threeseq_on_unchanged_triplets_ && options_.threeseq_enabled
+            ? kScanThreeseq
+            : 0;
+        method_scans_skipped_ += method_count(method_mask & ~refresh_mask);
+        method_mask = refresh_mask;
+      }
+      if (method_mask != 0) {
+        scan_triplet(triplet, method_mask);
+        ++triplet_kernel_evaluations_;
+      }
       ++processed_triplets_;
       ++cumulative_triplets_;
     }
@@ -3019,7 +3132,9 @@ std::vector<Signal> RdpScanner::triplet_signals(
   return candidates;
 }
 
-void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
+void RdpScanner::scan_triplet(
+    const std::array<std::uint32_t, 3>& triplet,
+    std::uint8_t method_mask) {
   TripletProfile& profile = profile_scratch_;
   auto& candidates = signal_candidates_scratch_;
   candidates.clear();
@@ -3028,10 +3143,11 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
   if (build_profile(
           triplet,
           profile,
-          (options_.maxchi_enabled || options_.chimaera_enabled ||
-           options_.geneconv_enabled || options_.threeseq_enabled)
+          (method_mask & (kScanGeneconv | kScanMaxchi | kScanChimaera |
+                          kScanThreeseq)) != 0
               ? &maxchi_workspace_
-              : nullptr)) {
+              : nullptr) &&
+      (method_mask & kScanRdp) != 0) {
     const auto order = ranked_pairs(profile);
     const std::array<double, 3> average{
         static_cast<double>(profile.category_counts[0]) / profile.category.size(),
@@ -3048,7 +3164,7 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
   // Preserve the supplied method-major dispatch order after RDP. This makes
   // stable signal IDs agree with the same order already used for exact-P
   // event ties and keeps project replay deterministic across method mixes.
-  if (options_.geneconv_enabled) {
+  if (options_.geneconv_enabled && (method_mask & kScanGeneconv) != 0) {
     GeneconvDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3096,7 +3212,7 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
     }
   }
 
-  if (options_.maxchi_enabled) {
+  if (options_.maxchi_enabled && (method_mask & kScanMaxchi) != 0) {
     MaxChiDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3139,7 +3255,7 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
     }
   }
 
-  if (options_.chimaera_enabled) {
+  if (options_.chimaera_enabled && (method_mask & kScanChimaera) != 0) {
     ChimaeraDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3183,7 +3299,7 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
     }
   }
 
-  if (options_.threeseq_enabled) {
+  if (options_.threeseq_enabled && (method_mask & kScanThreeseq) != 0) {
     ThreeSeqDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.correction_enabled =
@@ -3229,36 +3345,18 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
     }
   }
 
+  const auto working_key = canonical_triplet(triplet);
+  std::vector<Signal>* triplet_summary = nullptr;
+  if (!candidates.empty()) {
+    triplet_summary = &round_triplet_signal_summaries_[working_key];
+    triplet_summary->reserve(triplet_summary->size() + candidates.size());
+  }
   for (auto& signal : candidates) {
+    signal.working_triplet = triplet;
+    signal.working_triplet_available = true;
     map_signal_to_original(signal);
-    const auto triplet = canonical_triplet(signal.triplet);
-    auto& bucket = round_signal_index_[signal_signature(signal)];
-    Signal* duplicate = nullptr;
-    for (const std::uint32_t signal_id : bucket) {
-      if (signal_id < round_signal_begin_ || signal_id >= signals_.size()) continue;
-      auto& existing = signals_[signal_id];
-      if (canonical_triplet(existing.triplet) == triplet &&
-          existing.method == signal.method &&
-          existing.recombinant == signal.recombinant &&
-          existing.beginning == signal.beginning &&
-          existing.ending == signal.ending) {
-        duplicate = &existing;
-        break;
-      }
-    }
-    if (duplicate) {
-      if (signal.corrected_p_value < duplicate->corrected_p_value) {
-        const auto id = duplicate->id;
-        const auto review = duplicate->review_state;
-        *duplicate = signal;
-        duplicate->id = id;
-        duplicate->review_state = review;
-      }
-      continue;
-    }
-    signal.id = static_cast<std::uint32_t>(signals_.size());
-    bucket.push_back(signal.id);
-    signals_.push_back(std::move(signal));
+    triplet_summary->push_back(signal);
+    append_round_signal(std::move(signal));
   }
 }
 
@@ -6688,6 +6786,10 @@ RdpScanner::ErasureResult RdpScanner::erase_event_tract(const UniqueEvent& event
       ++result.working_sites;
       if (sequence < alignment_.sequence_count()) ++result.original_sites;
     }
+    if (fragment_sites > 0) {
+      result.changed_working_sequences.push_back(
+          static_cast<std::uint32_t>(sequence));
+    }
     if (!retain_fragments || fragment_sites < fragment_minimum) continue;
 
     bool duplicate = false;
@@ -6721,8 +6823,11 @@ RdpScanner::ErasureResult RdpScanner::erase_event_tract(const UniqueEvent& event
         {fragment_sites, working_alignment_.length - fragment_sites});
     working_origins_.push_back(origin);
     working_fragment_events_.push_back(static_cast<std::int32_t>(event.id));
+    result.changed_working_sequences.push_back(static_cast<std::uint32_t>(
+        working_alignment_.sequence_count() - 1));
     ++result.fragments_added;
   }
+  sort_unique(result.changed_working_sequences);
   refresh_active_sequences();
   return result;
 }
@@ -6824,9 +6929,51 @@ bool RdpScanner::finish_detection_round(std::string& error) {
   event.fragment_sequences_added = erasure.fragments_added;
   event.tract_erased_for_detection = erasure.working_sites > 0;
 
-  // Signals that were not grouped with the selected event are deliberately
-  // discarded: the modified alignment is screened again and only signals
-  // that survive that next round can seed a later unique event.
+  dirty_working_sequences_.assign(working_alignment_.sequence_count(), 0);
+  for (const std::uint32_t sequence : erasure.changed_working_sequences) {
+    if (sequence < dirty_working_sequences_.size()) {
+      dirty_working_sequences_[sequence] = 1;
+    }
+  }
+
+  // XOverList retains compact signal summaries while BestXOList records the
+  // shortlists already evaluated and acted on. Avoid repeating work on
+  // unchanged rows with the same state boundary: a summary is
+  // reusable only when none of its exact working rows changed and its method
+  // has unchanged round semantics. Keeping support-bearing summaries too is
+  // important: it makes the shortcut an exact substitute for a fresh scan;
+  // event assignment remains represented separately in the durable list.
+  // 3SEQ deliberately switches to CheckSplit3Seq after the first
+  // erasure, so only that method is refreshed once on otherwise clean rows.
+  const bool first_post_erasure_threeseq_refresh =
+      events_.empty() && options_.threeseq_enabled;
+  carried_triplet_signal_summaries_.clear();
+  if (erasure.working_sites > 0) {
+    for (const auto& [working_triplet, summaries] :
+         round_triplet_signal_summaries_) {
+      if (triplet_touches_dirty_sequence(working_triplet)) continue;
+      auto& retained_summaries =
+          carried_triplet_signal_summaries_[working_triplet];
+      for (const Signal& candidate : summaries) {
+        if (first_post_erasure_threeseq_refresh &&
+            candidate.method == SignalMethod::threeseq) {
+          continue;
+        }
+        if (matches_fixed_event(candidate)) continue;
+        retained_summaries.push_back(candidate);
+      }
+      if (retained_summaries.empty()) {
+        carried_triplet_signal_summaries_.erase(working_triplet);
+      }
+    }
+  }
+  cyclic_shortlist_active_ = erasure.working_sites > 0;
+  refresh_threeseq_on_unchanged_triplets_ =
+      cyclic_shortlist_active_ && first_post_erasure_threeseq_refresh;
+
+  // Only the selected event's support belongs in the durable signal list.
+  // Other signal-bearing triplets live in the transient shortlist above and
+  // re-enter in schedule order during the next cyclic pass.
   std::vector<Signal> retained;
   retained.reserve(event.support_signal_ids.size());
   std::uint32_t compact_anchor = 0;
@@ -7103,6 +7250,10 @@ bool RdpScanner::reconcile_after(std::uint32_t event_id, std::string& error) {
   round_signal_begin_ = signals_.size();
   scan_round_ = events_.size() + 1;
   cumulative_triplets_ = 0;
+  triplet_kernel_evaluations_ = 0;
+  triplet_summaries_reused_ = 0;
+  cached_signals_reused_ = 0;
+  method_scans_skipped_ = 0;
   maxchi_profiles_scanned_ = 0;
   maxchi_peak_attempts_ = 0;
   maxchi_candidates_found_ = 0;
@@ -7253,6 +7404,7 @@ bool RdpScanner::restore(
   }
   options_ = std::move(options);
   signals_ = std::move(signals);
+  correction_tests_frozen_ = false;
   reset_working_alignment();
   refresh_active_sequences();
   const std::uint64_t recomputed_correction_tests = correction_tests_;
@@ -7290,6 +7442,11 @@ bool RdpScanner::restore(
   correction_tests_ = correction_tests == 0
       ? recomputed_correction_tests
       : std::min(correction_tests, kNativeCorrectionCap);
+  correction_tests_frozen_ = true;
+  triplet_kernel_evaluations_ = 0;
+  triplet_summaries_reused_ = 0;
+  cached_signals_reused_ = 0;
+  method_scans_skipped_ = 0;
   for (auto& signal : signals_) {
     if (signal.correction_tests == 0) signal.correction_tests = correction_tests_;
   }
@@ -7463,6 +7620,10 @@ std::string RdpScanner::progress_json() const {
       << ",\"referenceWorkingSequenceCount\":" << reference_sequences_.size()
       << ",\"activeReferenceGroupCount\":" << active_reference_group_count_
       << ",\"cumulativeTriplets\":" << cumulative_triplets_
+      << ",\"tripletKernelEvaluations\":" << triplet_kernel_evaluations_
+      << ",\"tripletSummariesReused\":" << triplet_summaries_reused_
+      << ",\"cachedSignalsReused\":" << cached_signals_reused_
+      << ",\"methodScansSkipped\":" << method_scans_skipped_
       << ",\"scanRound\":" << scan_round_
       << ",\"fixedEventCount\":" << fixed_event_count_
       << ",\"signalCount\":" << signals_.size() << ",\"eventCount\":" << events_.size()
@@ -7515,7 +7676,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.16.1-session-16\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.17.0-session-17\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.maxchi_enabled) out << "+MAXCHI";

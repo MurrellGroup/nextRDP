@@ -4,9 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 15 source checkpoint — Session 16 GitHub Pages hotfix verified.** This archive contains
-> source only. Its Node 20 / Emscripten 5.0.1 production build, TypeScript/source contracts, Pages
-> artifact, and a real WASM FASTA-upload smoke test passed before packaging.
+> **Session 17 source checkpoint — cyclic shortlist and probability-scope build verified.** This
+> archive contains source only. Its Node 20 / Emscripten 5.0.1 production build,
+> TypeScript/source contracts, Pages artifact, real WASM FASTA-upload test, and deterministic
+> two-event cyclic-shortlist test passed before packaging.
 
 ## What this checkpoint contains
 
@@ -68,7 +69,13 @@ core runs in WebAssembly.
   reconstructions are labelled when the exact historical erased/fragment profile was not serialized.
 - Combined strongest-first cyclic detection: scan all eligible triplets in the supplied
   RDP/GENECONV/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
-  tract, then start a fresh full pass until no signal remains.
+  tract, then retain XOverList-style summaries for unchanged exact working triplets. Triplets that
+  touch erased rows or new fragments run fresh kernels; unchanged triplets replay signals and skip
+  stable method work. 3SEQ refreshes once when its post-erasure split mode first activates.
+- The source `MakeMCCorrection` factor is fixed from the initial scan plan while each later round's
+  actual fragment-expanded workload remains visible separately. GENECONV review distinguishes raw
+  `GCCalcPValP2` probability from the RDP5 `XOverList`-equivalent project-corrected value and makes
+  clear that later BURT polishing does not recalculate either value.
 - Event review and CSV export explicitly flag MaxChi+CHIMAERA-only support because the manual treats
   those methods as closely related rather than independent confirmation.
 - Source-shaped fragment re-entry below the supplied 100,000-site cutoff. Erased tracts become
@@ -154,7 +161,7 @@ core runs in WebAssembly.
 - A batched erase/fragment/re-scan cycle that re-identifies later events after a correction or
   rejection. Core/API guards enforce review order; mid-repair project reload drops the stale tail,
   remaps retained signal anchors, and resumes at the changed event.
-- Reloadable project JSON (`v1alpha15`, accepting `v1alpha1`–`v1alpha15`), expanded event-level CSV,
+- Reloadable project JSON (`v1alpha16`, accepting `v1alpha1`–`v1alpha16`), expanded event-level CSV,
   full, enabled-only, and masked/disabled-only curation FASTA directly from the loaded dataset,
   accepted-group sequence removal,
   accepted-tract column removal, tract-masking FASTA, and event-ordered mosaic-fragment FASTA.
@@ -200,9 +207,10 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [MaxChi discovery trace](docs/native-maxchi-discovery-trace.md), the
 [MaxChi recheck source trace](docs/native-maxchi-recheck-trace.md), and the
 [CHIMAERA discovery trace](docs/native-chimaera-discovery-trace.md), the
-[GENECONV discovery trace](docs/native-geneconv-discovery-trace.md), and the
-[3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), and the
-[session-15 handoff](docs/session-15-handoff.md) before interpreting results or starting the next phase.
+[GENECONV discovery trace](docs/native-geneconv-discovery-trace.md), the
+[3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), the
+[cyclic-shortlist trace](docs/native-cyclic-shortlist-trace.md), and the
+[Session 17 handoff](docs/session-17-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 

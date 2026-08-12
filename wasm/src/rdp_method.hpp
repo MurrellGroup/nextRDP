@@ -101,6 +101,11 @@ struct Signal {
   ThreeSeqDiscoveryCandidate threeseq_discovery;
   bool fragment_assisted = false;
   std::array<std::int32_t, 3> fragment_event_context{-1, -1, -1};
+  // Transient XOverList-style provenance. Detection and project JSON use the
+  // original sequence triplet above; cyclic shortlist reuse additionally
+  // needs the exact mutable working rows that produced the signal.
+  std::array<std::uint32_t, 3> working_triplet{};
+  bool working_triplet_available = false;
   ReviewState review_state = ReviewState::unreviewed;
   std::int32_t event_id = -1;
 };
@@ -501,7 +506,31 @@ class RdpScanner {
     std::size_t original_sites = 0;
     std::size_t working_sites = 0;
     std::size_t fragments_added = 0;
+    std::vector<std::uint32_t> changed_working_sequences;
   };
+
+  struct WorkingTripletHash {
+    std::size_t operator()(
+        const std::array<std::uint32_t, 3>& triplet) const noexcept {
+      std::size_t hash = static_cast<std::size_t>(1469598103934665603ULL);
+      for (const std::uint32_t member : triplet) {
+        hash ^= static_cast<std::size_t>(member);
+        hash *= static_cast<std::size_t>(1099511628211ULL);
+      }
+      return hash;
+    }
+  };
+
+  using TripletSignalShortlist = std::unordered_map<
+      std::array<std::uint32_t, 3>,
+      std::vector<Signal>,
+      WorkingTripletHash>;
+
+  static constexpr std::uint8_t kScanRdp = 1U << 0U;
+  static constexpr std::uint8_t kScanGeneconv = 1U << 1U;
+  static constexpr std::uint8_t kScanMaxchi = 1U << 2U;
+  static constexpr std::uint8_t kScanChimaera = 1U << 3U;
+  static constexpr std::uint8_t kScanThreeseq = 1U << 4U;
 
   const Alignment& alignment_;
   Alignment working_alignment_;
@@ -516,6 +545,9 @@ class RdpScanner {
   std::vector<Signal> signals_;
   std::vector<UniqueEvent> events_;
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> round_signal_index_;
+  TripletSignalShortlist round_triplet_signal_summaries_;
+  TripletSignalShortlist carried_triplet_signal_summaries_;
+  std::vector<std::uint8_t> dirty_working_sequences_;
   TripletProfile profile_scratch_;
   MaxChiWorkspace maxchi_workspace_;
   MaxChiWorkspace chimaera_workspace_;
@@ -544,6 +576,10 @@ class RdpScanner {
   std::uint64_t cumulative_triplets_ = 0;
   std::uint64_t total_triplets_ = 0;
   std::uint64_t correction_tests_ = 0;
+  std::uint64_t triplet_kernel_evaluations_ = 0;
+  std::uint64_t triplet_summaries_reused_ = 0;
+  std::uint64_t cached_signals_reused_ = 0;
+  std::uint64_t method_scans_skipped_ = 0;
   std::uint64_t maxchi_profiles_scanned_ = 0;
   std::uint64_t maxchi_peak_attempts_ = 0;
   std::uint64_t maxchi_candidates_found_ = 0;
@@ -568,6 +604,9 @@ class RdpScanner {
   std::size_t round_signal_begin_ = 0;
   std::size_t fixed_event_count_ = 0;
   bool fragment_reentry_capped_ = false;
+  bool correction_tests_frozen_ = false;
+  bool cyclic_shortlist_active_ = false;
+  bool refresh_threeseq_on_unchanged_triplets_ = false;
   bool cumulative_triplets_authoritative_ = false;
   std::string cycle_termination_ = "not-started";
   std::int32_t reconciliation_required_after_ = -1;
@@ -584,7 +623,16 @@ class RdpScanner {
       const std::array<std::uint32_t, 3>& triplet,
       TripletProfile& profile,
       MaxChiWorkspace* maxchi_workspace = nullptr) const;
-  void scan_triplet(const std::array<std::uint32_t, 3>& triplet);
+  void scan_triplet(
+      const std::array<std::uint32_t, 3>& triplet,
+      std::uint8_t method_mask);
+  void append_round_signal(Signal signal);
+  void reuse_carried_triplet_signals(
+      const std::array<std::uint32_t, 3>& triplet);
+  [[nodiscard]] bool triplet_touches_dirty_sequence(
+      const std::array<std::uint32_t, 3>& triplet) const;
+  [[nodiscard]] std::uint8_t enabled_method_mask() const;
+  [[nodiscard]] static std::size_t method_count(std::uint8_t method_mask);
   void compute_rolling_counts(TripletProfile& profile) const;
   [[nodiscard]] std::array<std::uint8_t, 3> ranked_pairs(const TripletProfile& profile) const;
   void append_candidate_signals(
