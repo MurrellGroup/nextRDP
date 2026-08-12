@@ -7515,7 +7515,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.16.0-session-16\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.16.1-session-16\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.maxchi_enabled) out << "+MAXCHI";
@@ -9011,7 +9011,9 @@ std::string RdpScanner::event_alignment_json(
       const std::vector<std::uint32_t>& uncertain_erasure_event_ids,
       std::int32_t nearest_erasure_informative_sites,
       const BreakpointUncertaintyEvidence& uncertainty) {
-    AlignmentPanel panel{.name = name, .center = center};
+    AlignmentPanel panel{};
+    panel.name = name;
+    panel.center = center;
     panel.adjacent_erasure_event_ids = adjacent_erasure_event_ids;
     panel.uncertain_erasure_event_ids = uncertain_erasure_event_ids;
     panel.nearest_erasure_informative_sites = nearest_erasure_informative_sites;

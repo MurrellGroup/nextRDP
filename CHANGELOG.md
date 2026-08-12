@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.1-session-16
+
+- Fixed FASTA and project uploads under Emscripten 5.0.1 by exporting the `HEAPU8` view used by
+  the worker to copy file bytes into WASM memory.
+- Added a GitHub Pages artifact smoke test that instantiates the production WASM module, copies a
+  three-sequence FASTA through that heap view, loads it, and validates the alignment summary.
+- Completed a clean Node 20 / Emscripten 5.0.1 production build and Pages artifact verification.
+
 ## 0.15.0-session-15
 
 - Ported the supplied late `TSXOver(1)` 3SEQ Findall shape for the representative event triplet and

@@ -1,4 +1,4 @@
-# Port status — session 15
+# Port status — session 15 (Session 16 build-verified hotfix)
 
 This status is deliberately conservative. “Implemented” means source exists; it does not mean
 compiled or native-parity validated in this checkpoint.
@@ -47,10 +47,10 @@ compiled or native-parity validated in this checkpoint.
 | Recombinant-column removal FASTA | Implemented, unvalidated | Deletes the inclusive union of every accepted event tract from all rows in linear time; core and UI reject incomplete review, stale reconciliation, and an empty result |
 | Recombination-free FASTA | Implemented, unvalidated | Accepted tracts are replaced by gaps for current complete co-recombinant groups; core and UI reject incomplete-review export |
 | Mosaic-fragment FASTA | Implemented, unvalidated | Event-ordered tract-masked originals plus aligned fragment-only records; core and UI reject incomplete-review export |
-| GitHub Pages deployment | Configured, unvalidated | Default-branch/manual Actions workflow uses current official Node-24-generation actions, a Node 20 project build, locked npm dependencies, Emscripten 5.0.1, ABI/version/schema and TypeScript checks, single-worker WASM/Vite build, hidden-file-aware artifact verification, and official Pages deployment |
+| GitHub Pages deployment | Configured, locally build-validated | Default-branch/manual Actions workflow uses current official Node-24-generation actions, a Node 20 project build, locked npm dependencies, Emscripten 5.0.1, ABI/version/schema and TypeScript checks, single-worker WASM/Vite build, hidden-file-aware artifact verification, an instantiated-WASM FASTA upload smoke test, and official Pages deployment |
 | Exact late native consensus | Combined RDP/MaxChi/CHIMAERA/GENECONV/3SEQ discovery plus active five-family late corroboration, unvalidated | `OKSeq` 0–18, expansions, selected-role pruning, complete CScore/rebuild/fallback, shared selected-role tree cleanup, finalized-list RDP signal rechecks, bounded MaxChi/CHIMAERA strongest-peak rechecks, ordinary-kernel six-track GENECONV rechecks, and two-orientation `TSXOver(1)` 3SEQ Findall rechecks are active; full method-stack event-catalogue reconstruction and other families remain |
 | Additional 3SEQ/GENECONV modes and other methods | Partial | Ordinary automated, post-erasure-split, and late Findall 3SEQ plus ignored-indel GENECONV discovery/recheck are active; 3SEQ manual envelopes/full late event-catalogue reconstruction and GENECONV permutation/manual/alternative-indel/minimum-filter/full-late paths remain separate open work |
-| Compilation and runtime testing | Not performed locally | The workflow is configured to compile/check on GitHub only when the user runs it; this source checkpoint did not invoke it |
+| Compilation and runtime testing | Production build passed locally | Clean Node 20 / Emscripten 5.0.1 source, type, WASM, Vite, Pages artifact, and three-sequence FASTA upload checks passed; native-vs-WASM golden parity remains separate |
 | Native-vs-WASM golden parity suite | Designed only | See `docs/validation-plan.md` |
 
 ## Recommended next checkpoint

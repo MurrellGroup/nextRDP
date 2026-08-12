@@ -4,9 +4,9 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 15 source checkpoint — intentionally uncompiled.** Per the project instruction, this
-> archive contains source only. No native code, WebAssembly, npm build, preview server, or test
-> executable was run while preparing it.
+> **Session 15 source checkpoint — Session 16 GitHub Pages hotfix verified.** This archive contains
+> source only. Its Node 20 / Emscripten 5.0.1 production build, TypeScript/source contracts, Pages
+> artifact, and a real WASM FASTA-upload smoke test passed before packaging.
 
 ## What this checkpoint contains
 

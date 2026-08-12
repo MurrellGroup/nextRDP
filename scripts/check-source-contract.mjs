@@ -168,6 +168,11 @@ const expectedCmakeExports = uniqueSorted([
 ]);
 compareSets("CMake exported function list differs from rdp_api.h", expectedCmakeExports, cmakeExports);
 
+if (!cmake.includes("'UTF8ToString','HEAPU8'") ||
+    !worker.includes("module.HEAPU8.set(bytes, pointer)")) {
+  fail("the worker FASTA upload path does not have an exported WASM heap view");
+}
+
 const workerFunctions = uniqueSorted(
   captures(worker, /\b_(rdp_[a-z0-9_]+)\b/g).map((name) => `_${name}`),
 );
@@ -265,6 +270,8 @@ for (const artifactContract of [
   '"wasm/rdp-core.mjs"',
   '"wasm/rdp-core.wasm"',
   "WebAssembly header",
+  "FASTA upload smoke test",
+  "engine.HEAPU8.set(fasta, fastaPointer)",
   "is a symbolic link",
   "is hard-linked",
 ]) {
