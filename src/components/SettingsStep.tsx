@@ -6,6 +6,12 @@ interface SettingsStepProps {
   options: ScanOptions;
   sequenceCount: number;
   tripletCount: number;
+  exploratoryTripletCount: number;
+  queryReferenceTripletCount: number;
+  querySequenceCount: number;
+  referenceSequenceCount: number;
+  referenceGroupCount: number;
+  queryReferenceCorrectionTestCount: number;
   onChange: (options: ScanOptions) => void;
   onBack: () => void;
   onContinue: () => void;
@@ -19,13 +25,13 @@ const methods = [
   },
   {
     name: "GENECONV",
-    description: "Fragment scoring and Karlin–Altschul / permutation significance.",
-    state: "porting",
+    description: "Six signed fragment tracks with source mismatch scoring, Karlin–Altschul tails, and overlap filtering.",
+    state: "ready",
   },
   {
     name: "MAXCHI",
-    description: "Strongest-peak triplet confirmation is active; exploratory event discovery is still porting.",
-    state: "recheck",
+    description: "Raw χ² peak ordering, tract-side matching, peak destruction/retry, and cyclic discovery.",
+    state: "ready",
   },
   {
     name: "BOOTSCAN",
@@ -34,8 +40,8 @@ const methods = [
   },
   {
     name: "CHIMAERA",
-    description: "Two-variable-site χ² scan derived from MAXCHI.",
-    state: "queued",
+    description: "Target-rotated information-rich binary χ² profiles with source-shaped tract inference.",
+    state: "ready",
   },
   {
     name: "SISCAN",
@@ -44,8 +50,8 @@ const methods = [
   },
   {
     name: "3SEQ",
-    description: "Exact triplet test and recombinant tract inference.",
-    state: "queued",
+    description: "Target-rotated hypergeometric random walks with exact tails and source circular tract inference.",
+    state: "ready",
   },
 ] as const;
 
@@ -53,17 +59,45 @@ export function SettingsStep({
   options,
   sequenceCount,
   tripletCount,
+  exploratoryTripletCount,
+  queryReferenceTripletCount,
+  querySequenceCount,
+  referenceSequenceCount,
+  referenceGroupCount,
+  queryReferenceCorrectionTestCount,
   onChange,
   onBack,
   onContinue,
 }: SettingsStepProps) {
-  const settingsValid = sequenceCount >= 3 &&
+  const schemeValid = options.analysisMode === "exploratory" || (
+    querySequenceCount >= 1 && referenceSequenceCount >= 2 &&
+    referenceGroupCount >= 2 && queryReferenceTripletCount > 0
+  );
+  const settingsValid = sequenceCount >= 3 && schemeValid &&
     Number.isFinite(options.pValueCutoff) &&
     options.pValueCutoff > 0 &&
     options.pValueCutoff <= 1 &&
     Number.isInteger(options.windowSites) &&
     options.windowSites >= 5 &&
-    options.windowSites <= 1001;
+    options.windowSites <= 1001 &&
+    (!options.maxChiEnabled || (
+      Number.isInteger(options.maxChiWindowSites) &&
+      options.maxChiWindowSites >= 12 &&
+      options.maxChiWindowSites <= 2000
+    )) &&
+    (!options.chimaeraEnabled || (
+      Number.isInteger(options.chimaeraWindowSites) &&
+      options.chimaeraWindowSites >= 12 &&
+      options.chimaeraWindowSites <= 2000
+    )) &&
+    (!options.geneconvEnabled || (
+      Number.isInteger(options.geneconvMismatchScale) &&
+      options.geneconvMismatchScale >= 1 &&
+      options.geneconvMismatchScale <= 1000 &&
+      Number.isInteger(options.geneconvMaxOverlaps) &&
+      options.geneconvMaxOverlaps >= 1 &&
+      options.geneconvMaxOverlaps <= 100
+    ));
   const set = <Key extends keyof ScanOptions>(key: Key, value: ScanOptions[Key]) => {
     onChange({ ...options, [key]: value });
   };
@@ -83,7 +117,9 @@ export function SettingsStep({
           <ScanSearch size={18} />
           <span>
             <strong>{sequenceCount} active sequences</strong>
-            {tripletCount.toLocaleString()} unique triplets
+            {tripletCount.toLocaleString()} {options.analysisMode === "query-reference"
+              ? "constrained triplets"
+              : "unique triplets"}
           </span>
         </div>
       </header>
@@ -93,11 +129,59 @@ export function SettingsStep({
           <div className="content-card">
             <div className="card-heading">
               <span className="eyebrow">Analysis scheme</span>
-              <h2>Automated exploratory analysis</h2>
+              <h2>
+                {options.analysisMode === "query-reference"
+                  ? "Automated query vs reference"
+                  : "Fully exploratory analysis"}
+              </h2>
               <p>
-                Every eligible triplet is screened without assuming a pre-defined non-recombinant
-                reference set.
+                {options.analysisMode === "query-reference"
+                  ? "Every triplet contains one query and two references drawn from different groups, as specified in the RDP5 manual."
+                  : "Every eligible triplet is screened without assuming a pre-defined non-recombinant reference set."}
               </p>
+            </div>
+            <div className="segmented analysis-scheme" role="radiogroup" aria-label="Analysis scheme">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={options.analysisMode === "exploratory"}
+                className={options.analysisMode === "exploratory" ? "is-selected" : ""}
+                onClick={() => set("analysisMode", "exploratory")}
+              >
+                <CircleDot size={16} />
+                <span>
+                  Fully exploratory
+                  <small>{exploratoryTripletCount.toLocaleString()} triplets</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={options.analysisMode === "query-reference"}
+                className={options.analysisMode === "query-reference" ? "is-selected" : ""}
+                onClick={() => set("analysisMode", "query-reference")}
+              >
+                <CircleDot size={16} />
+                <span>
+                  Query vs reference
+                  <small>{queryReferenceTripletCount.toLocaleString()} constrained triplets</small>
+                </span>
+              </button>
+            </div>
+            {options.analysisMode === "query-reference" ? (
+              <div className={`inline-note${schemeValid ? "" : " notice-amber"}`}>
+                <Info size={17} />
+                <p>
+                  {querySequenceCount.toLocaleString()} queries · {referenceSequenceCount.toLocaleString()} references · {referenceGroupCount.toLocaleString()} groups. References in the same group are not paired. Role inference remains free to identify a reference as recombinant.
+                  {schemeValid && options.correction === "bonferroni"
+                    ? ` The supplied MakeAnalysisListQvR correction uses ${queryReferenceCorrectionTestCount.toLocaleString()} group-pair × query opportunities after the native cap; progress still reports every scheduled reference-record triplet.`
+                    : ""}
+                  {!schemeValid ? " Return to the dataset and define at least one query plus two enabled reference groups." : ""}
+                </p>
+              </div>
+            ) : null}
+            <div className="card-heading topology-heading">
+              <span className="eyebrow">Sequence topology</span>
             </div>
             <div className="segmented" role="radiogroup" aria-label="Sequence topology">
               <button
@@ -127,13 +211,13 @@ export function SettingsStep({
                 <span className="eyebrow">Primary methods</span>
                 <h2>Signal detection panel</h2>
               </div>
-              <span className="fidelity-badge">RDP full · MaxChi recheck</span>
+              <span className="fidelity-badge">RDP + GENECONV + MaxChi + CHIMAERA + 3SEQ discovery</span>
             </div>
             <div className="method-grid">
               {methods.map((method) => (
                 <article className={`method-card method-${method.state}`} key={method.name}>
                   <div className="method-state">
-                    {method.state === "ready" || method.state === "recheck"
+                    {method.state === "ready"
                       ? <Check size={16} />
                       : <LockKeyhole size={15} />}
                   </div>
@@ -142,10 +226,13 @@ export function SettingsStep({
                     <p>{method.description}</p>
                     <span>
                       {method.state === "ready"
-                        ? "Included in event discovery"
-                        : method.state === "recheck"
-                          ? "Included in confirmation"
-                          : method.state}
+                        ? (method.name === "MAXCHI" && !options.maxChiEnabled) ||
+                          (method.name === "CHIMAERA" && !options.chimaeraEnabled) ||
+                          (method.name === "GENECONV" && !options.geneconvEnabled) ||
+                          (method.name === "3SEQ" && !options.threeSeqEnabled)
+                          ? "Available · disabled for this scan"
+                          : "Included in event discovery"
+                        : method.state}
                     </span>
                   </div>
                 </article>
@@ -158,7 +245,7 @@ export function SettingsStep({
           <div className="content-card sticky-card">
             <div className="card-heading">
               <span className="eyebrow">Statistical controls</span>
-              <h2>RDP method</h2>
+              <h2>Primary methods</h2>
             </div>
             <label className="field">
               <span>Highest acceptable p-value</span>
@@ -180,10 +267,20 @@ export function SettingsStep({
                   set("correction", event.target.value as ScanOptions["correction"])
                 }
               >
-                <option value="bonferroni">Bonferroni correction</option>
+                <option value="bonferroni">Project correction (method-specific)</option>
                 <option value="none">No correction</option>
               </select>
-              <small>Bonferroni is the RDP5 default for exploratory scans.</small>
+              <small>
+                {options.analysisMode === "query-reference"
+                  ? options.correction === "bonferroni"
+                    ? options.threeSeqEnabled
+                      ? "The opportunity count is reference-group pairs × queries: RDP-family methods multiply by it, while 3SEQ applies its supplied Dunn–Šidák form."
+                      : "Query-vs-reference mode applies the supplied reference-group-pair × query correction rule."
+                    : "No correction will be applied; the source opportunity count remains in progress and result metadata."
+                  : options.threeSeqEnabled
+                    ? "The RDP-family methods use the project Bonferroni factor; 3SEQ uses the supplied Dunn–Šidák form with the same opportunity count."
+                    : "Bonferroni is the RDP5 default for exploratory scans."}
+              </small>
             </label>
             <label className="field">
               <span>RDP window</span>
@@ -199,6 +296,126 @@ export function SettingsStep({
                 <span>variable sites</span>
               </div>
               <small>The supplied RDP5 default is 30.</small>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.geneconvEnabled}
+                onChange={(event) => set("geneconvEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with GENECONV</strong>
+                <small>
+                  Runs the supplied automated triplet KA workflow with ignored indels and stable
+                  lowest-P overlap selection in every cyclic pass.
+                </small>
+              </span>
+            </label>
+            <label className="field">
+              <span>GENECONV mismatch scale</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  step="1"
+                  value={options.geneconvMismatchScale}
+                  disabled={!options.geneconvEnabled}
+                  onChange={(event) => set("geneconvMismatchScale", Number(event.target.value))}
+                />
+                <span>G scale</span>
+              </div>
+              <small>The supplied automated default is 1.</small>
+            </label>
+            <label className="field">
+              <span>GENECONV overlapping fragments</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={options.geneconvMaxOverlaps}
+                  disabled={!options.geneconvEnabled}
+                  onChange={(event) => set("geneconvMaxOverlaps", Number(event.target.value))}
+                />
+                <span>per site</span>
+              </div>
+              <small>The supplied automated default accepts one covering fragment per polymorphic site.</small>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.threeSeqEnabled}
+                onChange={(event) => set("threeSeqEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with 3SEQ</strong>
+                <small>
+                  Rotates all three candidate recombinants, computes exact bounded
+                  hypergeometric-walk tails, and uses the supplied Siegmund fallback only for
+                  larger profiles.
+                </small>
+              </span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.maxChiEnabled}
+                onChange={(event) => set("maxChiEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with MaxChi</strong>
+                <small>
+                  Runs the supplied triplet workflow in the same strongest-first cyclic passes as RDP.
+                </small>
+              </span>
+            </label>
+            <label className="field">
+              <span>MaxChi window</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="12"
+                  max="2000"
+                  step="2"
+                  value={options.maxChiWindowSites}
+                  disabled={!options.maxChiEnabled}
+                  onChange={(event) => set("maxChiWindowSites", Number(event.target.value))}
+                />
+                <span>variable sites</span>
+              </div>
+              <small>The supplied default is 70, split into two half-windows.</small>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.chimaeraEnabled}
+                onChange={(event) => set("chimaeraEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with CHIMAERA</strong>
+                <small>
+                  Rotates each triplet member through the candidate-recombinant role and scans its
+                  target-specific parent-match string in the shared cyclic scheduler.
+                </small>
+              </span>
+            </label>
+            <label className="field">
+              <span>CHIMAERA window</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="12"
+                  max="2000"
+                  step="2"
+                  value={options.chimaeraWindowSites}
+                  disabled={!options.chimaeraEnabled}
+                  onChange={(event) => set("chimaeraWindowSites", Number(event.target.value))}
+                />
+                <span>information-rich sites</span>
+              </div>
+              <small>The supplied default is 60, split into two half-windows.</small>
             </label>
             <label className="settings-toggle">
               <input

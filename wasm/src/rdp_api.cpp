@@ -4,8 +4,10 @@
 #include "json.hpp"
 #include "rdp_method.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -67,10 +69,18 @@ std::string bytes_to_string(const std::uint8_t* bytes, std::size_t length) {
   return std::string(reinterpret_cast<const char*>(bytes), length);
 }
 
+std::uint64_t restored_counter(double value) {
+  if (!std::isfinite(value) || value <= 0.0) return 0;
+  const double maximum = static_cast<double>(
+      std::numeric_limits<std::uint64_t>::max());
+  if (value >= maximum) return std::numeric_limits<std::uint64_t>::max();
+  return static_cast<std::uint64_t>(value);
+}
+
 std::string project_json(const Context& context) {
   std::ostringstream out;
-  out << "{\"schema\":\"org.rdp-web.project/v1alpha9\","
-         "\"engineVersion\":\"0.9.0-session-9\",\"dataset\":{";
+  out << "{\"schema\":\"org.rdp-web.project/v1alpha16\","
+         "\"engineVersion\":\"0.16.0-session-16\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -111,7 +121,7 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.9.0-session-9";
+  return "0.16.0-session-16";
 }
 
 RDP_KEEPALIVE int rdp_load_alignment(
@@ -159,7 +169,24 @@ RDP_KEEPALIVE int rdp_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     std::uint32_t window_sites,
+    int maxchi_enabled,
+    std::uint32_t maxchi_window_sites,
+    int chimaera_enabled,
+    std::uint32_t chimaera_window_sites,
+    int geneconv_enabled,
+    std::uint32_t geneconv_mismatch_scale,
+    std::uint32_t geneconv_max_overlaps,
+    int threeseq_enabled,
+    int bootscan_secondary_enabled,
+    std::uint32_t bootscan_window_sites,
+    std::uint32_t bootscan_step_sites,
+    std::uint32_t bootscan_bootstrap_replicates,
+    double bootscan_support_cutoff,
+    std::uint32_t bootscan_random_seed,
     int polish_breakpoints,
+    int query_reference_mode,
+    const std::uint32_t* reference_groups,
+    std::size_t reference_group_count,
     const std::uint8_t* masked_sequences,
     std::size_t mask_length,
     const std::uint8_t* disabled_sequences,
@@ -167,6 +194,13 @@ RDP_KEEPALIVE int rdp_scan_begin(
   Context* context = context_for(handle);
   if (!context || !context->loaded) return 0;
   context->error.clear();
+  const std::size_t sequence_count = context->alignment.sequence_count();
+  if (!reference_groups || reference_group_count != sequence_count ||
+      !masked_sequences || mask_length != sequence_count ||
+      !disabled_sequences || disabled_length != sequence_count) {
+    context->error = "The scan's sequence-role buffers do not match the loaded alignment.";
+    return 0;
+  }
   rdp::ScanOptions options;
   options.circular = circular != 0;
   options.correction = correction_mode == 0
@@ -174,15 +208,28 @@ RDP_KEEPALIVE int rdp_scan_begin(
       : rdp::CorrectionMode::none;
   options.p_value_cutoff = p_value_cutoff;
   options.window_sites = window_sites;
+  options.maxchi_enabled = maxchi_enabled != 0;
+  options.maxchi_window_sites = maxchi_window_sites;
+  options.chimaera_enabled = chimaera_enabled != 0;
+  options.chimaera_window_sites = chimaera_window_sites;
+  options.geneconv_enabled = geneconv_enabled != 0;
+  options.geneconv_mismatch_scale = geneconv_mismatch_scale;
+  options.geneconv_max_overlaps = geneconv_max_overlaps;
+  options.threeseq_enabled = threeseq_enabled != 0;
+  options.bootscan_secondary_enabled = bootscan_secondary_enabled != 0;
+  options.bootscan_window_sites = bootscan_window_sites;
+  options.bootscan_step_sites = bootscan_step_sites;
+  options.bootscan_bootstrap_replicates = bootscan_bootstrap_replicates;
+  options.bootscan_support_cutoff = bootscan_support_cutoff;
+  options.bootscan_random_seed = bootscan_random_seed;
   options.polish_breakpoints = polish_breakpoints != 0;
-  options.mask.assign(context->alignment.sequence_count(), 0);
-  if (masked_sequences && mask_length == options.mask.size()) {
-    options.mask.assign(masked_sequences, masked_sequences + mask_length);
-  }
-  options.disabled.assign(context->alignment.sequence_count(), 0);
-  if (disabled_sequences && disabled_length == options.disabled.size()) {
-    options.disabled.assign(disabled_sequences, disabled_sequences + disabled_length);
-  }
+  options.analysis_mode = query_reference_mode != 0
+      ? rdp::AnalysisMode::query_reference
+      : rdp::AnalysisMode::exploratory;
+  options.reference_groups.assign(
+      reference_groups, reference_groups + reference_group_count);
+  options.mask.assign(masked_sequences, masked_sequences + mask_length);
+  options.disabled.assign(disabled_sequences, disabled_sequences + disabled_length);
 
   context->scanner = std::make_unique<rdp::RdpScanner>(context->alignment);
   if (!context->scanner->begin(std::move(options), context->error)) {
@@ -268,7 +315,7 @@ RDP_KEEPALIVE int rdp_set_review_state(
   context->error.clear();
   const auto review_state = review_state_from_int(state);
   if (!context->scanner->set_review_state(signal_id, review_state)) {
-    context->error = "The selected RDP signal does not exist.";
+    context->error = "The selected recombination signal does not exist.";
     return 0;
   }
   return 1;
@@ -396,18 +443,40 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
     int correction_mode,
     double p_value_cutoff,
     std::uint32_t window_sites,
+    int maxchi_enabled,
+    std::uint32_t maxchi_window_sites,
+    int chimaera_enabled,
+    std::uint32_t chimaera_window_sites,
+    int geneconv_enabled,
+    std::uint32_t geneconv_mismatch_scale,
+    std::uint32_t geneconv_max_overlaps,
+    int threeseq_enabled,
+    int bootscan_secondary_enabled,
+    std::uint32_t bootscan_window_sites,
+    std::uint32_t bootscan_step_sites,
+    std::uint32_t bootscan_bootstrap_replicates,
+    double bootscan_support_cutoff,
+    std::uint32_t bootscan_random_seed,
     int polish_breakpoints,
+    int query_reference_mode,
+    const std::uint32_t* reference_groups,
+    std::size_t reference_group_count,
     const std::uint8_t* masked_sequences,
     std::size_t mask_length,
     const std::uint8_t* disabled_sequences,
     std::size_t disabled_length) {
   Context* context = context_for(handle);
-  if (!context || !context->loaded || !masked_sequences ||
-      mask_length != context->alignment.sequence_count() || !disabled_sequences ||
-      disabled_length != context->alignment.sequence_count()) {
+  if (!context || !context->loaded) {
     return 0;
   }
   context->error.clear();
+  const std::size_t sequence_count = context->alignment.sequence_count();
+  if (!reference_groups || reference_group_count != sequence_count || !masked_sequences ||
+      mask_length != sequence_count || !disabled_sequences ||
+      disabled_length != sequence_count) {
+    context->error = "The saved scan's sequence-role buffers do not match its alignment.";
+    return 0;
+  }
   context->restore_options = {};
   context->restore_options.circular = circular != 0;
   context->restore_options.correction = correction_mode == 0
@@ -415,7 +484,28 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
       : rdp::CorrectionMode::none;
   context->restore_options.p_value_cutoff = p_value_cutoff;
   context->restore_options.window_sites = window_sites;
+  context->restore_options.maxchi_enabled = maxchi_enabled != 0;
+  context->restore_options.maxchi_window_sites = maxchi_window_sites;
+  context->restore_options.chimaera_enabled = chimaera_enabled != 0;
+  context->restore_options.chimaera_window_sites = chimaera_window_sites;
+  context->restore_options.geneconv_enabled = geneconv_enabled != 0;
+  context->restore_options.geneconv_mismatch_scale = geneconv_mismatch_scale;
+  context->restore_options.geneconv_max_overlaps = geneconv_max_overlaps;
+  context->restore_options.threeseq_enabled = threeseq_enabled != 0;
+  context->restore_options.bootscan_secondary_enabled =
+      bootscan_secondary_enabled != 0;
+  context->restore_options.bootscan_window_sites = bootscan_window_sites;
+  context->restore_options.bootscan_step_sites = bootscan_step_sites;
+  context->restore_options.bootscan_bootstrap_replicates =
+      bootscan_bootstrap_replicates;
+  context->restore_options.bootscan_support_cutoff = bootscan_support_cutoff;
+  context->restore_options.bootscan_random_seed = bootscan_random_seed;
   context->restore_options.polish_breakpoints = polish_breakpoints != 0;
+  context->restore_options.analysis_mode = query_reference_mode != 0
+      ? rdp::AnalysisMode::query_reference
+      : rdp::AnalysisMode::exploratory;
+  context->restore_options.reference_groups.assign(
+      reference_groups, reference_groups + reference_group_count);
   context->restore_options.mask.assign(masked_sequences, masked_sequences + mask_length);
   context->restore_options.disabled.assign(
       disabled_sequences, disabled_sequences + disabled_length);
@@ -450,11 +540,21 @@ RDP_KEEPALIVE int rdp_restore_signal(
     int fragment_event_1,
     int fragment_event_2,
     int review_state,
-    int event_id) {
+    int event_id,
+    int method) {
   Context* context = context_for(handle);
   if (!context || !context->restoring_scan) return 0;
   rdp::Signal signal;
   signal.id = static_cast<std::uint32_t>(context->restore_signals.size());
+  signal.method = method == 1
+      ? rdp::SignalMethod::maxchi
+      : method == 2
+          ? rdp::SignalMethod::chimaera
+          : method == 3
+              ? rdp::SignalMethod::geneconv
+              : method == 4
+                  ? rdp::SignalMethod::threeseq
+                  : rdp::SignalMethod::rdp;
   signal.triplet = {triplet_0, triplet_1, triplet_2};
   signal.recombinant = recombinant;
   signal.major_parent = major_parent;
@@ -478,17 +578,342 @@ RDP_KEEPALIVE int rdp_restore_signal(
   return 1;
 }
 
+RDP_KEEPALIVE int rdp_restore_maxchi_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    int peak_pair,
+    int tract_side,
+    std::uint32_t peak_attempt,
+    std::uint32_t peak_alignment_position,
+    std::uint32_t variable_sites,
+    std::uint32_t initial_half_window,
+    std::uint32_t grown_half_window,
+    std::uint32_t critical_difference,
+    double maximum_chi_square,
+    double raw_p_value,
+    double within_triplet_p_value,
+    double left_flank_chi_square,
+    double right_flank_chi_square,
+    int missing_data_window_filter_applied,
+    int linear_edge_window_filter_applied) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size()) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::maxchi) return 0;
+  auto& discovery = signal.maxchi_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(0);
+  };
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.candidate_pair = signal.candidate_pair;
+  discovery.peak_pair = static_cast<std::int8_t>(peak_pair);
+  discovery.tract_side = tract_side < 0
+      ? rdp::MaxChiTractSide::left
+      : tract_side > 0
+          ? rdp::MaxChiTractSide::right
+          : rdp::MaxChiTractSide::unavailable;
+  discovery.peak_attempt = peak_attempt;
+  discovery.peak_alignment_position = peak_alignment_position;
+  discovery.variable_sites = variable_sites;
+  discovery.initial_half_window = initial_half_window;
+  discovery.grown_half_window = grown_half_window;
+  discovery.critical_difference = critical_difference;
+  discovery.maximum_chi_square = maximum_chi_square;
+  discovery.raw_p_value = raw_p_value;
+  discovery.within_triplet_p_value = within_triplet_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.left_flank_chi_square = left_flank_chi_square;
+  discovery.right_flank_chi_square = right_flank_chi_square;
+  discovery.pair_similarity = signal.pair_similarity;
+  discovery.missing_data_window_filter_applied =
+      missing_data_window_filter_applied != 0;
+  discovery.linear_edge_window_filter_applied =
+      linear_edge_window_filter_applied != 0;
+  return 1;
+}
+
+RDP_KEEPALIVE int rdp_restore_chimaera_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    std::uint32_t target_local,
+    int tract_side,
+    std::uint32_t peak_attempt,
+    std::uint32_t peak_alignment_position,
+    std::uint32_t information_rich_sites,
+    std::uint32_t initial_half_window,
+    std::uint32_t grown_half_window,
+    std::uint32_t critical_difference,
+    double maximum_chi_square,
+    double raw_p_value,
+    double within_triplet_p_value,
+    double left_flank_chi_square,
+    double right_flank_chi_square,
+    double inside_parent_one_match_rate,
+    double outside_parent_one_match_rate,
+    int missing_data_window_filter_applied,
+    int linear_edge_window_filter_applied) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size() || target_local > 2) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::chimaera) return 0;
+  auto& discovery = signal.chimaera_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(0);
+  };
+  discovery.target_local = static_cast<std::uint8_t>(target_local);
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.candidate_pair = signal.candidate_pair;
+  discovery.tract_side = tract_side < 0
+      ? rdp::MaxChiTractSide::left
+      : tract_side > 0
+          ? rdp::MaxChiTractSide::right
+          : rdp::MaxChiTractSide::unavailable;
+  discovery.peak_attempt = peak_attempt;
+  discovery.peak_alignment_position = peak_alignment_position;
+  discovery.information_rich_sites = information_rich_sites;
+  discovery.initial_half_window = initial_half_window;
+  discovery.grown_half_window = grown_half_window;
+  discovery.critical_difference = critical_difference;
+  discovery.maximum_chi_square = maximum_chi_square;
+  discovery.raw_p_value = raw_p_value;
+  discovery.within_triplet_p_value = within_triplet_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.left_flank_chi_square = left_flank_chi_square;
+  discovery.right_flank_chi_square = right_flank_chi_square;
+  discovery.inside_parent_one_match_rate = inside_parent_one_match_rate;
+  discovery.outside_parent_one_match_rate = outside_parent_one_match_rate;
+  discovery.pair_similarity = signal.pair_similarity;
+  discovery.missing_data_window_filter_applied =
+      missing_data_window_filter_applied != 0;
+  discovery.linear_edge_window_filter_applied =
+      linear_edge_window_filter_applied != 0;
+  return discovery.recombinant_local == discovery.target_local ? 1 : 0;
+}
+
+RDP_KEEPALIVE int rdp_restore_geneconv_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    std::uint32_t track,
+    std::uint32_t polymorphic_sites,
+    std::uint32_t positive_sites,
+    std::uint32_t discordant_sites,
+    std::uint32_t mismatch_penalty,
+    std::uint32_t fragment_score,
+    std::uint32_t critical_score,
+    double lambda,
+    double karlin_altschul_k,
+    double raw_p_value) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size() || track > 5) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::geneconv) return 0;
+  auto& discovery = signal.geneconv_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(0);
+  };
+  discovery.track = static_cast<std::uint8_t>(track);
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.candidate_pair = signal.candidate_pair;
+  discovery.polymorphic_sites = polymorphic_sites;
+  discovery.positive_sites = positive_sites;
+  discovery.discordant_sites = discordant_sites;
+  discovery.mismatch_penalty = mismatch_penalty;
+  discovery.fragment_score = fragment_score;
+  discovery.critical_score = critical_score;
+  discovery.lambda = lambda;
+  discovery.karlin_altschul_k = karlin_altschul_k;
+  discovery.raw_p_value = raw_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.pair_similarity = signal.pair_similarity;
+  return 1;
+}
+
+RDP_KEEPALIVE int rdp_restore_threeseq_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    std::uint32_t target_local,
+    int walk_direction,
+    std::uint32_t information_rich_sites,
+    std::uint32_t parent_one_matches,
+    std::uint32_t parent_two_matches,
+    std::uint32_t probability_excursion,
+    std::uint32_t maximum_excursion,
+    double raw_p_value,
+    int exact_probability,
+    int siegmund_fallback,
+    int missing_data_split_applied) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size() || target_local > 2 ||
+      (walk_direction != -1 && walk_direction != 1) ||
+      information_rich_sites < 4 ||
+      static_cast<std::uint64_t>(parent_one_matches) + parent_two_matches !=
+          information_rich_sites ||
+      probability_excursion > information_rich_sites ||
+      maximum_excursion > parent_two_matches ||
+      (missing_data_split_applied == 0 &&
+       probability_excursion > maximum_excursion) ||
+      (missing_data_split_applied == 0 && parent_two_matches > 0 &&
+       maximum_excursion == 1) ||
+      (missing_data_split_applied == 0 &&
+       parent_two_matches >= parent_one_matches &&
+       parent_two_matches - parent_one_matches == maximum_excursion) ||
+      !std::isfinite(raw_p_value) || !(raw_p_value > 0.0) ||
+      raw_p_value > 1.0 ||
+      (exact_probability != 0 && exact_probability != 1) ||
+      (siegmund_fallback != 0 && siegmund_fallback != 1) ||
+      (missing_data_split_applied != 0 && missing_data_split_applied != 1) ||
+      ((exact_probability != 0) == (siegmund_fallback != 0))) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::threeseq ||
+      signal.informative_sites != information_rich_sites ||
+      signal.local_p_value != raw_p_value) {
+    return 0;
+  }
+  auto& discovery = signal.threeseq_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(3);
+  };
+  discovery.target_local = static_cast<std::uint8_t>(target_local);
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.candidate_pair = signal.candidate_pair;
+  discovery.direction = walk_direction > 0
+      ? rdp::ThreeSeqWalkDirection::ascent
+      : rdp::ThreeSeqWalkDirection::descent;
+  discovery.information_rich_sites = information_rich_sites;
+  discovery.parent_one_matches = parent_one_matches;
+  discovery.parent_two_matches = parent_two_matches;
+  discovery.probability_excursion = probability_excursion;
+  discovery.maximum_excursion = maximum_excursion;
+  discovery.raw_p_value = raw_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.pair_similarity = signal.pair_similarity;
+  discovery.exact_probability = exact_probability != 0;
+  discovery.siegmund_fallback = siegmund_fallback != 0;
+  discovery.missing_data_split_applied = missing_data_split_applied != 0;
+  const std::uint8_t parent_one = static_cast<std::uint8_t>((target_local + 1) % 3);
+  const std::uint8_t parent_two = static_cast<std::uint8_t>((target_local + 2) % 3);
+  const std::uint8_t expected_major = walk_direction > 0 ? parent_two : parent_one;
+  const std::uint8_t expected_minor = walk_direction > 0 ? parent_one : parent_two;
+  const std::uint8_t pair_first = std::min(discovery.target_local, expected_minor);
+  const std::uint8_t pair_second = std::max(discovery.target_local, expected_minor);
+  const std::uint8_t expected_pair = pair_first == 0 && pair_second == 1
+      ? 0
+      : pair_first == 0 && pair_second == 2 ? 1 : 2;
+  return discovery.recombinant_local == discovery.target_local &&
+          discovery.major_parent_local == expected_major &&
+          discovery.minor_parent_local == expected_minor &&
+          discovery.candidate_pair == expected_pair
+      ? 1
+      : 0;
+}
+
 RDP_KEEPALIVE int rdp_restore_scan_finish(
     std::uint32_t handle,
-    std::uint32_t correction_tests) {
+    std::uint32_t correction_tests,
+    double cumulative_triplets,
+    std::uint32_t scan_rounds,
+    double maxchi_profiles_scanned,
+    double maxchi_peak_attempts,
+    double maxchi_candidates_found,
+    double maxchi_peak_limit_triplets,
+    double chimaera_profiles_scanned,
+    double chimaera_peak_attempts,
+    double chimaera_candidates_found,
+    double chimaera_peak_limit_targets,
+    double geneconv_fragments_scored,
+    double geneconv_qualified_fragments,
+    double geneconv_candidates_found,
+    double geneconv_overlap_rejections,
+    double geneconv_numerical_fallback_tracks,
+    double threeseq_profiles_scanned,
+    double threeseq_exact_evaluations,
+    double threeseq_approximate_evaluations,
+    double threeseq_candidates_found,
+    const std::uint8_t* cycle_termination,
+    std::size_t cycle_termination_length) {
   Context* context = context_for(handle);
-  if (!context || !context->loaded || !context->restoring_scan) return 0;
+  if (!context || !context->loaded || !context->restoring_scan ||
+      (!cycle_termination && cycle_termination_length > 0)) {
+    return 0;
+  }
   context->error.clear();
   context->scanner = std::make_unique<rdp::RdpScanner>(context->alignment);
   const bool restored = context->scanner->restore(
       std::move(context->restore_options),
       std::move(context->restore_signals),
       correction_tests,
+      restored_counter(cumulative_triplets),
+      scan_rounds,
+      restored_counter(maxchi_profiles_scanned),
+      restored_counter(maxchi_peak_attempts),
+      restored_counter(maxchi_candidates_found),
+      restored_counter(maxchi_peak_limit_triplets),
+      restored_counter(chimaera_profiles_scanned),
+      restored_counter(chimaera_peak_attempts),
+      restored_counter(chimaera_candidates_found),
+      restored_counter(chimaera_peak_limit_targets),
+      restored_counter(geneconv_fragments_scored),
+      restored_counter(geneconv_qualified_fragments),
+      restored_counter(geneconv_candidates_found),
+      restored_counter(geneconv_overlap_rejections),
+      restored_counter(geneconv_numerical_fallback_tracks),
+      restored_counter(threeseq_profiles_scanned),
+      restored_counter(threeseq_exact_evaluations),
+      restored_counter(threeseq_approximate_evaluations),
+      restored_counter(threeseq_candidates_found),
+      bytes_to_string(cycle_termination, cycle_termination_length),
       context->error);
   context->restoring_scan = false;
   if (!restored) {

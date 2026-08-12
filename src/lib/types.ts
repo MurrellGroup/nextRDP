@@ -1,7 +1,10 @@
 export type WorkflowStep = "dataset" | "settings" | "scan" | "review" | "export";
 
 export type CorrectionMode = "bonferroni" | "none";
+export type AnalysisMode = "exploratory" | "query-reference";
+export type QueryReferenceInputRole = "query" | "reference" | "not-applied";
 export type SequenceAnalysisState = "enabled" | "masked" | "disabled";
+export type DiscoveryMethod = "RDP" | "MAXCHI" | "CHIMAERA" | "GENECONV" | "3SEQ";
 
 export interface SequenceSummary {
   index: number;
@@ -29,13 +32,29 @@ export interface DatasetSummary {
 }
 
 export interface ScanOptions {
+  analysisMode: AnalysisMode;
   circular: boolean;
   pValueCutoff: number;
   correction: CorrectionMode;
   windowSites: number;
+  maxChiEnabled: boolean;
+  maxChiWindowSites: number;
+  chimaeraEnabled: boolean;
+  chimaeraWindowSites: number;
+  geneconvEnabled: boolean;
+  geneconvMismatchScale: number;
+  geneconvMaxOverlaps: number;
+  threeSeqEnabled: boolean;
+  bootscanSecondaryEnabled: boolean;
+  bootscanWindowSites: number;
+  bootscanStepSites: number;
+  bootscanBootstrapReplicates: number;
+  bootscanSupportCutoff: number;
+  bootscanRandomSeed: number;
   polishBreakpoints: boolean;
   maskedSequenceIndices: number[];
   disabledSequenceIndices: number[];
+  referenceGroupIndices: number[];
 }
 
 export interface ScanProgress {
@@ -43,24 +62,140 @@ export interface ScanProgress {
   phase: "primary" | "cyclic-rescan" | "reconciliation" | "complete";
   processedTriplets: number;
   totalTriplets: number;
+  correctionTests: number;
+  activeWorkingSequenceCount: number;
+  queryWorkingSequenceCount: number;
+  referenceWorkingSequenceCount: number;
+  activeReferenceGroupCount: number;
   cumulativeTriplets: number;
   scanRound: number;
   fixedEventCount: number;
   signalCount: number;
   eventCount: number;
+  maxChiProfilesScanned: number;
+  maxChiPeakAttempts: number;
+  maxChiCandidatesFound: number;
+  maxChiPeakLimitTriplets: number;
+  chimaeraProfilesScanned: number;
+  chimaeraPeakAttempts: number;
+  chimaeraCandidatesFound: number;
+  chimaeraPeakLimitTargets: number;
+  geneconvFragmentsScored: number;
+  geneconvQualifiedFragments: number;
+  geneconvCandidatesFound: number;
+  geneconvOverlapRejections: number;
+  geneconvNumericalFallbackTracks: number;
+  threeSeqProfilesScanned: number;
+  threeSeqExactEvaluations: number;
+  threeSeqApproximateEvaluations: number;
+  threeSeqCandidatesFound: number;
   cycleTermination: string;
   fraction: number;
 }
 
 export type ReviewState = "unreviewed" | "accepted" | "rejected";
 
+export interface MaxChiDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "MCXoverF-multi-peak-destroy-retry";
+  peakOrdering: "raw-chi-square-lazy-heap";
+  smoothingUse: "twelve-term-eleven-divisor-source-basin-destruction-only";
+  peakAttempt: number;
+  peakPair: 0 | 1 | 2 | null;
+  tractSide: "left" | "right" | "unavailable";
+  peakAlignmentPosition: number;
+  variableSites: number;
+  initialHalfWindow: number;
+  grownHalfWindow: number;
+  criticalDifference: number;
+  maximumChiSquare: number;
+  rawPValue: number;
+  withinTripletPValue: number;
+  correctedPValue: number;
+  leftFlankChiSquare: number;
+  rightFlankChiSquare: number;
+  missingDataWindowFilterApplied: boolean;
+  linearEdgeWindowFilterApplied: boolean;
+}
+
+export interface ChimaeraDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "AlistChi-FastRecCheckChim-CXoverA";
+  profile: "target-specific-information-rich-binary-string";
+  peakOrdering: "raw-chi-square-lazy-heap-per-target";
+  smoothingUse: "twelve-term-eleven-divisor-source-basin-destruction-only";
+  targetLocal: 0 | 1 | 2;
+  peakAttempt: number;
+  tractSide: "left" | "right" | "unavailable";
+  peakAlignmentPosition: number;
+  informationRichSites: number;
+  initialHalfWindow: number;
+  grownHalfWindow: number;
+  criticalDifference: number;
+  maximumChiSquare: number;
+  rawPValue: number;
+  withinTripletPValue: number;
+  correctedPValue: number;
+  leftFlankChiSquare: number;
+  rightFlankChiSquare: number;
+  insideParentOneMatchRate: number;
+  outsideParentOneMatchRate: number;
+  missingDataWindowFilterApplied: boolean;
+  linearEdgeWindowFilterApplied: boolean;
+}
+
+export interface GeneconvDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "FindSubSeqGCAP6-GetFragsP-GetMaxFragScoreP-CalcKMaxP-GCCalcPValP2-GCXoverD";
+  probabilityModel: "karlin-altschul";
+  indelMode: "ignored";
+  overlapPolicy: "stable-lowest-p-configured-coverage";
+  minimumFragmentFiltersApplied: false;
+  track: 0 | 1 | 2 | 3 | 4 | 5;
+  polymorphicSites: number;
+  positiveSites: number;
+  discordantSites: number;
+  mismatchPenalty: number;
+  fragmentScore: number;
+  criticalScore: number;
+  lambda: number;
+  karlinAltschulK: number;
+  rawPValue: number;
+  correctedPValue: number;
+  karlinAltschulProbability: true;
+  ignoredIndels: true;
+  overlapFilterApplied: true;
+}
+
+export interface ThreeSeqDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "FindSubSeqTS-Seq3PVals-CheckwrapC-TSXOver";
+  profile: "target-specific-information-rich-random-walk";
+  probabilityModel: "exact-hypergeometric-walk-with-siegmund-fallback";
+  correctionModel: "dunn-sidak-when-project-correction-enabled";
+  targetLocal: 0 | 1 | 2;
+  walkDirection: "ascent" | "descent";
+  informationRichSites: number;
+  parentOneMatches: number;
+  parentTwoMatches: number;
+  probabilityExcursion: number;
+  maximumExcursion: number;
+  rawPValue: number;
+  correctedPValue: number;
+  exactProbability: boolean;
+  siegmundFallback: boolean;
+  missingDataSplitApplied: boolean;
+}
+
 export interface RdpSignal {
   id: number;
-  method: "RDP";
+  method: DiscoveryMethod;
   triplet: [number, number, number];
   tripletNames: [string, string, string];
   recombinant: number;
   recombinantName: string;
+  queryReferenceInputRole: QueryReferenceInputRole;
+  referenceGroup: number | null;
   majorParent: number;
   majorParentName: string;
   minorParent: number;
@@ -76,6 +211,10 @@ export interface RdpSignal {
   pairSimilarity: [number, number, number];
   informativeSites: number;
   candidatePair: number;
+  maxChiDiscovery: MaxChiDiscoveryEvidence | null;
+  chimaeraDiscovery: ChimaeraDiscoveryEvidence | null;
+  geneconvDiscovery: GeneconvDiscoveryEvidence | null;
+  threeSeqDiscovery: ThreeSeqDiscoveryEvidence | null;
   fragmentAssisted: boolean;
   fragmentEventContext: [number | null, number | null, number | null];
   eventId: number | null;
@@ -294,7 +433,7 @@ export interface MaxChiRecheckEvidence {
   bonferroniApplied: boolean;
   correctionTests: number;
   variableSites: number;
-  fixedWindowSites: 70;
+  fixedWindowSites: number;
   halfWindow: number;
   criticalDifference: number;
   grownHalfWindow: number;
@@ -304,6 +443,146 @@ export interface MaxChiRecheckEvidence {
   localPValue: number | null;
   withinTripletPValue: number | null;
   correctedPValue: number | null;
+  sourceRecheckHit: boolean;
+}
+
+export interface ChimaeraRecheckEvidence {
+  status:
+    | "complete-active-unvalidated"
+    | "representative-skipped"
+    | "not-in-final-distance-list"
+    | "profile-unavailable";
+  kernel: "FastRecCheckChim-three-target-strongest-peak";
+  eventDiscoveryApplied: false;
+  requested: boolean;
+  representativeSkipped: boolean;
+  profileAvailable: boolean;
+  missingDataWindowFilterApplied: boolean;
+  linearEdgeWindowFilterApplied: boolean;
+  bonferroniApplied: boolean;
+  correctionTests: number;
+  fixedWindowSites: number;
+  targetProfilesScanned: number;
+  bestTarget: 0 | 1 | 2 | null;
+  informationRichSites: number;
+  halfWindow: number;
+  criticalDifference: number;
+  grownHalfWindow: number;
+  peakAlignmentPosition: number | null;
+  maximumChiSquare: number | null;
+  localPValue: number | null;
+  withinTripletPValue: number | null;
+  correctedPValue: number | null;
+  sourceRecheckHit: boolean;
+}
+
+export interface GeneconvRecheckEvidence {
+  status:
+    | "complete-active-unvalidated"
+    | "representative-skipped"
+    | "not-in-final-distance-list"
+    | "profile-unavailable";
+  kernel: "GCXoverD-six-track-best-fragment";
+  eventDiscoveryApplied: false;
+  requested: boolean;
+  representativeSkipped: boolean;
+  profileAvailable: boolean;
+  bonferroniApplied: boolean;
+  ignoredIndels: true;
+  overlapFilterApplied: true;
+  minimumFragmentFiltersApplied: false;
+  sourceSkewFilterRejected: boolean;
+  correctionTests: number;
+  polymorphicSites: number;
+  tracksScreened: number;
+  fragmentsScored: number;
+  qualifiedFragments: number;
+  overlapRejectedFragments: number;
+  numericalFallbackTracks: number;
+  bestTrack: 0 | 1 | 2 | 3 | 4 | 5 | null;
+  recombinantLocal: 0 | 1 | 2 | null;
+  beginning: number | null;
+  ending: number | null;
+  wrapsOrigin: boolean;
+  fragmentScore: number | null;
+  criticalScore: number | null;
+  rawPValue: number | null;
+  correctedPValue: number | null;
+  sourceRecheckHit: boolean;
+}
+
+export interface ThreeSeqRecheckEvidence {
+  status:
+    | "complete-active-unvalidated"
+    | "representative-skipped"
+    | "not-in-final-distance-list"
+    | "profile-unavailable";
+  kernel: "TSXOver-Findall-two-orientations";
+  eventDiscoveryApplied: false;
+  requested: boolean;
+  representativeSkipped: boolean;
+  profileAvailable: boolean;
+  correctionApplied: boolean;
+  correctionTests: number;
+  targetProfilesScanned: number;
+  exactProbabilityEvaluations: number;
+  approximateProbabilityEvaluations: number;
+  qualifyingOrientations: number;
+  sourceListEntries: number;
+  bestTarget: 0 | 1 | 2 | null;
+  bestDirection: "ascent" | "descent" | null;
+  informationRichSites: number;
+  parentOneMatches: number;
+  parentTwoMatches: number;
+  probabilityExcursion: number;
+  maximumExcursion: number;
+  beginning: number | null;
+  ending: number | null;
+  wrapsOrigin: boolean;
+  rawPValue: number | null;
+  correctedPValue: number | null;
+  exactProbability: boolean;
+  siegmundFallback: boolean;
+  missingDataSplitApplied: boolean;
+  sourceRecheckHit: boolean;
+}
+
+export interface BootscanRecheckEvidence {
+  status:
+    | "complete-active-unvalidated"
+    | "representative-skipped"
+    | "not-requested"
+    | "profile-unavailable";
+  kernel: "BSXoverM-SEQBOOT2-FastBootDistIP-DrawBSPlotsIII";
+  eventDiscoveryApplied: false;
+  coordinateChanging: false;
+  requested: boolean;
+  representativeSkipped: boolean;
+  profileAvailable: boolean;
+  sourceDistanceMode: true;
+  sourceBinomialProbability: true;
+  sourceCircularWindows: true;
+  erasedWindowFilterApplied: boolean;
+  bonferroniApplied: boolean;
+  correctionTests: number;
+  windowSites: number;
+  stepSites: number;
+  bootstrapReplicates: number;
+  randomSeed: number;
+  supportCutoff: number;
+  windowsScanned: number;
+  eventWindowsScored: number;
+  usableEventWindows: number;
+  informativeSites: number;
+  tractInformativeSites: number;
+  tractPairMatches: number;
+  outsidePairMatches: number;
+  scoredPair: 0 | 1 | 2 | null;
+  maximumPairSupport: number;
+  meanScoredPairSupport: number;
+  localPValue: number | null;
+  correctedPValue: number | null;
+  supportGatePassed: boolean;
   sourceRecheckHit: boolean;
 }
 
@@ -335,6 +614,10 @@ export interface DistanceCorrelationEvidence {
   consensusScore: ConsensusScoreEvidence;
   postGroupRdpRecheck: PostGroupRdpRecheckEvidence;
   postGroupMaxChiRecheck: MaxChiRecheckEvidence;
+  postGroupChimaeraRecheck: ChimaeraRecheckEvidence;
+  postGroupGeneconvRecheck: GeneconvRecheckEvidence;
+  postGroupThreeSeqRecheck: ThreeSeqRecheckEvidence;
+  postGroupBootscanRecheck: BootscanRecheckEvidence;
 }
 
 export interface PhylogeneticCorrelationEvidence {
@@ -442,12 +725,21 @@ export interface RoleHypothesisEvidence {
   nativePrimaryRdpRecheckComplete: true;
   maxChiPostGroupRecheckStatus: "source-shaped-strongest-peak-unvalidated";
   nativeMaxChiFullRecheckComplete: false;
+  geneconvPostGroupRecheckStatus: "source-shaped-six-track-best-fragment-unvalidated";
+  nativeGeneconvFullRecheckComplete: false;
+  threeSeqPostGroupRecheckStatus: "source-shaped-findall-two-orientation-unvalidated";
+  nativeThreeSeqFullRecheckComplete: false;
+  bootscanPostGroupRecheckStatus: "source-shaped-distance-bootstrap-binomial-unvalidated";
+  nativeBootscanFullRecheckComplete: false;
   lateNativeConsensusComplete: false;
 }
 
 export interface ReconciledEvent {
   id: number;
   anchorSignalId: number;
+  anchorMethod: DiscoveryMethod;
+  detectionMethods: DiscoveryMethod[];
+  maxChiChimaeraOnlySupport: boolean;
   detectionRound: number;
   erasedNucleotideSites: number;
   erasedWorkingSites: number;
@@ -457,6 +749,8 @@ export interface ReconciledEvent {
   reconciliationBasis: "two-shared-sequences-and-30-percent-overlap";
   recombinant: number;
   recombinantName: string;
+  queryReferenceInputRole: QueryReferenceInputRole;
+  referenceGroup: number | null;
   majorParent: number;
   majorParentName: string;
   minorParent: number;
@@ -467,6 +761,10 @@ export interface ReconciledEvent {
   breakpointConfidence: BreakpointConfidenceEvidence;
   breakpointContext: BreakpointContext;
   maxChiTripletRecheck: MaxChiRecheckEvidence;
+  chimaeraTripletRecheck: ChimaeraRecheckEvidence;
+  geneconvTripletRecheck: GeneconvRecheckEvidence;
+  threeSeqTripletRecheck: ThreeSeqRecheckEvidence;
+  bootscanTripletRecheck: BootscanRecheckEvidence;
   bestLocalPValue: number;
   bestCorrectedPValue: number;
   supportSignalIds: number[];
@@ -505,6 +803,12 @@ export interface SignalPlotPoint {
 export interface SignalPlot {
   signalId: number;
   windowSites: number;
+  method: DiscoveryMethod;
+  metric: "pair-identity" | "chi-square" | "negative-log10-p-value" | "random-walk-height";
+  profileContext: "detection-alignment" | "original-alignment-reconstruction";
+  detectionProfileExact: boolean;
+  minimumValue: number;
+  maximumValue: number;
   points: SignalPlotPoint[];
 }
 
@@ -553,6 +857,8 @@ export interface EventAlignmentRow {
   sequenceIndex: number;
   sequenceName: string;
   role: EventAlignmentRole;
+  queryReferenceInputRole: QueryReferenceInputRole;
+  referenceGroup: number | null;
   masked: boolean;
   disabled: boolean;
   currentGroupMember: boolean;
@@ -580,6 +886,8 @@ export interface EventTreeLeaf {
   sequenceName: string;
   fragmentEventId: number | null;
   role: EventAlignmentRole;
+  queryReferenceInputRole: QueryReferenceInputRole;
+  referenceGroup: number | null;
   masked: boolean;
   disabled: boolean;
   currentGroupMember: boolean;
@@ -624,16 +932,43 @@ export interface EventTreeView {
 }
 
 export interface LateConsensusStatus {
-  status: "active-rdp-maxchi-post-group-recheck";
+  status: "active-rdp-maxchi-chimaera-geneconv-threeseq-plus-optional-bootscan-post-group-recheck";
   groupPruningApplied: true;
   nativeGroupMembershipComplete: true;
   primaryRdpPostGroupRecheckApplied: true;
   nativePrimaryRdpRecheckComplete: true;
   maxChiTripletRecheckApplied: true;
   maxChiPostGroupRecheckApplied: true;
-  maxChiKernelStatus: "source-shaped-strongest-peak-unvalidated";
-  maxChiEventDiscoveryApplied: false;
+  maxChiKernelStatus: "source-shaped-multi-peak-destroy-retry-unvalidated";
+  maxChiEventDiscoveryApplied: boolean;
+  maxChiDiscoveryFeedsCyclicScheduler: boolean;
+  chimaeraKernelStatus: "source-shaped-target-profile-multi-peak-destroy-retry-unvalidated";
+  chimaeraEventDiscoveryApplied: boolean;
+  chimaeraDiscoveryFeedsCyclicScheduler: boolean;
+  chimaeraTripletRecheckApplied: true;
+  chimaeraPostGroupRecheckApplied: true;
+  chimaeraRecheckKernelStatus: "source-shaped-three-target-strongest-peak-unvalidated";
+  geneconvKernelStatus: "source-shaped-six-track-ka-fragments-unvalidated";
+  geneconvEventDiscoveryApplied: boolean;
+  geneconvDiscoveryFeedsCyclicScheduler: boolean;
+  geneconvTripletRecheckApplied: true;
+  geneconvPostGroupRecheckApplied: true;
+  geneconvRecheckKernelStatus: "source-shaped-six-track-best-fragment-unvalidated";
+  threeSeqKernelStatus: "source-shaped-hypergeometric-random-walk-unvalidated";
+  threeSeqEventDiscoveryApplied: boolean;
+  threeSeqDiscoveryFeedsCyclicScheduler: boolean;
+  threeSeqTripletRecheckApplied: true;
+  threeSeqPostGroupRecheckApplied: true;
+  threeSeqRecheckKernelStatus: "source-shaped-findall-two-orientation-unvalidated";
+  bootscanSecondaryEnabled: boolean;
+  bootscanTripletRecheckApplied: boolean;
+  bootscanPostGroupRecheckApplied: boolean;
+  bootscanRecheckKernelStatus: "source-shaped-distance-bootstrap-binomial-unvalidated";
+  nativeBootscanFullRecheckComplete: false;
   nativeMaxChiFullRecheckComplete: false;
+  nativeChimaeraFullRecheckComplete: false;
+  nativeGeneconvFullRecheckComplete: false;
+  nativeThreeSeqFullRecheckComplete: false;
   implementedStages: string[];
   pendingStages: string[];
 }
@@ -678,7 +1013,17 @@ export interface TreeInspectionStatus {
 export interface ScanResults {
   engineVersion: string;
   status: "cyclic-three-set-reconciled";
-  method: "RDP";
+  method: string;
+  analysisMode: AnalysisMode;
+  queryReference: {
+    active: boolean;
+    querySequenceCount: number;
+    referenceSequenceCount: number;
+    referenceGroupCount: number;
+    tripletConstraint: "one-query-two-different-reference-groups";
+    sourceCorrectionRule: "reference-group-pairs-times-query-origins";
+  };
+  discoveryMethods: DiscoveryMethod[];
   reconciliationTier: "detectable-distance-phylogenetic";
   cycleMode: "strongest-first-tract-erasure-with-bounded-fragment-reentry";
   lateConsensus: LateConsensusStatus;
@@ -691,17 +1036,55 @@ export interface ScanResults {
   fragmentReentryCapped: boolean;
   workingSequenceCount: number;
   workingFragmentSequenceCount: number;
+  activeWorkingSequenceCount: number;
+  queryWorkingSequenceCount: number;
+  referenceWorkingSequenceCount: number;
+  activeReferenceGroupCount: number;
+  processedTriplets: number;
+  totalTriplets: number;
   scanRounds: number;
   cumulativeTriplets: number;
+  maxChiProfilesScanned: number;
+  maxChiPeakAttempts: number;
+  maxChiCandidatesFound: number;
+  maxChiPeakLimitTriplets: number;
+  chimaeraProfilesScanned: number;
+  chimaeraPeakAttempts: number;
+  chimaeraCandidatesFound: number;
+  chimaeraPeakLimitTargets: number;
+  geneconvFragmentsScored: number;
+  geneconvQualifiedFragments: number;
+  geneconvCandidatesFound: number;
+  geneconvOverlapRejections: number;
+  geneconvNumericalFallbackTracks: number;
+  threeSeqProfilesScanned: number;
+  threeSeqExactEvaluations: number;
+  threeSeqApproximateEvaluations: number;
+  threeSeqCandidatesFound: number;
   cycleTermination: string;
   correction: CorrectionMode;
   correctionTests: number;
   circular: boolean;
   maskedSequenceIndices: number[];
   disabledSequenceIndices: number[];
+  referenceGroupIndices: number[];
   downstreamReconciliationRequiredAfter: number | null;
   pValueCutoff: number;
   windowSites: number;
+  maxChiEnabled: boolean;
+  maxChiWindowSites: number;
+  chimaeraEnabled: boolean;
+  chimaeraWindowSites: number;
+  geneconvEnabled: boolean;
+  geneconvMismatchScale: number;
+  geneconvMaxOverlaps: number;
+  threeSeqEnabled: boolean;
+  bootscanSecondaryEnabled: boolean;
+  bootscanWindowSites: number;
+  bootscanStepSites: number;
+  bootscanBootstrapReplicates: number;
+  bootscanSupportCutoff: number;
+  bootscanRandomSeed: number;
   polishBreakpoints: boolean;
   signals: RdpSignal[];
   events: ReconciledEvent[];

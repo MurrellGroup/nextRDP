@@ -6,6 +6,10 @@ interface ScanStepProps {
   options: ScanOptions;
   sequenceCount: number;
   tripletCount: number;
+  correctionTestCount: number;
+  querySequenceCount: number;
+  referenceSequenceCount: number;
+  referenceGroupCount: number;
   progress: ScanProgress;
   running: boolean;
   error: string;
@@ -22,6 +26,10 @@ export function ScanStep({
   options,
   sequenceCount,
   tripletCount,
+  correctionTestCount,
+  querySequenceCount,
+  referenceSequenceCount,
+  referenceGroupCount,
   progress,
   running,
   error,
@@ -32,6 +40,31 @@ export function ScanStep({
   onReview,
 }: ScanStepProps) {
   const percentage = Math.round(progress.fraction * 1000) / 10;
+  const currentCorrectionTests = progress.state === "idle"
+    ? correctionTestCount
+    : progress.correctionTests;
+  const currentTotalTriplets = progress.state === "idle"
+    ? tripletCount
+    : progress.totalTriplets;
+  const currentSequenceCount = progress.state === "idle"
+    ? sequenceCount
+    : progress.activeWorkingSequenceCount;
+  const currentQueryCount = progress.state === "idle"
+    ? querySequenceCount
+    : progress.queryWorkingSequenceCount;
+  const currentReferenceCount = progress.state === "idle"
+    ? referenceSequenceCount
+    : progress.referenceWorkingSequenceCount;
+  const currentReferenceGroupCount = progress.state === "idle"
+    ? referenceGroupCount
+    : progress.activeReferenceGroupCount;
+  const discoveryMethods = [
+    "RDP",
+    ...(options.geneconvEnabled ? ["GENECONV"] : []),
+    ...(options.maxChiEnabled ? ["MaxChi"] : []),
+    ...(options.chimaeraEnabled ? ["CHIMAERA"] : []),
+    ...(options.threeSeqEnabled ? ["3SEQ"] : []),
+  ];
   return (
     <section className="step-page scan-page" aria-labelledby="scan-title">
       <header className="page-heading">
@@ -65,8 +98,10 @@ export function ScanStep({
       <div className="scan-console content-card">
         <div className="scan-summary">
           <div>
-            <span className="eyebrow">Exploratory plan</span>
-            <h2>{progress.scanRound > 1 ? `Cyclic RDP pass ${progress.scanRound}` : "Primary RDP screen"}</h2>
+            <span className="eyebrow">
+              {options.analysisMode === "query-reference" ? "Query vs reference plan" : "Exploratory plan"}
+            </span>
+            <h2>{progress.scanRound > 1 ? `Cyclic discovery pass ${progress.scanRound}` : "Primary triplet screen"}</h2>
           </div>
           <span className={`run-state run-${progress.state}`}>
             {running ? <LoaderCircle className="spin" size={16} /> : hasResults ? <Check size={16} /> : <Pause size={16} />}
@@ -76,31 +111,53 @@ export function ScanStep({
 
         <div className="scan-facts">
           <div>
-            <span>Active sequences</span>
-            <strong>{integer.format(sequenceCount)}</strong>
+            <span>Active working rows</span>
+            <strong>{integer.format(currentSequenceCount)}</strong>
           </div>
           <div>
-            <span>Unique triplets</span>
+            <span>{options.analysisMode === "query-reference" ? "Constrained triplets" : "Unique triplets"}</span>
             <strong>{integer.format(tripletCount)}</strong>
           </div>
+          <div>
+            <span>Analysis scheme</span>
+            <strong>{options.analysisMode === "query-reference" ? "Query vs reference" : "Fully exploratory"}</strong>
+          </div>
+          {options.analysisMode === "query-reference" ? (
+            <div>
+              <span>Input roles</span>
+              <strong>
+                {integer.format(currentQueryCount)} Q · {integer.format(currentReferenceCount)} R · {integer.format(currentReferenceGroupCount)} groups
+              </strong>
+            </div>
+          ) : null}
           <div>
             <span>Topology</span>
             <strong>{options.circular ? "Circular" : "Linear"}</strong>
           </div>
           <div>
+            <span>Discovery methods</span>
+            <strong>{discoveryMethods.join(" + ")}</strong>
+          </div>
+          <div>
             <span>Correction</span>
-            <strong>{options.correction === "bonferroni" ? "Bonferroni" : "None"}</strong>
+            <strong>
+              {options.correction === "bonferroni"
+                ? options.threeSeqEnabled
+                  ? `${integer.format(currentCorrectionTests)} opportunities · × for RDP family · Dunn–Šidák for 3SEQ`
+                  : `Bonferroni × ${integer.format(currentCorrectionTests)}`
+                : "None"}
+            </strong>
           </div>
           <div>
             <span>Breakpoint confidence</span>
-            <strong>{options.polishBreakpoints ? "BURT enabled" : "Preserve RDP calls"}</strong>
+            <strong>{options.polishBreakpoints ? "BURT enabled" : "Preserve detected calls"}</strong>
           </div>
         </div>
 
         <div className="progress-block" aria-live="polite">
           <div className="progress-copy">
             <span>
-              Round {progress.scanRound} · {integer.format(progress.processedTriplets)} / {integer.format(progress.totalTriplets || tripletCount)} triplets
+              Round {progress.scanRound} · {integer.format(progress.processedTriplets)} / {integer.format(currentTotalTriplets)} triplets
             </span>
             <strong>{percentage}%</strong>
           </div>
@@ -117,23 +174,122 @@ export function ScanStep({
             <span>
               {integer.format(progress.signalCount)} signals · {integer.format(progress.eventCount)} event candidates
             </span>
-            <span>{integer.format(progress.cumulativeTriplets)} cumulative comparisons · window {options.windowSites}</span>
+            <span>
+              {integer.format(progress.cumulativeTriplets)} cumulative triplets · RDP {options.windowSites}
+              {options.maxChiEnabled ? ` · MaxChi ${options.maxChiWindowSites}` : ""}
+              {options.chimaeraEnabled ? ` · CHIMAERA ${options.chimaeraWindowSites}` : ""}
+              {options.geneconvEnabled
+                ? ` · GENECONV G${options.geneconvMismatchScale}/overlap ${options.geneconvMaxOverlaps}`
+                : ""}
+              {options.threeSeqEnabled ? " · 3SEQ exact/Siegmund" : ""}
+            </span>
           </div>
+          {options.maxChiEnabled ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.maxChiProfilesScanned)} MaxChi profiles · {integer.format(progress.maxChiPeakAttempts)} raw peaks examined
+              </span>
+              <span>{integer.format(progress.maxChiCandidatesFound)} corrected MaxChi candidates</span>
+            </div>
+          ) : null}
+          {options.chimaeraEnabled ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.chimaeraProfilesScanned)} CHIMAERA target profiles · {integer.format(progress.chimaeraPeakAttempts)} raw peaks examined
+              </span>
+              <span>{integer.format(progress.chimaeraCandidatesFound)} corrected CHIMAERA candidates</span>
+            </div>
+          ) : null}
+          {options.geneconvEnabled ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.geneconvFragmentsScored)} GENECONV positive starts · {integer.format(progress.geneconvQualifiedFragments)} above KA critical score
+              </span>
+              <span>
+                {integer.format(progress.geneconvCandidatesFound)} corrected candidates · {integer.format(progress.geneconvOverlapRejections)} overlap rejections
+              </span>
+            </div>
+          ) : null}
+          {options.threeSeqEnabled ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.threeSeqProfilesScanned)} 3SEQ target walks · {integer.format(progress.threeSeqExactEvaluations)} exact tails
+              </span>
+              <span>
+                {integer.format(progress.threeSeqApproximateEvaluations)} Siegmund fallbacks · {integer.format(progress.threeSeqCandidatesFound)} threshold-passing candidates
+              </span>
+            </div>
+          ) : null}
         </div>
+
+        {progress.maxChiPeakLimitTriplets > 0 ? (
+          <div className="notice notice-amber" role="status">
+            <AlertTriangle size={18} />
+            <p>
+              {integer.format(progress.maxChiPeakLimitTriplets)} triplet
+              {progress.maxChiPeakLimitTriplets === 1 ? " reached" : "s reached"} the supplied
+              100-peak retry bound while positive raw peaks remained. Any additional peaks for those
+              triplets were deliberately not explored.
+            </p>
+          </div>
+        ) : null}
+
+        {progress.chimaeraPeakLimitTargets > 0 ? (
+          <div className="notice notice-amber" role="status">
+            <AlertTriangle size={18} />
+            <p>
+              {integer.format(progress.chimaeraPeakLimitTargets)} CHIMAERA target profile
+              {progress.chimaeraPeakLimitTargets === 1 ? " reached" : "s reached"} the supplied
+              100-peak retry bound while positive raw peaks remained. Later peaks in those target
+              profiles were deliberately not explored.
+            </p>
+          </div>
+        ) : null}
+
+        {progress.geneconvNumericalFallbackTracks > 0 ? (
+          <div className="notice notice-amber" role="status">
+            <AlertTriangle size={18} />
+            <p>
+              {integer.format(progress.geneconvNumericalFallbackTracks)} GENECONV track
+              {progress.geneconvNumericalFallbackTracks === 1 ? " used" : "s used"} the bounded
+              root-bracketing fallback after the supplied Newton start became unstable. The
+              fallback preserves a responsive worker and is retained in exported diagnostics.
+            </p>
+          </div>
+        ) : null}
 
         <ol className="phase-list">
           <li className={hasResults || progress.phase !== "primary" ? "is-done" : running ? "is-active" : ""}>
             <span>{hasResults || progress.phase !== "primary" ? <Check size={16} /> : running ? <LoaderCircle className="spin" size={16} /> : "1"}</span>
             <div>
-              <strong>Detect primary RDP signals</strong>
-              <small>Information-rich triplets, rolling pair identities, binomial tail tests.</small>
+              <strong>Detect {discoveryMethods.join(", ")} signals</strong>
+              <small>
+                RDP information-rich tracts
+                {options.maxChiEnabled
+                  ? ", MaxChi pairwise raw χ² peaks with source-shaped tract inference"
+                  : ""}
+                {options.chimaeraEnabled
+                  ? ", and CHIMAERA target-rotated parent-match profiles"
+                  : ""}
+                {options.geneconvEnabled
+                  ? ", and GENECONV six-track KA fragment scores"
+                  : ""}
+                {options.threeSeqEnabled
+                  ? ", and 3SEQ target-rotated exact hypergeometric random walks"
+                  : ""}
+                {options.correction === "bonferroni"
+                  ? " with method-specific project correction and bounded peak retries."
+                  : " with uncorrected significance and bounded peak retries."}
+              </small>
             </div>
           </li>
           <li className={hasResults || progress.phase === "reconciliation" ? "is-done" : progress.phase === "cyclic-rescan" ? "is-active" : ""}>
             <span>{hasResults || progress.phase === "reconciliation" ? <Check size={16} /> : progress.phase === "cyclic-rescan" ? <LoaderCircle className="spin" size={16} /> : "2"}</span>
             <div>
               <strong>Erase and re-screen cyclically</strong>
-              <small>Strongest event, three-set co-group, tract erasure, fragment re-entry, then a complete fresh triplet pass.</small>
+              <small>
+                Strongest event, three-set co-group, tract erasure, fragment re-entry, then a complete fresh {options.analysisMode === "query-reference" ? "constrained" : "triplet"} pass.
+              </small>
             </div>
           </li>
           <li className={hasResults ? "is-done" : progress.phase === "reconciliation" ? "is-active" : ""}>

@@ -253,10 +253,15 @@ function TreeFigure({
             const suffix = leaf.fragmentEventId === null
               ? ""
               : ` · retained fragment from event ${leaf.fragmentEventId + 1}`;
+            const inputRole = leaf.queryReferenceInputRole === "not-applied"
+              ? ""
+              : leaf.queryReferenceInputRole === "reference"
+                ? ` · reference group ${leaf.referenceGroup ?? "?"}`
+                : " · query input";
             return (
               <g className={`event-tree-leaf role-${leaf.role}`} key={node}>
                 <circle cx={position.x} cy={position.y} r={3.4}>
-                  <title>{`${leaf.sequenceName} · ${roleLabels[leaf.role]}${suffix}`}</title>
+                  <title>{`${leaf.sequenceName} · ${roleLabels[leaf.role]}${inputRole}${suffix}`}</title>
                 </circle>
                 <line x1={position.x + 4} y1={position.y} x2={538} y2={position.y} />
                 <text x={545} y={position.y + 3.5}>
@@ -265,6 +270,7 @@ function TreeFigure({
                 </text>
                 <text className="event-tree-leaf-meta" x={790} y={position.y + 3.5}>
                   {roleLabels[leaf.role]}
+                  {inputRole}
                   {leaf.currentGroupMember ? " · current group" : ""}
                   {leaf.trace ? " · masked trace" : leaf.masked ? " · masked" : ""}
                   {leaf.disabled ? " · disabled tree context" : ""}

@@ -1,8 +1,8 @@
 # Supplied-source trace: active late RDP consensus
 
-This trace began with the Session 8 primary-RDP translation and now records the Session 9 MaxChi
-confirmation addendum, using only the supplied RDP4/RDP5 DLL and VB sources. It is an audit aid, not
-a claim of runtime parity. No alternate implementation was used.
+This trace began with the Session 8 primary-RDP translation and now records the MaxChi, CHIMAERA,
+GENECONV, and 3SEQ corroboration addenda, using only the supplied RDP4/RDP5 DLL and VB sources. It is
+an audit aid, not a claim of runtime parity. No alternate implementation was used.
 
 ## Active call shape
 
@@ -20,9 +20,9 @@ The browser collapses those two orchestration shapes around its explicit role re
 recombinant, and the routine is rerun with role zero as the current selected role. The complete RFF=0
 list build runs there, followed once by the selected-role block shared below the RFF guard. The
 primary-RDP part of the later signal/probability revalidation then runs over the finalized lists.
-Session 9 also exposes a bounded MaxChi strongest-peak corroboration over the same finalized rows;
-its full method-origin dispatch, multi-peak scheduler, and global event-catalogue integration remain
-a documented boundary.
+The browser also exposes bounded MaxChi, CHIMAERA, GENECONV, and 3SEQ corroboration over the same
+finalized rows; full method-origin dispatch and global event-catalogue integration remain a
+documented boundary. Together with primary RDP, these are five active method-family rechecks.
 
 ## FinalTrim mapping
 
@@ -88,17 +88,18 @@ line 24510. The active `ConservativeGroup = 0` block is mapped as follows:
 Line 24895 compares outside `FAMatSmall` with `HDF`, the maximum direct outside distance. The port
 retains that mixed-matrix comparison rather than substituting `FMatSmall`.
 
-## Primary-RDP post-group recheck
+## Post-group method rechecks
 
-The native recheck block begins at line 25000. Its primary-RDP branch is mapped without enabling
-the adjacent method families:
+The native recheck block begins at line 25000. The primary-RDP branch can emit widened-threshold
+records, while the four other discovery methods currently represented in the browser retain
+bounded, non-coordinate-changing corroboration from their supplied ordinary statistics:
 
 | Supplied lines | Native behavior | Port treatment |
 | --- | --- | --- |
 | 25008–25015 | Temporarily widen `LowestProb` to at least `LowP * 100000` and the corrected project threshold | `post_group_local_cutoff = min(1, max(project cutoff, best local P * 100000))` |
-| 25087–25214 | For every role list, skip its own representative and rerun the event's originating program against the other two representatives | finalized `consensus_lists`; RDP-origin events call `triplet_signals(..., enforce_cutoff=false)` only |
+| 25087–25214 | For every role list, skip its own representative and rerun the event's originating program against the other two representatives | finalized `consensus_lists`; the RDP path calls `triplet_signals(..., enforce_cutoff=false)`, while MaxChi, CHIMAERA, GENECONV, and 3SEQ retain their separate bounded evidence records |
 | 25137–25139 | Dispatch `XOver` when `ProgramFlag = 0` | primary RDP profile/candidate path; no substitute implementation is used |
-| 25220–25353 | On the selected list, run enabled programs other than the event's originating method | deliberately pending because those method families are not yet ported |
+| 25220–25353 | On the selected list, run enabled programs other than the event's originating method | `FastRecCheckMC2`-shaped MaxChi, three-target `FastRecCheckChim`, ordinary six-track `GCXoverD`, and three-rotation/two-orientation `TSXOver(1)` corroboration are retained without inserting new events; full native dispatcher/event reconstruction and unported families remain pending |
 | 26092–26120 | Copy emitted records back into the persistent event catalogue | compact per-sequence recheck evidence records emitted/candidate/overlap counts and the best tract/probabilities; the ordinary cyclic scan remains the authoritative global signal catalogue |
 
 The browser distinguishes four things that the native global `XOverList` representation combines:
@@ -113,7 +114,7 @@ the browser does not offload alignment records to an external exclude file. Ever
 already considered in memory, while the existing masked-sequence trace path remains separately
 auditable.
 
-## Session 9 MaxChi corroboration addendum
+## MaxChi, CHIMAERA, GENECONV, and 3SEQ corroboration addendum
 
 The browser now applies the supplied `FastRecCheckMC2` statistic to the representative event triplet
 and to finalized nonrepresentative distance-list rows. This is intentionally narrower than calling
@@ -124,6 +125,20 @@ catalogue, reposition the RDP event, or run the native smoothing/`DestroyPeakP` 
 The line-level numerical mapping and its explicit deviations are recorded in
 [`native-maxchi-recheck-trace.md`](native-maxchi-recheck-trace.md). Result metadata therefore uses
 `source-shaped-strongest-peak-unvalidated` and keeps `nativeMaxChiFullRecheckComplete` false.
+
+Session 12 added the supplied three-target `FastRecCheckChim` statistic over the same prepared
+equality/missing-data workspace. Session 13 added the supplied ordinary six-track GENECONV
+fragment/KA kernel over that workspace. Both are exposed beside MaxChi for the representative
+triplet and every finalized nonrepresentative distance-list row. None of these corroboration passes
+moves a reconciled breakpoint or silently writes a new discovery event.
+
+Session 14 added ordinary and cyclic 3SEQ discovery to the shared event scheduler. Session 15 adds
+the supplied post-erasure `CheckSplit3Seq`/`SubPVal` discovery re-probability and the distinct late
+`TSXOver(1)` representative/finalized-list route. That route preserves the initial selected-
+orientation gate, forces split evaluation of both Findall orientations, applies the post-swap
+correction branch, and accounts for the inverse-parent/inverse-interval list copy per accepted
+orientation. It remains non-coordinate-changing audit evidence rather than global event-catalogue
+reconstruction.
 
 ## Matrix correspondence and bounded performance
 
@@ -142,9 +157,11 @@ ordering or thresholds.
 
 ## Remaining boundary
 
-- MaxChi strongest-peak corroboration is active, but native MaxChi full-method dispatch,
-  smoothing/multi-peak destruction, retry scheduling, and event-catalogue writes are not.
-- Post-group rechecks for the remaining non-RDP method families are not active.
+- MaxChi strongest-peak, CHIMAERA strongest-target, ordinary-kernel GENECONV, and 3SEQ Findall
+  corroboration are active. Their full native method dispatch and late event-catalogue
+  reconstruction are not.
+- Post-group rechecks for other method families not represented by this checkpoint also remain
+  inactive.
 - The 100-sequence event-tree panel and labelled direct-distance fallback are explicit browser
   bounds rather than native full-matrix storage.
 - Compilation, runtime execution, and native golden comparison were intentionally not performed.

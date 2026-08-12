@@ -3,7 +3,7 @@ import { extname, join, relative, resolve } from "node:path";
 
 const root = process.cwd();
 const roots = ["src", "wasm/include", "wasm/src"];
-const extensions = new Set([".cpp", ".h", ".hpp", ".ts", ".tsx"]);
+const extensions = new Set([".cpp", ".h", ".hpp", ".ts", ".tsx", ".css"]);
 
 async function sourceFiles(directory) {
   const absolute = resolve(root, directory);
@@ -112,4 +112,4 @@ function checkBalanced(path, source) {
 
 const files = (await Promise.all(roots.map(sourceFiles))).flat().sort();
 for (const path of files) checkBalanced(path, await readFile(path, "utf8"));
-console.log(`Source delimiters verified across ${files.length} C++/TypeScript files.`);
+console.log(`Source delimiters verified across ${files.length} C++/TypeScript/CSS files.`);

@@ -1,8 +1,8 @@
 # Validation plan
 
 No compilation, bundling, type-checking, preview, or project runtime execution was performed in
-sessions 1–9. Session 7 resolved lockfile metadata without installing dependencies or running
-package scripts; sessions 8–9 used only source/PDF inspection and static text-contract checks. The
+sessions 1–13. Session 7 resolved lockfile metadata without installing dependencies or running
+package scripts; sessions 8–13 used only source/PDF inspection and static text-contract checks. The
 first runtime checkpoint must use a disposable, resource-limited environment and tiny inputs.
 
 ## Static/build gate for a later authorized session
@@ -10,8 +10,10 @@ first runtime checkpoint must use a disposable, resource-limited environment and
 1. Configure TypeScript with strict checking and resolve every diagnostic.
 2. Compile the C++ target with Emscripten warnings enabled.
 3. Confirm every generated export matches `rdp_api.h` and the worker module interface, especially
-   the `v1alpha9` signal/event restore argument order, co-recombinant group pointers, and bounded
-   event-alignment and event-tree JSON entry points.
+   the `v1alpha15` analysis-scheme/reference-group/method-aware
+   signal/MaxChi/CHIMAERA/GENECONV/3SEQ-discovery/event restore argument order,
+   co-recombinant group pointers, and bounded signal-plot/event-alignment/event-tree JSON entry
+   points.
 4. Check the production bundle contains relative URLs and both `.mjs` and `.wasm` assets.
 5. Load the smallest three-sequence fixture before any multi-event or production input.
 
@@ -28,6 +30,41 @@ Use equivalent three-to-ten-sequence alignments in FASTA, GDE, CLUSTAL, PHYLIP s
 PHYLIP interleaved, NEXUS, and MEGA. Compare names, normalized sequences, missing-site counts,
 pair identities, auto-mask set, and triplet count. Include malformed lengths, quoted NEXUS names,
 ambiguity codes, gaps, duplicate names, and concatenation markers.
+
+## Automated query-vs-reference parity corpus
+
+Capture the native `ReferenceList`, `RefNum`, `QuerySeqs`, `RefSeqs`, `AnalysisList`, `TripListLen`,
+and `MCCorrection` from the supplied `MakeAnalysisListQvR` path, then compare the browser plan,
+cursor order, per-round correction, emitted signal roles, and saved assignments.
+
+- One query with two singleton reference groups; assert the sole triplet and reference/reference/
+  query source order.
+- Multiple queries and multiple records in each of three groups; compare the reference-pair outer
+  loop, query inner loop, exact cross-group record-triplet total, and the distinct
+  `choose(RefNum, 2) × QNum` correction.
+- Same-group reference pairs, query/query pairs, three-reference triples, and triples containing no
+  query; assert none enters RDP, MaxChi, CHIMAERA, GENECONV, or 3SEQ discovery.
+- Documented `REF-A<name>`/`REF-B<name>` FASTA prefixes, mixed case and separators, ungrouped `REF`
+  records, explicit numeric edits, and all-queries reset. Compare the editable browser mapping with
+  native prompts; do not treat heuristic auto-group differences as numerical-kernel mismatches.
+  Assert that browser detection preserves visible curation, while an explicit “Enable all” reproduces
+  the native auto-assignment routine's mask-clearing side effect when desired.
+- Masked, disabled, ambiguity-heavy, and short query/reference records around the
+  `max(5, RDP window)` eligibility boundary; compare active groups, workload, correction, and the
+  dedicated no-eligible-constrained-triplets error/termination.
+- A signal whose query is recombinant, a signal whose first reference is recombinant, and one whose
+  second reference is recombinant; verify the scheduling constraint never becomes a role constraint.
+- An erased query tract and an erased reference tract that each create a retained fragment; verify
+  inherited group identity, distinct-origin exclusion, next-round cursor order, exact working
+  workload, and the port's unique-query-origin correction adaptation against native current-record
+  behavior.
+- Correction/event-zero repair, rejection, pending-prefix save, and completed save/reload fixtures;
+  assert every rebuild refreshes roles/cursors/totals and `v1alpha15` restores the same scheme and
+  full reference-group vector.
+- `v1alpha1`–`v1alpha10` imports must remain fully exploratory regardless of absent or stray fields;
+  v1alpha11–v1alpha15 malformed group arrays must normalize safely or fail at the core eligibility gate.
+- Counts around the native cap and synthetic overflow-scale arithmetic; verify saturation occurs
+  before multiplication and the cap is applied without changing the lazy scheduled-work count.
 
 ## Primary RDP parity corpus
 
@@ -170,12 +207,12 @@ accepted correction or rejection.
 The primary RDP milestone is complete only when every mismatch is fixed or documented as an
 approved representation/performance change.
 
-## MaxChi confirmation parity corpus
+## MaxChi discovery and confirmation parity corpus
 
 Capture `LenXoverSeq`, `HWindowWidth`, `CriticalDiff`, all three pair profiles, banned positions,
 `MaxX`/`MaxY`, initial and grown χ², `WinWin`, raw tail, within-triplet `xMPV`, and final corrected
-probability from the supplied desktop/DLL path. Compare those values before allowing MaxChi evidence
-to affect discovery, coordinates, group membership, or role voting.
+probability from the supplied desktop/DLL path. MaxChi discovery is active in the source checkpoint;
+compare these values before calling that path parity validated or using it for production decisions.
 
 - Fixed 70-site windows with 6, 7, 69, 70, 71, 92, and 94 usable variable sites, including both
   `MakeWindowSizeP` fallback branches and `HWindowWidth <= CriticalDiff` rejection.
@@ -198,11 +235,197 @@ to affect discovery, coordinates, group membership, or role voting.
   numeric precision rather than comparing formatted UI values.
 - Bonferroni factors 1, 2, the active round triplet count, and the supplied cap; verify raw,
   within-triplet, and corrected probabilities remain distinct fields.
+- Eleven-position smoothing fixtures that isolate the supplied `-5 ... +6` sum divided by 11,
+  including the zero-padded `LenXoverSeq` cell and positions on both sides of the circular origin.
+- Multiple-peak fixtures with equal raw χ² across boundaries/pairs; compare strict `FindMChiP`
+  ordering, the chosen grow/side/optimization result, and the next surviving peak after each
+  completed `DestroyPeaks` basin.
+- Rejected grown peaks that exercise `DestroyPeakP`, exactly two versus three consecutive wasted
+  attempts, an accepted hit that resets `WasteOfTime`, and 100 versus 101 `Redox` attempts.
+- Left- and right-tract fixtures for `FindSide`, `OptLeftBPMC`, and `OptRightBPMC`, including
+  one-step missing boundaries, numerical (not circular-shortest) inclusion of `pMaxX`, linear invalid
+  wraps, and converted alignment coordinates.
+- Combined rounds where RDP and MaxChi each supply the strongest corrected signal, an exact
+  cross-method tie falls through stable signal order, both methods group one event, and one method's
+  first-round signal disappears after the other's tract is erased.
 - Representative and finalized-list rechecks with representative skip, unavailable profile, no
-  critical peak, uncorrected trace, and corrected hit. Confirm no MaxChi value changes RDP event
-  coordinates in this checkpoint.
-- A future discovery fixture with multiple peaks must remain pending until smoothing,
-  `DestroyPeakP`, retry order, and event construction are ported from the supplied source.
+  critical peak, uncorrected trace, and corrected hit. Confirm that this separately labelled recheck
+  never replaces detected or manually edited event coordinates.
+- Confirm method-aware profile JSON reports pair identity for RDP and χ² for MaxChi, and that CSV
+  records detection methods plus the complete MaxChi anchor attempt/side/peak/window/flank/filter
+  diagnostics.
+
+## CHIMAERA discovery parity corpus
+
+Capture each `YP` rotation's `LXOS`, `XDP` position map, binary score string, `HWindowWidth`,
+`CriticalDiff`, `BanWin`/`MDMap`, every raw χ² value, `MaxX`, initial and grown χ²/window, flank
+scores, tract boundaries, candidate roles, raw tail, within-triplet probability, and final corrected
+probability from the supplied `AlistChi` → `FastRecCheckChim` → `CXoverA` path. CHIMAERA discovery
+is active in this source checkpoint; compare these values before calling it parity validated.
+
+- One fixture for each target rotation where only its target/parent-one equality is present, only its
+  target/parent-two equality is present, both alternate across the alignment, and neither is present.
+  Confirm monomorphic and all-different sites are excluded and alignment coordinates match
+  `FindSubSeqDP3/6` exactly.
+- Fixed 60-site windows with 6, 7, 59, 60, 61, and fallback-sized information-rich profiles,
+  including `HWindowWidth <= CriticalDiff` rejection and both `MakeWindowSizeP` fallback branches.
+- Target profiles whose raw score strings are complements. χ² profiles must match while reported
+  parent-one inside/outside rates and provisional parent ordering reverse appropriately.
+- Exact raw χ² ties at several positions independently in each target. Confirm lower position wins,
+  target rotations remain in source order, and destruction of one target never mutates another.
+- Missing-data and earlier-erasure runs before/on/between/after target information-rich sites,
+  including positions that are variable for MaxChi but absent from one CHIMAERA target. Compare the
+  target-specific `XPosDiff` mapping, both native boundary aliases, and linear end bans.
+- Circular and linear peaks around coordinate one, raw position zero, both alignment ends, and a
+  wrapped tract. Compare reported peak, growth coordinate, tract endpoints, and wrap flag.
+- Growth fixtures that retain, enlarge, or reject the starting window; hit a missing boundary; and
+  exhaust `MaxFailCount`. Compare raw, within-target (`Len/H × 3`), and project-corrected scopes.
+- Left/right `FindSide` fixtures and `CXoverA` breakpoint optimization fixtures with exact flank ties,
+  one-step missing boundaries, and source peak inclusion in the completed destruction interval.
+- Completed and rejected smoothed basins around the origin, including the supplied twelve-term/
+  eleven-divisor behavior, exactly two/three wasted attempts, an accepted call resetting the counter,
+  and 100/101 attempts independently for each target.
+- Parent-order fixtures where the target matches parent one more inside, more outside, or equally.
+  Compare the preliminary target/parents separately from the shared late role recommendation.
+- Combined rounds where CHIMAERA supplies the strongest signal, ties RDP or MaxChi, joins their
+  support event, disappears after another method's tract erasure, or becomes detectable only through
+  fragment re-entry. Compare stable method order and all workload counters.
+- Confirm on-demand plot JSON contains one target/parent-one trace, retains both breakpoints plus the
+  chosen peak under thinning, and labels later erased/fragment profiles as reconstructions.
+- Confirm CSV and project JSON retain the full CHIMAERA anchor trace; save/reload must reproduce the
+  method, target, evidence, counters, event anchor/support IDs, and review state exactly.
+- Representative and finalized-list `FastRecCheckChim` rechecks covering all three target winners,
+  target ties, representative skip, unavailable profile, usable profile without a critical peak,
+  uncorrected trace, and corrected hit. Compare target count, information-rich length, windows,
+  peak coordinate, χ², and all probability scopes against the supplied secondary `AlistChi`
+  calls; assert the result never changes detected or manually edited event coordinates.
+- For a finalized-list row, instrument triplet preparation and assert MaxChi plus CHIMAERA consume
+  one shared alignment-byte/equality/missing-data pass. Project JSON, review badges/tooltips, and CSV
+  must agree on both rechecks and retain the related-method/non-independence caution.
+
+## GENECONV discovery parity corpus
+
+Capture `LenXoverSeq`, all six `NDiff` values, every signed `FragSt`/`FragEn`/`FragScore`
+run, `MissPen`, `MaxScorePos`, `FragMaxScore`, `HiFragScore`, lambda, K, critical score,
+raw KA P-value, lowest-P selection order, overlap counters, mapped breakpoints, and preliminary
+roles from the supplied `FindSubSeqGCAP6` → `GetFragsP` → `GetMaxFragScoreP` →
+`CalcKMaxP` → `GCCalcPValP2` → `GCXoverD` path. Ordinary ignored-indel GENECONV discovery
+is active in this source checkpoint; compare these values before calling it parity validated.
+
+- One fixture uniquely favoring each of inner tracks 0–2 and outer tracks 3–5. Include
+  all-different sites and confirm the literal six-way recombinant/minor/major mapping.
+- Direct compact-state categories versus supplied compressed `FSSGC` expansion for A/C/G/T,
+  ambiguity codes, isolated and long missing runs, gaps, and all-equal sites. Confirm the active
+  ignored-indel default and polymorphic coordinate map.
+- Linear first/last positive fragments and circular first/last category runs that match, differ,
+  merge as positive outer runs, or cover the origin. Confirm the initial run remains present, the
+  matching terminal run includes its origin copy, the full signed list is not repeated, and compare
+  fragment run order, endpoints, signed scores, and sentinels.
+- Every positive fragment start followed by scores that remain positive, hit exactly zero, become
+  negative by one, recover after a nonnegative step, and tie the prior maximum. Confirm the source
+  stops only below zero and the latest ending wins exact score ties.
+- Compare the optimized prefix/next-lower/rightmost-range implementation with a literal bounded
+  quadratic reference loop over the supplied run arrays for every fixture.
+- Mismatch scales 1, 2, and a high valid value with discordant counts near float/integer rounding
+  boundaries. Record the DLL's single-precision `LTG`/`MPen` narrowing and every resulting
+  score/critical change.
+- `NDiff` values 0, 1, 2, 3, one track equal to all polymorphic sites, and cases immediately
+  around the native `MinDiff < 3 && MaxDiff > MinDiff * 10` skew filter.
+- Lambda/K fixtures where native Newton converges immediately, needs many iterations, oscillates,
+  crosses one, or becomes non-finite. The ordinary converged route must match at full precision;
+  fallback cases must be labelled and compared as the documented browser safety adaptation.
+- KA scores below/equal/above zero, immediately around 32 and 700, and extreme values exercising
+  the source underflow division. Compare raw values before any project correction or display floor,
+  and confirm an underflowed zero is retained rather than promoted to a minimum positive P-value.
+- Capture both `MCCorrection` and `GCMCCorrection` for unconstrained and query-vs-reference runs.
+  Confirm ordinary `GCXoverD(0)` detection uses the triplet/analysis-list `MCCorrection`, while
+  native screens that divide by the pair-count `GCMCCorrection` remain a separately reported
+  presentation boundary; the browser's corrected discovery P must follow the active call.
+- Critical values below/at/above four and integer fragment scores just below/equal/above the
+  noninteger threshold. Confirm both strict `score > 3` and strict `score > critval` gates.
+- Exact equal raw P-values within one track and across tracks. Confirm stable track 0→5, then source
+  fragment order; compare lowest-P iteration with `GCGetHiPValP`.
+- Nonoverlapping, touching, nested, crossing, and origin-wrapped fragments with overlap allowances
+  1, 2, and 3. Compare the port's polymorphic-position coverage interpretation with
+  `DelPValsP`/`MakeDeleteArrayP`, recording the supplied fragment-count-bound quirk separately.
+- More than ten selection-loop visits with distinct and exactly equal raw P values. Capture the
+  active `LastMPV`/`ZZZXZ` escape behavior separately from the intended overlap allowance, including
+  the repeated visit to a just-accepted fragment.
+- Linear and circular maxima whose latest equal score lands on the zero-score terminal sentinel;
+  compare `MaxScorePos`, the `LenXoverSeq` endpoint alias, and the resulting alignment coordinate.
+- Breakpoints before the first and after the last polymorphic site, adjacent polymorphic sites,
+  origin wrapping, and one-site alignment gaps. Compare `XDiffPos(start - 1) + 1` and
+  `XDiffPos(end + 1) - 1` aliases exactly.
+- Combined cyclic rounds where GENECONV is strongest, ties each other active method, groups with
+  cross-method support, disappears after tract erasure, or appears only through retained fragment
+  re-entry. Confirm exact corrected/local-P ties use the supplied RDP → GENECONV → MaxChi →
+  CHIMAERA → 3SEQ method-major order, then compare roles, correction factors, and all five GENECONV workload counters.
+- Confirm the on-demand plot pairs tracks 0/5, 1/4, and 2/3 by colour; reports
+  `-log10(raw KA P)`; preserves selected endpoints under thinning; and labels later-round
+  reconstruction honestly.
+- Confirm CSV/project JSON retain complete GENECONV anchor evidence and `v1alpha15` save/reload
+  reproduces method code 3, trace values, counters, signal/event IDs, and review state. Pre-v13
+  projects must restore GENECONV disabled even if stray new fields are present.
+- For the event representatives and every finalized nonrepresentative row, compare the ordinary
+  six-track recheck's profile/skew status, stable best fragment, provisional recombinant, raw and
+  corrected P, overlap rejection count, and numerical fallbacks. Assert MaxChi preparation is
+  shared, the recheck cannot move reconciled coordinates, and representative rows are skipped.
+- Confirm the active automated minimum length/polymorphism/pair-score predicates remain reported
+  inactive. Test permutation, manual-pair, alternative-indel, and full late event-reconstruction
+  inputs only after those separately supplied workflows are ported; never infer their results from
+  ordinary KA discovery or ordinary-kernel corroboration.
+
+## 3SEQ discovery parity corpus
+
+Use authorized desktop saved output from the supplied `FindSubSeqTS`/`FindSubSeqTS2` →
+`Seq3PVals`/`GetTSPVal` → `CheckwrapC` → `TSXOver` route. Do not substitute a third-party 3SEQ
+implementation as an oracle.
+
+- Exercise all three target rotations with parent-one matches, parent-two matches, parent-equal,
+  all-different, input missing, and earlier-erasure states at first/middle/last coordinates. Confirm
+  the equality-slot maps `{0,2,1}` and `{1,0,2}`, source target order 3→1→2, and the effective
+  four-information-rich-site floor.
+- Build walks whose maximum descent wins, maximum ascent wins, and raw probabilities tie exactly.
+  Confirm the strict lower-P swap, provisional major/minor mapping, counts, direction, excursion,
+  and coordinate selection.
+- Exercise `CheckwrapC` with `BE < EN`, `BE >= EN`, a new wrapped maximum, a new wrapped descent,
+  beginning at the last informative site, and both circular/linear topology. Verify the source's
+  post-wrap beginning advance and linear complement conversion independently. Assert that exact/
+  fallback probability still uses the pre-wrap excursion while exported boundary evidence retains
+  the potentially larger post-wrap value.
+- Compare the compact exact hypergeometric DP with `Seq3PVals` table values for dense small
+  `(m,n,k)` grids, including zero dimensions, `k=0`, `k=1`, `k=n`, unreachable excursions, exact
+  float underflow, and values immediately on both sides of the project cutoff.
+- Cross the eight-million-transition and 4096-dimension browser bounds. Compare
+  `SiegmundDiscrete`, `ApproxNu`, normal CDF/PDF, the invalid-approximation scaled-table branch,
+  power adjustment, and the source `10^-300` underflow behavior. Every exported call must label
+  exact versus fallback honestly.
+- Verify the post-orientation exits `nN > 0 && nK = 1` and `nN - nM = nK`, literal zero rejection,
+  no-correction mode, and Dunn–Šidák correction for both exploratory triplet counts and
+  query/reference group-pair × query opportunities. Test immediately above, at, and below
+  `p = 10^-15`, plus subtraction underflow and `corrected == 1`/small-product calls where the
+  source product comparison matters.
+- In combined cyclic fixtures, make 3SEQ strongest, tie each active method, merge into an existing
+  cross-method event, disappear after erasure, and appear through a retained fragment. Confirm the
+  method-major tie order RDP → GENECONV → MaxChi → CHIMAERA → 3SEQ.
+- Validate the active `FindSubSeqTS2` inclusive `XPosDiff`/`upper_bound` mapping around informative
+  and missing coordinates. Test left/right missing splits, unchanged versus moved bounds,
+  orientation re-selection, corrected-P re-gating, wrapped missing runs, and coordinate-zero/one
+  aliases.
+- Confirm the on-demand plot assigns target 0/1/2 to the three colour slots, retains signed extrema
+  and both breakpoints after thinning, scales below and above zero, and labels a later-round
+  original-alignment reconstruction.
+- Confirm `v1alpha15` save/reload reproduces method code 4, all evidence, exact/fallback/split flags, four
+  workload counters, signal/event IDs, and review state. Every pre-v14 project must restore 3SEQ
+  disabled even if stray fields are present; unknown method labels must fail rather than become RDP.
+- For event representatives and every finalized nonrepresentative row, compare `TSXOver(1)` target
+  order, initial lower-P gate, both Findall orientations, forced split calls, the distinct correction
+  branches, qualifying count, and the two `XOverList` records per accepted orientation. Exercise
+  exact ties, one/two/no qualifying orientations, wrapped intervals, missing-state trimming, list
+  capacity/replacement, and representative skipping. Assert the compact best-orientation summary
+  cannot move reconciled coordinates or enter the authoritative discovery catalogue.
+- Keep manual 100-permutation envelopes and full late event-catalogue reconstruction out of parity
+  claims until those separately supplied paths are implemented.
 
 ## Workflow acceptance
 
@@ -227,12 +450,19 @@ to affect discovery, coordinates, group membership, or role voting.
 - A full-circle candidate run must not become a primary call when its mapped beginning and ending
   are equal (`FastRecCheckP` requires `EN != BE`); a manually entered/restored equal-endpoint
   circular event must still traverse the full alignment for erasure and accepted-event exports.
-- Reloading a `v1alpha9` project reproduces settings, signals, per-signal correction factors,
-  fragment provenance, event anchors, edits, decisions, and any pending invalidation marker.
+- Reloading a `v1alpha15` project reproduces analysis scheme, every reference-group assignment,
+  settings, signal methods, MaxChi, CHIMAERA, GENECONV, and 3SEQ discovery traces,
+  per-signal correction factors, cumulative triplets/rounds, all method workload counters, fragment
+  provenance, event anchors, edits, decisions, and any pending invalidation marker. Assert that
+  replaying saved events does not increase the authoritative cumulative count, and that the saved
+  terminal reason plus final-round processed/total counts survive reload.
 - Reloading during a pending correction restores only the valid event prefix, remaps every retained
   support/anchor signal ID, preserves manual group membership, and re-identifies—not replays—the tail.
-- Loading `v1alpha1`–`v1alpha8` projects supplies conservative defaults and deterministically rebuilds
-  the current evidence tier.
+- Loading `v1alpha1`–`v1alpha10` projects supplies exploratory query/reference defaults. Projects
+  through `v1alpha9` keep MaxChi disabled, and every `v1alpha1`–`v1alpha11` project keeps CHIMAERA
+  disabled; every pre-v13 project also keeps GENECONV disabled, and every pre-v14 project keeps
+  3SEQ disabled, preserving saved discovery
+  semantics. All older schemas deterministically rebuild the current evidence tier.
 - Sequence-state fixtures distinguish enabled, masked, and disabled rows: only enabled rows affect
   primary triplet/correction counts; masked rows receive trace and late set evidence; disabled rows
   receive neither but remain present in saved tree leaves. Verify disjoint state replay and reject
@@ -244,6 +474,12 @@ to affect discovery, coordinates, group membership, or role voting.
   order without repeating a coordinate, including alignments shorter than the requested context.
 - Editing roles, breakpoints, or co-group membership refreshes an open inspector from the immutable
   original alignment rather than stale working-fragment rows.
+- Profiles longer than 2,000 points retain the nearest samples for both breakpoints, the selected
+  method peak, and each applicable maximum. CHIMAERA retains only its target/parent-one trace;
+  GENECONV retains the three inner/outer KA fragment envelopes; 3SEQ retains all three signed
+  target walks plus their extrema.
+  First-round input-row signals are labelled exact; erased or
+  fragment-assisted later-round signals are labelled original-alignment reconstructions.
 - Event JSON, on-demand alignment JSON, CSV, and review badges agree on both uncertain boundaries,
   qualifying prior event IDs, immediate adjacency, the configured RDP window, and the nearest
   information-rich-site count; none labels the manual review interval as a statistical confidence

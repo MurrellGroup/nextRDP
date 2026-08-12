@@ -1,4 +1,4 @@
-# Port status — session 9
+# Port status — session 15
 
 This status is deliberately conservative. “Implemented” means source exists; it does not mean
 compiled or native-parity validated in this checkpoint.
@@ -9,8 +9,9 @@ compiled or native-parity validated in this checkpoint.
 | Local alignment loading | Implemented | FASTA, GDE, CLUSTAL/MUSCLE, sequential/interleaved PHYLIP, NEXUS, and MEGA |
 | Dataset diagnostics and sequence curation | Implemented, unvalidated | Diversity, missing data, variable/informative sites, warnings, supplied closest-pair auto-mask, separate enabled/masked/disabled states, and auto-mask/enable-all/mask-all/disable-all controls that operate beyond the 500-row rendering cap; masked rows re-enter secondary evidence and all rows remain tree context |
 | Primary RDP triplet screen | Implemented, unvalidated | C++20/WASM source; information-rich windows, tract boundaries, probabilities, and correction cap |
-| Non-blocking scan control | Implemented | Dedicated worker, 512-combination batches, round-aware progress, and cancellation |
-| Cyclic event discovery | Implemented, unvalidated | Strongest unexplained event is reconciled and erased before a fresh complete eligible-triplet pass |
+| Automated query-vs-reference screen | Implemented, active, unvalidated | Manual §4.2/`MakeAnalysisListQvR` one-query plus two-cross-group-reference constraint, explicit/detected reference groups, filter-aware bulk assignment and first-appearance compaction, unconstrained recombinant inference with amber reference-call review, lazy `O(N)` scheduler, exact workload, live source group-pair × query correction, fragment provenance, hardened restore, and full project/UI/export coverage |
+| Non-blocking scan control | Implemented | Dedicated worker, 512-combination batches, round-aware workload/correction/working-role progress, and cancellation |
+| Cyclic event discovery | Implemented, unvalidated | Enabled RDP/GENECONV/MaxChi/CHIMAERA/3SEQ methods scan every eligible triplet in supplied method-major order; the strongest unexplained corrected signal is reconciled and erased before a fresh complete pass |
 | Source-shaped fragment re-entry | Implemented, bounded | Gap-padded working fragments retain original/event provenance; same-origin triplets are forbidden; 100,000-site source cutoff and 256-fragment browser cap are explicit |
 | Detectable-signal reconciliation | Implemented, unvalidated | Two shared original sequences, strict >30% symmetric tract overlap, and iterative three-role closure |
 | Masked-sequence trace checks | Implemented, unvalidated | Relaxed follow-up RDP profiles; corrected significance is retained separately |
@@ -21,7 +22,12 @@ compiled or native-parity validated in this checkpoint.
 | FinalTrim/ConsensusOK membership | Implemented through selected-tree cleanup, unvalidated | Both expansions, selected-role pruning, `OKSeq 15`, complete score/rebuild/fallback, shared raw/direct outlier cleanup, and strict inlier admission determine the distance set |
 | Primary-RDP post-group recheck | Implemented, active, unvalidated | Finalized nonrepresentative rows are rerun against both role representatives with the native `LowP * 100000` lift; emitted/candidate/overlap/significant counts and best tract probabilities are retained |
 | MaxChi strongest-peak recheck | Implemented, active, unvalidated | Supplied `FastRecCheckMC2` variable-site profiles, critical-difference gate, rolling χ² scan, `MissingData`/erasure and linear-edge bans, source `ChiPVal2P`, window growth, and three probability levels corroborate each event triplet and finalized nonrepresentative distance-list row |
-| MaxChi exploratory discovery | Not yet ported | Primary RDP remains the only event-discovery/coordinate authority; smoothing, multi-peak destruction, event construction, and native retry scheduling remain explicit work |
+| MaxChi exploratory discovery | Implemented, active, unvalidated | Supplied `MCXoverF` lifecycle: three raw profiles, critical gate, source peak order, grow/side choice, optimized second breakpoint, tract construction, literal twelve-term/eleven-divisor smoothing, completed/rejected peak destruction, three-wasted stop, and 100-attempt cap; a linear heap build and lazy invalidation replace repeated full-profile maximum searches without changing the intended ordering |
+| CHIMAERA exploratory discovery | Implemented, active, unvalidated | Supplied `AlistChi`/`FastRecCheckChim` plus full `CXoverA`-shaped lifecycle: three target rotations, target-specific binary information-rich strings, critical/raw χ² scan, window growth, tract-side choice, optimized boundary, destruction/retry, all probability scopes, method-labelled cyclic signals, plots, restore, UI, and CSV; cached MaxChi equality bytes avoid three extra alignment passes |
+| CHIMAERA strongest-target recheck | Implemented, active, unvalidated | Supplied secondary `FastRecCheckChim` shape rotates all three targets for each representative and finalized-list triplet, retains the best raw/within/project-corrected statistic without moving event coordinates, and reuses the MaxChi-prepared equality/missing-data pass |
+| GENECONV exploratory discovery | Implemented, active, unvalidated | Supplied ordinary `FindSubSeqGCAP6` → `GetFragsP` → `GetMaxFragScoreP` → `CalcKMaxP` → `GCCalcPValP2` → `GCXoverD` path: six signed inner/outer tracks, ignored-indel categories, source mismatch penalties and KA tails, strict critical score, stable lowest-P selection, one-overlap default, method-labelled cyclic signals, plot, restore, UI, and export; shared MaxChi equality bytes avoid another alignment scan, prefix/range queries replace quadratic fragment extension, and a bounded bisection fallback prevents a hostile Newton loop from hanging the worker |
+| 3SEQ exploratory discovery | Implemented, active, unvalidated | Supplied `FindSubSeqTS` → `Seq3PVals`/`GetTSPVal` → `CheckwrapC` → `TSXOver` call order: three source-order target rotations, exact bounded hypergeometric random-walk tails, explicitly labelled `SiegmundDiscrete` fallback, source-scaled exponent/underflow handling, distinct pre-wrap probability/post-wrap boundary excursions, low-information exits, the literal `10^-15` Dunn–Šidák/product branch, and later-round `FindSubSeqTS2` → `CheckSplit3Seq`/`SubPVal` missing-run trimming, opposite-orientation retry, and corrected-P re-gate. Method-labelled cyclic signals, a signed plot, hardened restore, UI, and CSV are active; shared equality profiles avoid another alignment scan. Manual permutation envelopes remain open. |
+| 3SEQ Findall recheck | Implemented, active, unvalidated | Supplied `TSXOver(1)` shape runs for the representative triplet and each finalized nonrepresentative distance-list row: all three source target rotations, the initial lower-P/low-information/corrected gate, forced post-erasure split checks for both walk orientations, distinct correction behavior after `SwapRound`, and the inverse-parent/inverse-interval `XOverList` copy per accepted orientation are retained. Counts, best orientation, split state, bounds, excursions, exact/fallback route, and raw/corrected P are exposed without moving reconciled coordinates. |
 | Event phylogenetic matrices | Implemented, unvalidated | Six Jukes–Cantor matrices with compact direct/reference caching |
 | Bootstrap neighbour joining | Implemented, unvalidated | Deterministic ten-replicate event path; internal branches below 50% support collapse to zero length |
 | Phylogenetic-correlation set | Implemented, unvalidated | Paired collapsed/raw tree affinity; labelled distance fallback outside the bounded tree panel |
@@ -33,8 +39,8 @@ compiled or native-parity validated in this checkpoint.
 | BURT/BenHMM statistical breakpoint confidence | Implemented, active, unvalidated | Default-enabled `PolishBP(20)` setting → supplied three-state/three-symbol 21-start seeded Viterbi training → forward/reverse posterior → strict 99%/95% source ranges → signed matching, repositioning, missing-data repair, and revert guards; disabled runs preserve coordinates and results stay distinct from manual parent-state brackets |
 | Graphical tree review | Implemented, unvalidated | Lazy side-by-side SVG review of all three paired regional comparisons; exact saved NJ edge lengths, bootstrap labels/collapse state, current roles/groups, and retained-fragment provenance are exposed without rebuilding trees |
 | Downstream re-identification | Implemented, unvalidated | Corrected accepted events are re-erased; rejected tracts are restored; fixed earlier calls remain auditable while all later calls are rediscovered |
-| Project/CSV export | Implemented | Reloadable project schema `v1alpha9`; MaxChi/RDP rechecks, final-trim/rebuild stages, round factors, fragment provenance, evidence sets, roles, traces, and decisions are retained |
-| Project import/resume | Implemented, unvalidated | Schemas `v1alpha1`–`v1alpha9` restore primary state; pending repairs retain/remap only the valid signal/event prefix before downstream discovery resumes |
+| Project/CSV export | Implemented | Reloadable project schema `v1alpha15`; analysis scheme/reference assignments, method-specific MaxChi/CHIMAERA peak traces, GENECONV fragment/KA traces, and 3SEQ walk/probability/split/Findall traces, related-method-only support caution, active RDP/GENECONV/MaxChi/CHIMAERA/3SEQ rechecks, final-trim/rebuild stages, exact per-method workload/termination counters, fragment provenance, evidence sets, roles, traces, and decisions are retained |
+| Project import/resume | Implemented, unvalidated | Schemas `v1alpha1`–`v1alpha15` restore primary state; completed reload preserves authoritative cumulative work and terminal state without replay inflation; pre-v11 projects restore exploratory scheduling, projects through v9 keep MaxChi disabled, v10/v11 keep CHIMAERA disabled, all pre-v13 projects keep GENECONV disabled, all pre-v14 projects keep 3SEQ disabled, and v14 rejects unsupported split claims; unknown method labels are rejected, and pending repairs retain/remap only the valid signal/event prefix before downstream discovery resumes |
 | Checkpoint-loss protection | Implemented, unvalidated | Completed/edited analyses visibly become dirty; tab exit and destructive dataset/settings replacement warn until project JSON is downloaded |
 | Sequence-curation FASTA | Implemented, unvalidated | Full, enabled-only, and masked-or-disabled-only downloads work immediately after alignment loading, preserve complete aligned rows, use the current disjoint UI state, and report an empty complementary selection explicitly |
 | Recombinant-sequence removal FASTA | Implemented, unvalidated | Omits every sequence in an accepted current co-recombinant group; core and UI reject incomplete review, stale reconciliation, and an empty result |
@@ -42,19 +48,33 @@ compiled or native-parity validated in this checkpoint.
 | Recombination-free FASTA | Implemented, unvalidated | Accepted tracts are replaced by gaps for current complete co-recombinant groups; core and UI reject incomplete-review export |
 | Mosaic-fragment FASTA | Implemented, unvalidated | Event-ordered tract-masked originals plus aligned fragment-only records; core and UI reject incomplete-review export |
 | GitHub Pages deployment | Configured, unvalidated | Default-branch/manual Actions workflow uses current official Node-24-generation actions, a Node 20 project build, locked npm dependencies, Emscripten 5.0.1, ABI/version/schema and TypeScript checks, single-worker WASM/Vite build, hidden-file-aware artifact verification, and official Pages deployment |
-| Exact late native consensus | RDP complete plus MaxChi corroboration, unvalidated | `OKSeq` 0–18, expansions, selected-role pruning, complete CScore/rebuild/fallback, shared selected-role tree cleanup, finalized-list RDP signal rechecks, and bounded MaxChi strongest-peak rechecks are active; the full native MaxChi scheduler and other method rechecks remain |
-| GENECONV and other methods | Not yet ported | Queued after primary RDP and MaxChi confirmation parity work |
+| Exact late native consensus | Combined RDP/MaxChi/CHIMAERA/GENECONV/3SEQ discovery plus active five-family late corroboration, unvalidated | `OKSeq` 0–18, expansions, selected-role pruning, complete CScore/rebuild/fallback, shared selected-role tree cleanup, finalized-list RDP signal rechecks, bounded MaxChi/CHIMAERA strongest-peak rechecks, ordinary-kernel six-track GENECONV rechecks, and two-orientation `TSXOver(1)` 3SEQ Findall rechecks are active; full method-stack event-catalogue reconstruction and other families remain |
+| Additional 3SEQ/GENECONV modes and other methods | Partial | Ordinary automated, post-erasure-split, and late Findall 3SEQ plus ignored-indel GENECONV discovery/recheck are active; 3SEQ manual envelopes/full late event-catalogue reconstruction and GENECONV permutation/manual/alternative-indel/minimum-filter/full-late paths remain separate open work |
 | Compilation and runtime testing | Not performed locally | The workflow is configured to compile/check on GitHub only when the user runs it; this source checkpoint did not invoke it |
 | Native-vs-WASM golden parity suite | Designed only | See `docs/validation-plan.md` |
 
 ## Recommended next checkpoint
 
-1. Port MaxChi smoothing, ordered multi-peak destruction/retry, event construction, and exploratory
-   scheduling while preserving RDP as an independently auditable method stream.
-2. Add focused native golden fixtures for both MaxChi confirmation and active `PolishBP`/BURT,
-   especially missing-data boundary windows, linear ends, `MaxX = 0`, grown-window correction,
+1. Add focused authorized native fixtures for ordinary 3SEQ: all target rotations and orientations,
+   four-site/low-information gates, exact/Siegmund/scaled probability boundaries, float rounding,
+   circular/linear coordinates, distinct probability/boundary excursions, missing states,
+   Dunn–Šidák underflow, and combined event order.
+2. Validate the active `FindSubSeqTS2` inclusive coordinate map and `CheckSplit3Seq`/`SubPVal`
+   left/right trimming, orientation retry, and corrected-P re-gate with authorized saved output.
+3. Add focused authorized native fixtures for ordinary GENECONV: all six tracks, linear/circular
+   first/last fragments, ambiguity and missing data, equal score/P ties, overlap counts, float
+   thresholds, KA/Newton edge branches, coordinate aliases, role maps, and combined event order.
+4. Add focused native golden fixtures for `MakeAnalysisListQvR`: exact reference-pair/query order,
+   grouped and ungrouped naming, masks, fragment re-entry, correction factors, reference-as-
+   recombinant calls, empty groups, project replay, and exploratory/constrained event-order changes.
+5. Add focused native golden fixtures for MaxChi/CHIMAERA discovery, MaxChi confirmation, and active `PolishBP`/BURT,
+   especially the smoothing off-by-one, equal raw-peak ties, destruction basins, accepted-interval
+   inclusion, missing-data boundary windows, linear ends, `MaxX = 0`, the three/100 retry stops,
    Microsoft-CRT random starts, signed wrapped ranges, and missing-data relocation.
-3. Add the remaining recombinant-identification method families and their post-group rechecks
+6. Trace and port the supplied 3SEQ manual permutation envelope/full late event-catalogue and GENECONV permutation/manual/alternative-indel/full late-event paths,
+   MaxChi permutation/manual-doublet path, and CHIMAERA permutation/full late-event-reconstruction
+   modes without conflating them with active ordinary or strongest-peak triplet scans.
+7. Add the remaining recombinant-identification method families and their post-group rechecks
    without hiding the current per-method scores or native full/half contributions.
-4. Only after explicit permission to execute code, establish small golden primary/secondary results
+8. Only after explicit permission to execute code, establish small golden primary/secondary results
    against the supplied desktop application before calling the port parity validated.

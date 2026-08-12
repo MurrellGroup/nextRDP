@@ -49,6 +49,9 @@ export function ExportStep({
   const alignmentsReady = results.finalAlignmentReady;
   const excludedSequenceCount =
     results.maskedSequenceIndices.length + results.disabledSequenceIndices.length;
+  const referenceRecombinantCount = results.analysisMode === "query-reference"
+    ? results.events.filter((event) => event.queryReferenceInputRole === "reference").length
+    : 0;
   return (
     <section className="step-page export-page" aria-labelledby="export-title">
       <header className="page-heading">
@@ -74,10 +77,10 @@ export function ExportStep({
           <CheckCircle2 size={22} />
           <span>
             <strong>Cyclic three-set analysis captured</strong>
-            {results.events.length} events across {results.scanRounds} full passes · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted
+            {results.events.length} events across {results.scanRounds} full passes · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
           </span>
         </div>
-        <span className="fidelity-badge">Session 9 snapshot</span>
+        <span className="fidelity-badge">Session 15 snapshot</span>
       </div>
 
       <div className="export-grid">
@@ -87,8 +90,8 @@ export function ExportStep({
             <span className="eyebrow">Recommended</span>
             <h2>RDP Web project</h2>
             <p>
-              Reloadable JSON with the alignment, signals, three role hypotheses, correlation
-              evidence, automatic/current groups, edits, and review state.
+              Reloadable JSON with the alignment, analysis scheme and reference groups, method-specific
+              discovery traces, three role hypotheses, correlation evidence, groups, edits, and review state.
             </p>
           </div>
           <button
@@ -113,7 +116,8 @@ export function ExportStep({
             <h2>Event table</h2>
             <p>
               One row per event with all three evidence sets, automatic/current groups, early
-              FinalTrim diagnostics, role votes, traces, and review decision.
+              FinalTrim diagnostics, role votes, traces, review decision, active query names, and
+              reference-group assignments.
             </p>
           </div>
           <button className="button button-secondary" type="button" onClick={onCsv}>
@@ -141,7 +145,9 @@ export function ExportStep({
             <span className="eyebrow">Sequence curation</span>
             <h2>Enabled sequences only</h2>
             <p>
-              Save only rows that entered the primary exploratory screen; masked and disabled rows are omitted unchanged.
+              Save every row currently curated as enabled; masked and disabled rows are omitted
+              unchanged. An enabled row with too few usable sites remains in this alignment even
+              though the primary {results.analysisMode === "query-reference" ? "query-vs-reference" : "exploratory"} scheduler skips it.
             </p>
           </div>
           <button className="button button-secondary" type="button" onClick={onEnabledSequences}>
@@ -259,11 +265,30 @@ export function ExportStep({
         <p>
           This snapshot completes the manual’s detectable, distance-correlation, and bootstrap-tree
           evidence sets, exposes original-alignment breakpoint windows, and produces the
-          sequence-curation subsets plus accepted-event alignment variants. A source-shaped MaxChi
-          strongest-peak recheck now corroborates representative triplets and finalized distance
-          lists, but it does not discover or move events. MaxChi exploratory discovery, the remaining
-          method families, and native golden parity validation remain explicit fidelity work;
+          sequence-curation subsets plus accepted-event alignment variants. Source-shaped six-track
+          GENECONV, MCXoverF MaxChi, target-rotated CHIMAERA, and target-rotated 3SEQ exploratory
+          discovery now run beside RDP in every cyclic triplet screen. GENECONV retains the ordinary supplied ignored-indel
+          profile, mismatch penalties, bounded source Newton/KA parameters, raw and project-corrected
+          probabilities, and stable overlap selection. CHIMAERA retains its information-rich binary profile, raw peak, grown window,
+          tract side, breakpoint optimization, and probability scopes. 3SEQ retains all three
+          information-rich ±1 walks, exact finite hypergeometric tails where bounded, the supplied
+          Siegmund fallback, CheckwrapC boundaries, method-specific Dunn–Šidák correction, and
+          later-round CheckSplit3Seq missing-run trimming with SubPVal re-probability. The
+          FastRecCheckMC2 and three-target FastRecCheckChim paths separately corroborate representative
+          triplets and finalized distance lists. The ordinary six-track GENECONV kernel also
+          corroborates those rows with its stable best KA fragment, while the supplied TSXOver(1)
+          Findall path tests both 3SEQ walk orientations and retains its inverse-interval copies.
+          None of these rechecks moves
+          reconciled coordinates. MaxChi and
+          CHIMAERA-only support remains flagged as related-method rather than independent evidence.
+          GENECONV permutation/manual-pair/alternative-indel modes and full late event reconstruction
+          remain unported. 3SEQ manual permutation envelopes and full late event-catalogue
+          reconstruction remain explicit boundaries. The remaining method families and native
+          golden parity validation remain explicit fidelity work;
           BURT/BenHMM confidence is active but still carries that validation boundary.
+          {results.analysisMode === "query-reference"
+            ? " This project also preserves the supplied MakeAnalysisListQvR one-query/two-cross-group-reference constraint and its reference-group correction rule."
+            : ""}
         </p>
       </div>
 

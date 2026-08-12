@@ -24,13 +24,29 @@ import type {
 import { RdpWorkerClient } from "./lib/wasmClient";
 
 const initialOptions: ScanOptions = {
+  analysisMode: "exploratory",
   circular: true,
   pValueCutoff: 0.05,
   correction: "bonferroni",
   windowSites: 30,
+  maxChiEnabled: true,
+  maxChiWindowSites: 70,
+  chimaeraEnabled: true,
+  chimaeraWindowSites: 60,
+  geneconvEnabled: true,
+  geneconvMismatchScale: 1,
+  geneconvMaxOverlaps: 1,
+  threeSeqEnabled: true,
+  bootscanSecondaryEnabled: false,
+  bootscanWindowSites: 200,
+  bootscanStepSites: 20,
+  bootscanBootstrapReplicates: 100,
+  bootscanSupportCutoff: 0.7,
+  bootscanRandomSeed: 3,
   polishBreakpoints: true,
   maskedSequenceIndices: [],
   disabledSequenceIndices: [],
+  referenceGroupIndices: [],
 };
 
 const initialProgress: ScanProgress = {
@@ -38,17 +54,149 @@ const initialProgress: ScanProgress = {
   phase: "primary",
   processedTriplets: 0,
   totalTriplets: 0,
+  correctionTests: 0,
+  activeWorkingSequenceCount: 0,
+  queryWorkingSequenceCount: 0,
+  referenceWorkingSequenceCount: 0,
+  activeReferenceGroupCount: 0,
   cumulativeTriplets: 0,
   scanRound: 1,
   fixedEventCount: 0,
   signalCount: 0,
   eventCount: 0,
+  maxChiProfilesScanned: 0,
+  maxChiPeakAttempts: 0,
+  maxChiCandidatesFound: 0,
+  maxChiPeakLimitTriplets: 0,
+  chimaeraProfilesScanned: 0,
+  chimaeraPeakAttempts: 0,
+  chimaeraCandidatesFound: 0,
+  chimaeraPeakLimitTargets: 0,
+  geneconvFragmentsScored: 0,
+  geneconvQualifiedFragments: 0,
+  geneconvCandidatesFound: 0,
+  geneconvOverlapRejections: 0,
+  geneconvNumericalFallbackTracks: 0,
+  threeSeqProfilesScanned: 0,
+  threeSeqExactEvaluations: 0,
+  threeSeqApproximateEvaluations: 0,
+  threeSeqCandidatesFound: 0,
   cycleTermination: "not-started",
   fraction: 0,
 };
 
+const NATIVE_CORRECTION_CAP = Math.floor((255 ** 4) / 2);
+
 function chooseThree(count: number): number {
   return count < 3 ? 0 : (count * (count - 1) * (count - 2)) / 6;
+}
+
+function referenceGroupArray(sequenceCount: number, groups: Map<number, number>): number[] {
+  return Array.from({ length: sequenceCount }, (_, index) =>
+    normalizeReferenceGroup(groups.get(index) ?? 0)
+  );
+}
+
+function normalizeReferenceGroup(value: number): number {
+  return Number.isFinite(value)
+    ? Math.max(0, Math.min(0xffff_ffff, Math.trunc(value)))
+    : 0;
+}
+
+function inferReferenceGroups(dataset: DatasetSummary): Map<number, number> {
+  const groups = new Map<number, number>();
+  const groupIds = new Map<string, number>();
+  dataset.sequences.forEach((sequence) => {
+    // The manual documents names such as REF-A<sequence>. An unlabelled REF
+    // record is treated as its own group so it can be paired with every other
+    // ungrouped reference, matching the non-grouped query/reference workflow.
+    const match = sequence.name.match(/(?:^|[\s|])REF(?:[-_:]?)([^<\s|:]*)/i);
+    if (!match) return;
+    const label = match[1]?.trim().toLocaleLowerCase();
+    const key = label ? `label:${label}` : `sequence:${sequence.index}`;
+    let group = groupIds.get(key);
+    if (!group) {
+      group = groupIds.size + 1;
+      groupIds.set(key, group);
+    }
+    groups.set(sequence.index, group);
+  });
+  return groups;
+}
+
+function compactReferenceGroups(
+  dataset: DatasetSummary,
+  groups: Map<number, number>,
+): Map<number, number> {
+  const compactIds = new Map<number, number>();
+  const compacted = new Map<number, number>();
+  dataset.sequences.forEach((sequence) => {
+    const originalGroup = normalizeReferenceGroup(groups.get(sequence.index) ?? 0);
+    if (originalGroup === 0) return;
+    let compactGroup = compactIds.get(originalGroup);
+    if (!compactGroup) {
+      compactGroup = compactIds.size + 1;
+      compactIds.set(originalGroup, compactGroup);
+    }
+    compacted.set(sequence.index, compactGroup);
+  });
+  return compacted;
+}
+
+function queryReferencePlan(
+  dataset: DatasetSummary | null,
+  masked: Set<number>,
+  disabled: Set<number>,
+  groups: Map<number, number>,
+  minimumValidSites: number,
+) {
+  let querySequenceCount = 0;
+  let referenceSequenceCount = 0;
+  const groupCounts = new Map<number, number>();
+  dataset?.sequences.forEach((sequence) => {
+    if (masked.has(sequence.index) || disabled.has(sequence.index) ||
+        sequence.validSites < minimumValidSites) return;
+    const group = normalizeReferenceGroup(groups.get(sequence.index) ?? 0);
+    if (group === 0) {
+      ++querySequenceCount;
+      return;
+    }
+    ++referenceSequenceCount;
+    groupCounts.set(group, (groupCounts.get(group) ?? 0) + 1);
+  });
+  const counts = [...groupCounts.values()];
+  let crossGroupReferencePairs = 0;
+  for (let first = 0; first < counts.length; ++first) {
+    for (let second = first + 1; second < counts.length; ++second) {
+      crossGroupReferencePairs += counts[first] * counts[second];
+    }
+  }
+  return {
+    querySequenceCount,
+    referenceSequenceCount,
+    referenceGroupCount: groupCounts.size,
+    tripletCount: querySequenceCount * crossGroupReferencePairs,
+    correctionTestCount: Math.min(
+      NATIVE_CORRECTION_CAP,
+      querySequenceCount * groupCounts.size * (groupCounts.size - 1) / 2,
+    ),
+  };
+}
+
+function scanEligibleSequenceCount(
+  dataset: DatasetSummary | null,
+  masked: Set<number>,
+  disabled: Set<number>,
+  minimumValidSites: number,
+): number {
+  return dataset?.sequences.reduce(
+    (count, sequence) => count + Number(
+      !masked.has(sequence.index) &&
+      !disabled.has(sequence.index) &&
+      sequence.validSites >= minimumValidSites,
+    ),
+    0,
+  ) ?? 0;
 }
 
 type EngineState =
@@ -70,6 +218,7 @@ export function App() {
   const [fileSize, setFileSize] = useState(0);
   const [masked, setMasked] = useState<Set<number>>(new Set());
   const [disabled, setDisabled] = useState<Set<number>>(new Set());
+  const [referenceGroups, setReferenceGroups] = useState<Map<number, number>>(new Map());
   const [options, setOptions] = useState<ScanOptions>(initialOptions);
   const [progress, setProgress] = useState<ScanProgress>(initialProgress);
   const [results, setResults] = useState<ScanResults | null>(null);
@@ -122,11 +271,30 @@ export function App() {
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [hasUnsavedCheckpoint, reconciling, running]);
 
-  const activeSequenceCount = Math.max(
-    0,
-    (dataset?.sequenceCount ?? 0) - masked.size - disabled.size,
+  const minimumWorkingSites = Math.max(5, options.windowSites);
+  const activeSequenceCount = scanEligibleSequenceCount(
+    dataset,
+    masked,
+    disabled,
+    minimumWorkingSites,
   );
-  const activeTripletCount = chooseThree(activeSequenceCount);
+  const exploratoryTripletCount = chooseThree(activeSequenceCount);
+  const referencePlan = useMemo(
+    () => queryReferencePlan(
+      dataset,
+      masked,
+      disabled,
+      referenceGroups,
+      minimumWorkingSites,
+    ),
+    [dataset, disabled, masked, minimumWorkingSites, referenceGroups],
+  );
+  const activeTripletCount = options.analysisMode === "query-reference"
+    ? referencePlan.tripletCount
+    : exploratoryTripletCount;
+  const activeCorrectionTestCount = options.analysisMode === "query-reference"
+    ? referencePlan.correctionTestCount
+    : Math.min(NATIVE_CORRECTION_CAP, exploratoryTripletCount);
 
   const confirmDiscardUnsavedAnalysis = () =>
     !hasUnsavedCheckpoint ||
@@ -181,28 +349,61 @@ export function App() {
         );
         const restoredDisabled = new Set(restored.results?.disabledSequenceIndices ?? []);
         restoredDisabled.forEach((index) => restoredMask.delete(index));
+        const restoredReferenceGroups = new Map<number, number>();
+        (restored.results?.referenceGroupIndices ?? []).forEach((group, index) => {
+          if (Number.isInteger(group) && group > 0 && index < restored.dataset.sequenceCount) {
+            restoredReferenceGroups.set(index, group);
+          }
+        });
         setDataset(restored.dataset);
         setFilename(restored.sourceFilename);
         setFileSize(file.size);
         setMasked(restoredMask);
         setDisabled(restoredDisabled);
+        setReferenceGroups(restoredReferenceGroups);
         setResults(restored.results);
         setCheckpointDirty(false);
         setOptions(
           restored.results
             ? {
+                analysisMode: restored.results.analysisMode,
                 circular: restored.results.circular,
                 pValueCutoff: restored.results.pValueCutoff,
                 correction: restored.results.correction,
                 windowSites: restored.results.windowSites,
+                maxChiEnabled: restored.results.maxChiEnabled,
+                maxChiWindowSites: restored.results.maxChiWindowSites,
+                chimaeraEnabled: restored.results.chimaeraEnabled,
+                chimaeraWindowSites: restored.results.chimaeraWindowSites,
+                geneconvEnabled: restored.results.geneconvEnabled ?? false,
+                geneconvMismatchScale: restored.results.geneconvMismatchScale ?? 1,
+                geneconvMaxOverlaps: restored.results.geneconvMaxOverlaps ?? 1,
+                threeSeqEnabled: restored.results.threeSeqEnabled ?? false,
+                bootscanSecondaryEnabled:
+                  restored.results.bootscanSecondaryEnabled ?? false,
+                bootscanWindowSites: restored.results.bootscanWindowSites ?? 200,
+                bootscanStepSites: restored.results.bootscanStepSites ?? 20,
+                bootscanBootstrapReplicates:
+                  restored.results.bootscanBootstrapReplicates ?? 100,
+                bootscanSupportCutoff:
+                  restored.results.bootscanSupportCutoff ?? 0.7,
+                bootscanRandomSeed: restored.results.bootscanRandomSeed ?? 3,
                 polishBreakpoints: restored.results.polishBreakpoints ?? true,
                 maskedSequenceIndices: [...restoredMask],
                 disabledSequenceIndices: [...restoredDisabled],
+                referenceGroupIndices: referenceGroupArray(
+                  restored.dataset.sequenceCount,
+                  restoredReferenceGroups,
+                ),
               }
             : {
                 ...initialOptions,
                 maskedSequenceIndices: [...restoredMask],
                 disabledSequenceIndices: [...restoredDisabled],
+                referenceGroupIndices: referenceGroupArray(
+                  restored.dataset.sequenceCount,
+                  restoredReferenceGroups,
+                ),
               },
         );
         setProgress(
@@ -210,25 +411,48 @@ export function App() {
             ? {
                 state: "done",
                 phase: "complete",
-                processedTriplets: chooseThree(
-                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
-                ),
-                totalTriplets: chooseThree(
-                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
-                ),
+                processedTriplets: restored.results.processedTriplets,
+                totalTriplets: restored.results.totalTriplets,
+                correctionTests: restored.results.correctionTests,
+                activeWorkingSequenceCount: restored.results.activeWorkingSequenceCount,
+                queryWorkingSequenceCount: restored.results.queryWorkingSequenceCount,
+                referenceWorkingSequenceCount: restored.results.referenceWorkingSequenceCount,
+                activeReferenceGroupCount: restored.results.activeReferenceGroupCount,
                 cumulativeTriplets: restored.results.cumulativeTriplets,
                 scanRound: restored.results.scanRounds,
                 fixedEventCount: 0,
                 signalCount: restored.results.signals.length,
                 eventCount: restored.results.events.length,
+                maxChiProfilesScanned: restored.results.maxChiProfilesScanned,
+                maxChiPeakAttempts: restored.results.maxChiPeakAttempts,
+                maxChiCandidatesFound: restored.results.maxChiCandidatesFound,
+                maxChiPeakLimitTriplets: restored.results.maxChiPeakLimitTriplets,
+                chimaeraProfilesScanned: restored.results.chimaeraProfilesScanned,
+                chimaeraPeakAttempts: restored.results.chimaeraPeakAttempts,
+                chimaeraCandidatesFound: restored.results.chimaeraCandidatesFound,
+                chimaeraPeakLimitTargets: restored.results.chimaeraPeakLimitTargets,
+                geneconvFragmentsScored: restored.results.geneconvFragmentsScored ?? 0,
+                geneconvQualifiedFragments: restored.results.geneconvQualifiedFragments ?? 0,
+                geneconvCandidatesFound: restored.results.geneconvCandidatesFound ?? 0,
+                geneconvOverlapRejections: restored.results.geneconvOverlapRejections ?? 0,
+                geneconvNumericalFallbackTracks:
+                  restored.results.geneconvNumericalFallbackTracks ?? 0,
+                threeSeqProfilesScanned: restored.results.threeSeqProfilesScanned ?? 0,
+                threeSeqExactEvaluations: restored.results.threeSeqExactEvaluations ?? 0,
+                threeSeqApproximateEvaluations:
+                  restored.results.threeSeqApproximateEvaluations ?? 0,
+                threeSeqCandidatesFound: restored.results.threeSeqCandidatesFound ?? 0,
                 cycleTermination: restored.results.cycleTermination,
                 fraction: 1,
               }
             : {
                 ...initialProgress,
-                totalTriplets: chooseThree(
-                  restored.dataset.sequenceCount - restoredMask.size - restoredDisabled.size,
-                ),
+                totalTriplets: chooseThree(scanEligibleSequenceCount(
+                  restored.dataset,
+                  restoredMask,
+                  restoredDisabled,
+                  Math.max(5, initialOptions.windowSites),
+                )),
               },
         );
         setStep(restored.results ? "review" : "dataset");
@@ -239,14 +463,28 @@ export function App() {
       setFilename(file.name);
       setFileSize(file.size);
       const initialMask = new Set(summary.sequences.filter((sequence) => sequence.masked).map((sequence) => sequence.index));
+      const inferredReferenceGroups = inferReferenceGroups(summary);
       setMasked(initialMask);
       setDisabled(new Set());
+      setReferenceGroups(inferredReferenceGroups);
       setOptions({
         ...initialOptions,
         maskedSequenceIndices: [...initialMask],
         disabledSequenceIndices: [],
+        referenceGroupIndices: referenceGroupArray(
+          summary.sequenceCount,
+          inferredReferenceGroups,
+        ),
       });
-      setProgress({ ...initialProgress, totalTriplets: summary.tripletCount });
+      setProgress({
+        ...initialProgress,
+        totalTriplets: chooseThree(scanEligibleSequenceCount(
+          summary,
+          initialMask,
+          new Set<number>(),
+          Math.max(5, initialOptions.windowSites),
+        )),
+      });
       setResults(null);
       setCheckpointDirty(false);
       setStep("dataset");
@@ -265,9 +503,18 @@ export function App() {
     nextDisabled.delete(index);
     if (state === "masked") nextMasked.add(index);
     if (state === "disabled") nextDisabled.add(index);
-    const nextActiveCount = Math.max(
-      0,
-      (dataset?.sequenceCount ?? 0) - nextMasked.size - nextDisabled.size,
+    const nextActiveCount = scanEligibleSequenceCount(
+      dataset,
+      nextMasked,
+      nextDisabled,
+      minimumWorkingSites,
+    );
+    const nextReferencePlan = queryReferencePlan(
+      dataset,
+      nextMasked,
+      nextDisabled,
+      referenceGroups,
+      minimumWorkingSites,
     );
     setMasked(nextMasked);
     setDisabled(nextDisabled);
@@ -276,7 +523,12 @@ export function App() {
       maskedSequenceIndices: [...nextMasked].sort((left, right) => left - right),
       disabledSequenceIndices: [...nextDisabled].sort((left, right) => left - right),
     }));
-    setProgress({ ...initialProgress, totalTriplets: chooseThree(nextActiveCount) });
+    setProgress({
+      ...initialProgress,
+      totalTriplets: options.analysisMode === "query-reference"
+        ? nextReferencePlan.tripletCount
+        : chooseThree(nextActiveCount),
+    });
     setResults(null);
     setCheckpointDirty(false);
   };
@@ -296,9 +548,18 @@ export function App() {
     } else if (action === "disable-all") {
       dataset.sequences.forEach((sequence) => nextDisabled.add(sequence.index));
     }
-    const nextActiveCount = Math.max(
-      0,
-      dataset.sequenceCount - nextMasked.size - nextDisabled.size,
+    const nextActiveCount = scanEligibleSequenceCount(
+      dataset,
+      nextMasked,
+      nextDisabled,
+      minimumWorkingSites,
+    );
+    const nextReferencePlan = queryReferencePlan(
+      dataset,
+      nextMasked,
+      nextDisabled,
+      referenceGroups,
+      minimumWorkingSites,
     );
     setMasked(nextMasked);
     setDisabled(nextDisabled);
@@ -307,7 +568,12 @@ export function App() {
       maskedSequenceIndices: [...nextMasked].sort((left, right) => left - right),
       disabledSequenceIndices: [...nextDisabled].sort((left, right) => left - right),
     }));
-    setProgress({ ...initialProgress, totalTriplets: chooseThree(nextActiveCount) });
+    setProgress({
+      ...initialProgress,
+      totalTriplets: options.analysisMode === "query-reference"
+        ? nextReferencePlan.tripletCount
+        : chooseThree(nextActiveCount),
+    });
     setResults(null);
     setCheckpointDirty(false);
     setError("");
@@ -315,11 +581,85 @@ export function App() {
 
   const changeOptions = (next: ScanOptions) => {
     if (!confirmDiscardUnsavedAnalysis()) return;
+    const nextMinimumWorkingSites = Math.max(5, next.windowSites);
+    const nextEligibleCount = scanEligibleSequenceCount(
+      dataset,
+      masked,
+      disabled,
+      nextMinimumWorkingSites,
+    );
+    const nextReferencePlan = queryReferencePlan(
+      dataset,
+      masked,
+      disabled,
+      referenceGroups,
+      nextMinimumWorkingSites,
+    );
     setOptions(next);
-    setProgress({ ...initialProgress, totalTriplets: activeTripletCount });
+    setProgress({
+      ...initialProgress,
+      totalTriplets: next.analysisMode === "query-reference"
+        ? nextReferencePlan.tripletCount
+        : chooseThree(nextEligibleCount),
+    });
     setResults(null);
     setCheckpointDirty(false);
     setError("");
+  };
+
+  const commitReferenceGroups = (nextGroups: Map<number, number>) => {
+    if (!dataset) return;
+    const indices = referenceGroupArray(dataset.sequenceCount, nextGroups);
+    const nextReferencePlan = queryReferencePlan(
+      dataset,
+      masked,
+      disabled,
+      nextGroups,
+      minimumWorkingSites,
+    );
+    setReferenceGroups(nextGroups);
+    setOptions((current) => ({ ...current, referenceGroupIndices: indices }));
+    setProgress({
+      ...initialProgress,
+      totalTriplets: options.analysisMode === "query-reference"
+        ? nextReferencePlan.tripletCount
+        : exploratoryTripletCount,
+    });
+    setResults(null);
+    setCheckpointDirty(false);
+    setError("");
+  };
+
+  const changeReferenceGroup = (index: number, group: number) => {
+    if (!dataset || !confirmDiscardUnsavedAnalysis()) return;
+    if (!Number.isInteger(index) || index < 0 || index >= dataset.sequenceCount) return;
+    const nextGroups = new Map(referenceGroups);
+    const normalized = normalizeReferenceGroup(group);
+    if (normalized === 0) nextGroups.delete(index);
+    else nextGroups.set(index, normalized);
+    commitReferenceGroups(nextGroups);
+  };
+
+  const changeReferenceGroups = (indices: number[], group: number) => {
+    if (!dataset || !confirmDiscardUnsavedAnalysis()) return;
+    const nextGroups = new Map(referenceGroups);
+    const normalized = normalizeReferenceGroup(group);
+    new Set(indices).forEach((index) => {
+      if (!Number.isInteger(index) || index < 0 || index >= dataset.sequenceCount) return;
+      if (normalized === 0) nextGroups.delete(index);
+      else nextGroups.set(index, normalized);
+    });
+    commitReferenceGroups(nextGroups);
+  };
+
+  const changeAllReferenceGroups = (action: "detect" | "compact" | "clear") => {
+    if (!dataset || !confirmDiscardUnsavedAnalysis()) return;
+    const nextGroups = action === "detect"
+      ? inferReferenceGroups(dataset)
+      : action === "compact"
+        ? compactReferenceGroups(dataset, referenceGroups)
+        : new Map<number, number>();
+    commitReferenceGroups(nextGroups);
   };
 
   const startScan = async () => {
@@ -333,11 +673,23 @@ export function App() {
       ...options,
       maskedSequenceIndices: [...masked].sort((a, b) => a - b),
       disabledSequenceIndices: [...disabled].sort((a, b) => a - b),
+      referenceGroupIndices: referenceGroupArray(dataset.sequenceCount, referenceGroups),
     };
     setProgress({
       ...initialProgress,
       state: "running",
       totalTriplets: activeTripletCount,
+      correctionTests: activeCorrectionTestCount,
+      activeWorkingSequenceCount: activeSequenceCount,
+      queryWorkingSequenceCount: options.analysisMode === "query-reference"
+        ? referencePlan.querySequenceCount
+        : 0,
+      referenceWorkingSequenceCount: options.analysisMode === "query-reference"
+        ? referencePlan.referenceSequenceCount
+        : 0,
+      activeReferenceGroupCount: options.analysisMode === "query-reference"
+        ? referencePlan.referenceGroupCount
+        : 0,
     });
     try {
       const value = await client.current.scan(scanOptions);
@@ -605,7 +957,7 @@ export function App() {
                   : "Checkpoint current"}
             </span>
           ) : null}
-          <span className="session-pill">Fidelity port · session 9</span>
+          <span className="session-pill">Fidelity port · session 11</span>
         </div>
       </header>
 
@@ -643,10 +995,16 @@ export function App() {
             fileSize={fileSize}
             masked={masked}
             disabled={disabled}
+            referenceGroups={referenceGroups}
+            eligibleSequenceCount={activeSequenceCount}
+            exploratoryTripletCount={exploratoryTripletCount}
             busy={loading}
             onLoad={loadAlignment}
             onSequenceStateChange={changeSequenceState}
             onAllSequenceStatesChange={changeAllSequenceStates}
+            onReferenceGroupChange={changeReferenceGroup}
+            onReferenceGroupsChange={changeReferenceGroups}
+            onAllReferenceGroupsChange={changeAllReferenceGroups}
             onExportFullAlignment={exportFullAlignment}
             onExportEnabledSequences={exportEnabledSequences}
             onExportMaskedOrDisabledSequences={exportMaskedOrDisabledSequences}
@@ -659,6 +1017,12 @@ export function App() {
             options={options}
             sequenceCount={activeSequenceCount}
             tripletCount={activeTripletCount}
+            exploratoryTripletCount={exploratoryTripletCount}
+            queryReferenceTripletCount={referencePlan.tripletCount}
+            querySequenceCount={referencePlan.querySequenceCount}
+            referenceSequenceCount={referencePlan.referenceSequenceCount}
+            referenceGroupCount={referencePlan.referenceGroupCount}
+            queryReferenceCorrectionTestCount={referencePlan.correctionTestCount}
             onChange={changeOptions}
             onBack={() => go("dataset")}
             onContinue={() => go("scan")}
@@ -670,6 +1034,10 @@ export function App() {
             options={options}
             sequenceCount={activeSequenceCount}
             tripletCount={activeTripletCount}
+            correctionTestCount={activeCorrectionTestCount}
+            querySequenceCount={referencePlan.querySequenceCount}
+            referenceSequenceCount={referencePlan.referenceSequenceCount}
+            referenceGroupCount={referencePlan.referenceGroupCount}
             progress={progress}
             running={running}
             error={error}

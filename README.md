@@ -4,7 +4,7 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 9 source checkpoint — intentionally uncompiled.** Per the project instruction, this
+> **Session 15 source checkpoint — intentionally uncompiled.** Per the project instruction, this
 > archive contains source only. No native code, WebAssembly, npm build, preview server, or test
 > executable was run while preparing it.
 
@@ -17,12 +17,60 @@ core runs in WebAssembly.
   but remain eligible for secondary evidence and tree placement; disabled sequences skip primary
   and secondary evidence while remaining available as phylogenetic context. Modern bulk controls
   restore the supplied auto-mask, enable all, mask all, or disable all without rendering every row.
+- The manual's automated query-vs-reference workflow. A dataset-level role editor accepts explicit
+  numeric reference groups or detects documented `REF-A<name>`-style prefixes. Filter-aware
+  multi-row selection can assign or clear a group without rendering every selected row, and group
+  IDs can be compacted by first input appearance without changing membership. The primary scheduler
+  then lazily emits exactly one query plus two references from different groups. Reference records
+  remain eligible to be inferred as recombinants, as the manual requires. The exact record-triplet
+  workload and the supplied `reference-group pairs × queries` correction factor remain separate and
+  visible, avoiding an `O(T)` materialized analysis list on large inputs. Reference-as-recombinant
+  calls receive the manual's distinct amber review treatment and explicit JSON/CSV input-role data.
 - A C++20/WASM primary RDP scanner derived only from the supplied RDP sources:
   information-rich triplet sites, rolling pair counts, candidate tract boundaries, the binomial
   tail calculation, 169-site scaling, and RDP5's multiple-testing cap.
-- Bounded 512-triplet worker batches, cancellation, reusable scan buffers, and plot downsampling.
-- Strongest-first cyclic detection: scan all eligible triplets, reconcile the best event, infer its
-  co-recombinant group, erase the event tract, then start a fresh full pass until no signal remains.
+- A second, independently auditable C++20/WASM discovery stream for the supplied MaxChi
+  `MCXoverF` workflow: all three variable-site pair profiles, native critical-difference screening,
+  raw strongest-peak order, source-shaped window growth, `FindSide`, `OptLeftBPMC`/
+  `OptRightBPMC`, tract construction, literal twelve-term/eleven-divisor `SmoothChiValsP`, completed/rejected peak
+  destruction, and the supplied three-wasted/100-attempt retry bounds. A linear-time heap build plus
+  lazy destroyed-peak rejection preserves the source's chi/boundary/pair order without repeatedly
+  rescanning every surviving profile cell.
+- A third independently labelled discovery stream for the supplied CHIMAERA workflow. Every triplet
+  member rotates through the candidate-recombinant role; monomorphic/all-different sites are removed;
+  the target is encoded as a binary match to either parent; and raw χ² peaks enter the same
+  source-shaped growth, tract-side, boundary-optimization, destruction, and retry lifecycle. The
+  supplied default is 60 information-rich sites. RDP categories, MaxChi equality tracks, CHIMAERA
+  target inputs, and the triplet missing/erasure map are prepared in one alignment-byte pass.
+- A fourth independently labelled discovery stream for the supplied ordinary automated GENECONV
+  workflow. The shared non-monomorphic profile becomes three inner pair-match and three outer
+  discordant-sequence tracks; source mismatch penalties, lambda/K calculation, strict critical
+  scores, Karlin–Altschul tails, six-track provisional roles, stable lowest-P selection, and the
+  configured overlap rule are retained. The active automated defaults are ignored indels, `G=1`,
+  one overlap, and inactive minimum-fragment controls. Prefix/next-lower/rightmost-maximum queries
+  preserve the start-extension stop/tie rules in `O(R log R)` per track, and lazy range coverage
+  keeps fragment selection bounded without another alignment scan.
+- A fifth independently labelled discovery stream for the supplied automated 3SEQ workflow. Each
+  triplet member rotates through the candidate-recombinant role in source order; only sites where
+  the parents differ and the target matches exactly one are retained; and the source maximum
+  descent/ascent plus `CheckwrapC` tract construction is preserved. A compact exact hypergeometric
+  random-walk dynamic program replaces the desktop four-dimensional lookup table within a bounded
+  transition budget, with the supplied `SiegmundDiscrete` and scaled-exact routes explicitly
+  labelled beyond it. The pre-`CheckwrapC` probability excursion is retained separately from any
+  larger origin-extended boundary excursion, matching the supplied call order. 3SEQ applies the
+  source's `p > 10^-15` Dunn–Šidák / smaller-tail product branch and adds no alignment-byte pass
+  because it reuses the MaxChi/CHIMAERA equality profile.
+- Bounded 512-triplet worker batches, cancellation, reusable scan buffers, and method-aware plot
+  downsampling that forces both breakpoints, the selected method peak, and applicable profile maxima
+  into the browser payload. CHIMAERA displays only its selected target/parent-one trace; GENECONV
+  displays a three-colour `-log10(raw KA P)` inner/outer fragment envelope; 3SEQ displays all three
+  signed target-specific random walks on a zero-aware axis. Later-round
+  reconstructions are labelled when the exact historical erased/fragment profile was not serialized.
+- Combined strongest-first cyclic detection: scan all eligible triplets in the supplied
+  RDP/GENECONV/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
+  tract, then start a fresh full pass until no signal remains.
+- Event review and CSV export explicitly flag MaxChi+CHIMAERA-only support because the manual treats
+  those methods as closely related rather than independent confirmation.
 - Source-shaped fragment re-entry below the supplied 100,000-site cutoff. Erased tracts become
   gap-padded working sequences with original/event provenance; same-origin copies cannot share a
   triplet, short/duplicate fragments are omitted, and a visible 256-fragment cap bounds browser cost.
@@ -65,13 +113,18 @@ core runs in WebAssembly.
   against its role's two representatives with the supplied `LowP * 100000` lift. Emitted signals,
   candidate-recombinant signals, event-overlapping traces, ordinary corrected significance, and the
   best tract/probabilities remain separately auditable.
-- A source-shaped MaxChi confirmation kernel from the supplied `FastRecCheckMC2` path. It builds
+- A separate source-shaped MaxChi confirmation kernel from the supplied `FastRecCheckMC2` path. It builds
   the three variable-site pair profiles, applies the DLL match-difference screen and `ChiPVal2P`
   approximation, excludes native `MissingData`/prior-erasure and linear-edge windows, grows the
   strongest peak, and retains raw, within-triplet, and project-corrected probabilities separately.
   The event representative triplet and every finalized nonrepresentative distance-list row are
   rechecked. The scan uses rolling match totals, so its strongest-peak pass is linear in variable
   sites rather than linear in both sites and window width.
+- Source-shaped CHIMAERA, GENECONV, and 3SEQ late corroboration over those same representative and
+  finalized-list triplets. `FastRecCheckChim` rotates all three targets, ordinary `GCXoverD` retains
+  its best six-track KA fragment, and `TSXOver(1)` evaluates both split walk orientations plus the
+  supplied inverse-parent/inverse-interval list copy. These records keep their own probability
+  scopes and never move a reconciled event.
 - Six Jukes–Cantor neighbour-joining trees per event, deterministic ten-replicate column bootstrap,
   50% support collapse, and paired-tree phylogenetic-correlation membership.
 - Iterative detectable-set closure and the manual's complete “present in at least two of three”
@@ -101,7 +154,7 @@ core runs in WebAssembly.
 - A batched erase/fragment/re-scan cycle that re-identifies later events after a correction or
   rejection. Core/API guards enforce review order; mid-repair project reload drops the stale tail,
   remaps retained signal anchors, and resumes at the changed event.
-- Reloadable project JSON (`v1alpha9`, accepting `v1alpha1`–`v1alpha9`), expanded event-level CSV,
+- Reloadable project JSON (`v1alpha15`, accepting `v1alpha1`–`v1alpha15`), expanded event-level CSV,
   full, enabled-only, and masked/disabled-only curation FASTA directly from the loaded dataset,
   accepted-group sequence removal,
   accepted-tract column removal, tract-masking FASTA, and event-ordered mosaic-fragment FASTA.
@@ -116,12 +169,23 @@ core runs in WebAssembly.
   without a separate hosting service.
 - A responsive, accessible React interface that requires no application server.
 
-This is **not yet a parity-validated RDP5 replacement**. The primary RDP workflow now reaches an
-end-to-end reviewed-event result and alignment variants, including the active late list-build and
-selected-role cleanup paths.
-MaxChi evidence is currently confirmation-only: primary RDP still discovers and coordinates every
-event, and the native MaxChi multi-peak smoothing/destroy/retry scheduler is not yet active.
-Unported role-method families, their remaining post-group method-stack rechecks, broader statistical
+This is **not yet a parity-validated RDP5 replacement**. The fully exploratory and automated
+query-vs-reference RDP/MaxChi/CHIMAERA/GENECONV/3SEQ workflows now reach
+an end-to-end reviewed-event result and alignment variants, including the active late list-build and
+selected-role cleanup paths. MaxChi and CHIMAERA exploratory discovery are active in source, but
+their indexing, smoothing/destruction basins, preliminary role assignment, and cross-method event
+order still require native golden comparison before either can be called parity validated. Native
+MaxChi manual-doublet/permutation, CHIMAERA permutation/full late-event-reconstruction, and
+GENECONV permutation/manual-pair/alternative-indel/full late-event-reconstruction modes are not yet
+represented. The ordinary ignored-indel KA GENECONV path is source-shaped active but unvalidated.
+The ordinary 3SEQ exact/random-walk path is likewise source-shaped active but unvalidated. Later
+cyclic rounds now retain the supplied `FindSubSeqTS2` inclusive position map and
+`CheckSplit3Seq`/`SubPVal` missing-run trim, reverse-orientation retry, and corrected-P re-gate.
+The supplied two-orientation `TSXOver(1)` representative/finalized-list recheck is also active;
+manual permutation envelopes and full late event-catalogue reconstruction remain explicit
+boundaries. Source-shaped FastRecCheckChim strongest-target, ordinary-kernel GENECONV, and 3SEQ
+Findall rechecks remain non-coordinate-changing and require native golden comparison.
+Unported role-method families and their post-group method-stack rechecks, broader statistical
 breakpoint probability/confidence diagnostics, and golden native comparison are still open. The
 manual's RDP deleted-tract one-window uncertainty rule and the primary-RDP post-group
 signal/probability recheck are active, as is the distinct BURT/BenHMM statistical 99%/95%
@@ -133,8 +197,12 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [late-consensus source trace](docs/native-late-consensus-trace.md), and the
 [breakpoint-uncertainty source trace](docs/native-breakpoint-uncertainty-trace.md), the
 [BURT/confidence source trace](docs/native-breakpoint-confidence-trace.md), and the
+[MaxChi discovery trace](docs/native-maxchi-discovery-trace.md), the
 [MaxChi recheck source trace](docs/native-maxchi-recheck-trace.md), and the
-[session-9 handoff](docs/session-9-handoff.md) before interpreting results or starting the next phase.
+[CHIMAERA discovery trace](docs/native-chimaera-discovery-trace.md), the
+[GENECONV discovery trace](docs/native-geneconv-discovery-trace.md), and the
+[3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), and the
+[session-15 handoff](docs/session-15-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 
@@ -153,6 +221,24 @@ relative Vite base also supports a user/organization root site or custom domain.
 GitHub Pages does not provide the COOP/COEP headers required for `SharedArrayBuffer`, so this
 workflow deliberately builds the single-worker compatibility module. Numerical work still stays
 off the UI thread in the dedicated analysis worker.
+
+## Automated query vs reference workflow
+
+1. Load the aligned dataset. Names using the manual's `REF-A<sequence name>` convention are
+   detected into editable reference groups; “Detect REF names” can reapply that mapping.
+2. In the dataset table, leave a role blank for a query or enter a positive integer for its
+   reference group. Select individual rows—or every row matching the current name filter—to assign
+   a group or make them queries in one action. “Compact groups” renumbers IDs by first appearance
+   without changing group membership. Records in the same reference group are not paired with one
+   another. Role assignment does not silently change enabled, masked, or disabled curation.
+3. On the settings page, choose **Query vs reference**. The plan must contain at least one eligible
+   query and eligible references from two groups. The screen shows the exact scheduled record
+   triplets and the separately capped group-pair × query correction factor.
+4. Run and review in the same strongest-first cyclic order as an exploratory analysis. The role
+   inference remains free; a reference called as recombinant is highlighted in amber and keeps its
+   input group on the role cards, alignment view, tree view, JSON, and CSV.
+5. Download the `.rdpweb.json` checkpoint to preserve all assignments and review decisions. The
+   CSV is a readable event summary, not a substitute for that complete project state.
 
 ## Build later (not run for this checkpoint)
 
@@ -195,7 +281,7 @@ The generated files belong in `public/wasm/`:
 | `.github/workflows/` | Locked GitHub Pages build, artifact validation, and deployment |
 | `src/` | React workflow, worker client, review plots, and exports |
 | `src/workers/` | Isolated WASM bridge and bounded scan scheduler |
-| `wasm/src/` | Alignment readers, primary RDP method, MaxChi recheck, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
+| `wasm/src/` | Alignment readers, RDP/MaxChi/CHIMAERA/GENECONV/3SEQ discovery and active rechecks, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
 | `wasm/include/` | Stable C ABI consumed by the worker |
 | `scripts/` | Explicit WASM build entry point and Pages artifact verifier |
 | `docs/` | Workflow, fidelity, architecture, and validation handoff |

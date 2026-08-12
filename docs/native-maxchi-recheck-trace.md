@@ -3,7 +3,9 @@
 This document records the Session 9 MaxChi translation made only from the supplied DNA/DNA5 DLL
 source, VB application source, and RDP5 manual. No alternate implementation or reference-code
 project was consulted. The implementation is intentionally labelled **source-shaped and
-unvalidated**: it provides auditable triplet corroboration, not full MaxChi event discovery.
+unvalidated**. This document describes the bounded corroboration kernel; the subsequently added
+ordinary exploratory discovery path is documented separately in
+[`native-maxchi-discovery-trace.md`](native-maxchi-discovery-trace.md).
 
 No source in this checkpoint was compiled or executed.
 
@@ -22,11 +24,11 @@ The supplied workflow establishes the following path:
 | `DNA5/MathFuncsDll.cpp`, `NormalZ`, around 4210–4259; `ChiPVal2P`, around 7494–7516 | Convert one-degree-of-freedom χ² to the supplied tail approximation, including its extreme fallback | `source_normal_z` and `source_chi_p_value` |
 | `DNA5/MathFuncsDll.cpp`, `MakeTWinP`, around 18644–18665; `GetACP`; `GrowMChiWin2P2` / `GrowMChiWinP2` | Start near one quarter of the original half-window, expand both sides, retain non-decreasing χ² maxima, stop at missing boundaries or after failures | `grow_peak`, preserving the `MaxX == 0 → 1` entry quirk and missing-edge ordering |
 | `DNA5/MathFuncsDll.cpp`, `FastRecCheckMC2`, around 19215–19510 | Gate the triplet, scan/smooth peaks, grow one candidate, correct its probability, construct/destroy candidates, and retry | strongest admissible peak, growth, and probabilities only |
-| `DNA5/MathFuncsDll.cpp`, `AlistMC3`, around 23138–23220 | Schedule MaxChi over analysis lists and feed persistent event records | not yet ported as a discovery scheduler |
+| `DNA5/MathFuncsDll.cpp`, `AlistMC3`, around 23138–23220 | Schedule MaxChi over analysis lists and feed persistent event records | representative/final-list scheduling is mapped to bounded recheck evidence; ordinary exploratory discovery uses the separately traced `MCXoverF` lifecycle |
 
-The RDP5 manual's preliminary-scan workflow remains intact: primary RDP discovers an event, later
-evidence refines the hypothesis, and the user reviews it in order. MaxChi currently enters only the
-later evidence phase, so it cannot silently create or move an event.
+The RDP5 manual's distinction between discovery and later corroboration remains intact. The kernel
+in this document cannot create or move an event. Separately, the active ordinary `MCXoverF` port can
+author a method-labelled discovery signal that enters the shared cyclic event workflow.
 
 ## Variable-site and match profiles
 
@@ -109,16 +111,18 @@ separately from an unavailable profile.
   event-level representative evidence remains available above the table.
 - MaxChi evidence is serialized into ordinary results, reloadable projects, and event CSV. The UI
   shows profile availability, bans, pair, peak, χ², windows, and all three probability scopes.
-- Primary RDP remains the only method that writes the cyclic discovery signal/event catalogue.
+- This strongest-peak recheck never writes the cyclic discovery catalogue; the separate
+  exploratory MaxChi kernel can author ordinary method-labelled discovery signals.
 
-## Deliberate boundary and deviations
+## Deliberate boundary and deviations of this recheck
 
-The following source behavior is not claimed in Session 9:
+The following behavior is not claimed by this bounded recheck. Several items are represented by the
+separate exploratory kernel, but they are deliberately not folded into corroboration results:
 
 - `SmoothChiValsP`, ordered local-peak selection, `DestroyPeakP`, the up-to-100 retry loop, and its
-  `WasteOfTime` behavior;
-- MaxChi breakpoint-pair/event construction and writes back to the native global event catalogue;
-- `AlistMC3` exploratory scheduling and every enabled-method dispatch combination;
+  `WasteOfTime` behavior inside the recheck;
+- MaxChi breakpoint-pair/event construction or writes back to the event catalogue from a recheck;
+- full `AlistMC3` late dispatcher/event reconstruction and every enabled-method combination;
 - native lookup-table rounding (`ChiTable2`); the port evaluates the same formula in `double`;
 - growth beyond half the variable profile. The browser stops before the two half-windows overlap,
   while the supplied loop relies on failure/boundary termination and has no explicit overlap guard;
@@ -130,8 +134,8 @@ Those boundaries are machine-readable as `eventDiscoveryApplied: false`,
 
 ## Next native-parity fixtures
 
-Before enabling MaxChi discovery, compare the supplied desktop/DLL and this kernel at full precision
-for: `MaxX = 0`; exact critical-difference ties; zero/length `BanWin` aliases; missing sites before
+Before calling either MaxChi path validated, compare the supplied desktop/DLL and this kernel at full
+precision for: `MaxX = 0`; exact critical-difference ties; zero/length `BanWin` aliases; missing sites before
 the first variable site; linear end windows; a grown maximum smaller than, equal to, and larger than
 the initial half-window; correction factors near the native cap; and multiple peaks requiring
 destruction/retry. The full corpus is listed in [`validation-plan.md`](validation-plan.md).

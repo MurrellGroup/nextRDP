@@ -25,7 +25,24 @@ interface EmscriptenModule {
     correction: number,
     pValueCutoff: number,
     windowSites: number,
+    maxChiEnabled: number,
+    maxChiWindowSites: number,
+    chimaeraEnabled: number,
+    chimaeraWindowSites: number,
+    geneconvEnabled: number,
+    geneconvMismatchScale: number,
+    geneconvMaxOverlaps: number,
+    threeSeqEnabled: number,
+    bootscanSecondaryEnabled: number,
+    bootscanWindowSites: number,
+    bootscanStepSites: number,
+    bootscanBootstrapReplicates: number,
+    bootscanSupportCutoff: number,
+    bootscanRandomSeed: number,
     polishBreakpoints: number,
+    queryReferenceMode: number,
+    referenceGroups: number,
+    referenceGroupCount: number,
     mask: number,
     maskLength: number,
     disabled: number,
@@ -79,7 +96,24 @@ interface EmscriptenModule {
     correction: number,
     pValueCutoff: number,
     windowSites: number,
+    maxChiEnabled: number,
+    maxChiWindowSites: number,
+    chimaeraEnabled: number,
+    chimaeraWindowSites: number,
+    geneconvEnabled: number,
+    geneconvMismatchScale: number,
+    geneconvMaxOverlaps: number,
+    threeSeqEnabled: number,
+    bootscanSecondaryEnabled: number,
+    bootscanWindowSites: number,
+    bootscanStepSites: number,
+    bootscanBootstrapReplicates: number,
+    bootscanSupportCutoff: number,
+    bootscanRandomSeed: number,
     polishBreakpoints: number,
+    queryReferenceMode: number,
+    referenceGroups: number,
+    referenceGroupCount: number,
     mask: number,
     maskLength: number,
     disabled: number,
@@ -112,8 +146,102 @@ interface EmscriptenModule {
     fragmentEvent2: number,
     reviewState: number,
     eventId: number,
+    method: number,
   ): number;
-  _rdp_restore_scan_finish(handle: number, correctionTests: number): number;
+  _rdp_restore_maxchi_discovery(
+    handle: number,
+    signalId: number,
+    peakPair: number,
+    tractSide: number,
+    peakAttempt: number,
+    peakAlignmentPosition: number,
+    variableSites: number,
+    initialHalfWindow: number,
+    grownHalfWindow: number,
+    criticalDifference: number,
+    maximumChiSquare: number,
+    rawPValue: number,
+    withinTripletPValue: number,
+    leftFlankChiSquare: number,
+    rightFlankChiSquare: number,
+    missingDataWindowFilterApplied: number,
+    linearEdgeWindowFilterApplied: number,
+  ): number;
+  _rdp_restore_chimaera_discovery(
+    handle: number,
+    signalId: number,
+    targetLocal: number,
+    tractSide: number,
+    peakAttempt: number,
+    peakAlignmentPosition: number,
+    informationRichSites: number,
+    initialHalfWindow: number,
+    grownHalfWindow: number,
+    criticalDifference: number,
+    maximumChiSquare: number,
+    rawPValue: number,
+    withinTripletPValue: number,
+    leftFlankChiSquare: number,
+    rightFlankChiSquare: number,
+    insideParentOneMatchRate: number,
+    outsideParentOneMatchRate: number,
+    missingDataWindowFilterApplied: number,
+    linearEdgeWindowFilterApplied: number,
+  ): number;
+  _rdp_restore_geneconv_discovery(
+    handle: number,
+    signalId: number,
+    track: number,
+    polymorphicSites: number,
+    positiveSites: number,
+    discordantSites: number,
+    mismatchPenalty: number,
+    fragmentScore: number,
+    criticalScore: number,
+    lambda: number,
+    karlinAltschulK: number,
+    rawPValue: number,
+  ): number;
+  _rdp_restore_threeseq_discovery(
+    handle: number,
+    signalId: number,
+    targetLocal: number,
+    walkDirection: number,
+    informationRichSites: number,
+    parentOneMatches: number,
+    parentTwoMatches: number,
+    probabilityExcursion: number,
+    maximumExcursion: number,
+    rawPValue: number,
+    exactProbability: number,
+    siegmundFallback: number,
+    missingDataSplitApplied: number,
+  ): number;
+  _rdp_restore_scan_finish(
+    handle: number,
+    correctionTests: number,
+    cumulativeTriplets: number,
+    scanRounds: number,
+    maxChiProfilesScanned: number,
+    maxChiPeakAttempts: number,
+    maxChiCandidatesFound: number,
+    maxChiPeakLimitTriplets: number,
+    chimaeraProfilesScanned: number,
+    chimaeraPeakAttempts: number,
+    chimaeraCandidatesFound: number,
+    chimaeraPeakLimitTargets: number,
+    geneconvFragmentsScored: number,
+    geneconvQualifiedFragments: number,
+    geneconvCandidatesFound: number,
+    geneconvOverlapRejections: number,
+    geneconvNumericalFallbackTracks: number,
+    threeSeqProfilesScanned: number,
+    threeSeqExactEvaluations: number,
+    threeSeqApproximateEvaluations: number,
+    threeSeqCandidatesFound: number,
+    cycleTermination: number,
+    cycleTerminationLength: number,
+  ): number;
   _rdp_restore_event_state(
     handle: number,
     eventId: number,
@@ -380,7 +508,14 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema !== "org.rdp-web.project/v1alpha6" &&
     schema !== "org.rdp-web.project/v1alpha7" &&
     schema !== "org.rdp-web.project/v1alpha8" &&
-    schema !== "org.rdp-web.project/v1alpha9"
+    schema !== "org.rdp-web.project/v1alpha9" &&
+    schema !== "org.rdp-web.project/v1alpha10" &&
+    schema !== "org.rdp-web.project/v1alpha11" &&
+    schema !== "org.rdp-web.project/v1alpha12" &&
+    schema !== "org.rdp-web.project/v1alpha13" &&
+    schema !== "org.rdp-web.project/v1alpha14" &&
+    schema !== "org.rdp-web.project/v1alpha15" &&
+    schema !== "org.rdp-web.project/v1alpha16"
   ) {
     throw new Error(`Unsupported RDP Web project schema: ${schema}`);
   }
@@ -442,7 +577,7 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
   const rawAnalysis = root.analysis;
   if (!rawAnalysis) return { dataset: restoredDataset, results: null, sourceFilename: datasetName };
   const analysis = requireObject(rawAnalysis, "The saved analysis is invalid.");
-  const savedSignals = requireArray(analysis.signals, "The saved analysis has no primary signals.");
+  const savedSignals = requireArray(analysis.signals, "The saved analysis has no discovery signals.");
   const savedEvents = Array.isArray(analysis.events) ? analysis.events : [];
   const pending = integer(analysis.downstreamReconciliationRequiredAfter, -1);
   if (pending >= savedEvents.length) {
@@ -500,8 +635,44 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
       }
     });
   }
+  const supportsReferenceGroups =
+    schema === "org.rdp-web.project/v1alpha11" ||
+    schema === "org.rdp-web.project/v1alpha12" ||
+    schema === "org.rdp-web.project/v1alpha13" ||
+    schema === "org.rdp-web.project/v1alpha14" ||
+    schema === "org.rdp-web.project/v1alpha15" ||
+    schema === "org.rdp-web.project/v1alpha16";
+  const supportsMaxChiDiscovery =
+    schema === "org.rdp-web.project/v1alpha10" || supportsReferenceGroups;
+  const supportsChimaeraDiscovery =
+    schema === "org.rdp-web.project/v1alpha12" ||
+    schema === "org.rdp-web.project/v1alpha13" ||
+    schema === "org.rdp-web.project/v1alpha14" ||
+    schema === "org.rdp-web.project/v1alpha15" ||
+    schema === "org.rdp-web.project/v1alpha16";
+  const supportsGeneconvDiscovery =
+    schema === "org.rdp-web.project/v1alpha13" ||
+    schema === "org.rdp-web.project/v1alpha14" ||
+    schema === "org.rdp-web.project/v1alpha15" ||
+    schema === "org.rdp-web.project/v1alpha16";
+  const supportsThreeSeqDiscovery =
+    schema === "org.rdp-web.project/v1alpha14" ||
+    schema === "org.rdp-web.project/v1alpha15" ||
+    schema === "org.rdp-web.project/v1alpha16";
+  const supportsThreeSeqSplit =
+    schema === "org.rdp-web.project/v1alpha15" ||
+    schema === "org.rdp-web.project/v1alpha16";
+  const supportsBootscanSecondary = schema === "org.rdp-web.project/v1alpha16";
+  const referenceGroups = new Array<number>(restoredDataset.sequenceCount).fill(0);
+  if (supportsReferenceGroups &&
+      Array.isArray(analysis.referenceGroupIndices)) {
+    analysis.referenceGroupIndices.slice(0, referenceGroups.length).forEach((value, index) => {
+      referenceGroups[index] = Math.max(0, Math.min(0xffff_ffff, integer(value)));
+    });
+  }
   const maskPointer = copyBytes(masked);
   const disabledPointer = copyBytes(disabled);
+  const referenceGroupsPointer = copyUint32(referenceGroups);
   try {
     if (
       module._rdp_restore_scan_begin(
@@ -510,7 +681,24 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         analysis.correction === "none" ? 1 : 0,
         finiteNumber(analysis.pValueCutoff, 0.05),
         integer(analysis.windowSites, 30),
+        supportsMaxChiDiscovery && analysis.maxChiEnabled !== false ? 1 : 0,
+        integer(analysis.maxChiWindowSites, 70),
+        supportsChimaeraDiscovery && analysis.chimaeraEnabled !== false ? 1 : 0,
+        integer(analysis.chimaeraWindowSites, 60),
+        supportsGeneconvDiscovery && analysis.geneconvEnabled !== false ? 1 : 0,
+        integer(analysis.geneconvMismatchScale, 1),
+        integer(analysis.geneconvMaxOverlaps, 1),
+        supportsThreeSeqDiscovery && analysis.threeSeqEnabled !== false ? 1 : 0,
+        supportsBootscanSecondary && analysis.bootscanSecondaryEnabled === true ? 1 : 0,
+        integer(analysis.bootscanWindowSites, 200),
+        integer(analysis.bootscanStepSites, 20),
+        integer(analysis.bootscanBootstrapReplicates, 100),
+        finiteNumber(analysis.bootscanSupportCutoff, 0.7),
+        integer(analysis.bootscanRandomSeed, 3),
         analysis.polishBreakpoints === false ? 0 : 1,
+        supportsReferenceGroups && analysis.analysisMode === "query-reference" ? 1 : 0,
+        referenceGroupsPointer,
+        referenceGroups.length,
         maskPointer,
         masked.length,
         disabledPointer,
@@ -522,6 +710,7 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
   } finally {
     module._free(maskPointer);
     module._free(disabledPointer);
+    module._free(referenceGroupsPointer);
   }
 
   const inferredEventIds = new Map<number, number>();
@@ -533,8 +722,18 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     });
   });
 
-  signalsToRestore.forEach(({ rawSignal, savedIndex }) => {
+  signalsToRestore.forEach(({ rawSignal, savedIndex }, restoredSignalIndex) => {
     const signal = requireObject(rawSignal, `Saved signal ${savedIndex + 1} is invalid.`);
+    const savedMethod = requireString(
+      signal.method,
+      `Saved signal ${savedIndex + 1} has no discovery method.`,
+    );
+    if (!["RDP", "MAXCHI", "CHIMAERA", "GENECONV", "3SEQ"].includes(savedMethod)) {
+      throw new Error(`Saved signal ${savedIndex + 1} uses an unknown discovery method.`);
+    }
+    if (savedMethod === "3SEQ" && !supportsThreeSeqDiscovery) {
+      throw new Error(`Saved 3SEQ signal ${savedIndex + 1} uses a pre-3SEQ project schema.`);
+    }
     const triplet = requireArray(
       signal.triplet,
       `Saved signal ${savedIndex + 1} has no triplet.`,
@@ -574,15 +773,184 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         integer(fragmentContext[2], -1),
         reviewStateCode(signal.reviewState),
         restoredEventId,
+        savedMethod === "MAXCHI"
+          ? 1
+          : savedMethod === "CHIMAERA"
+            ? 2
+            : savedMethod === "GENECONV"
+              ? 3
+              : savedMethod === "3SEQ" ? 4 : 0,
       ) !== 1
     ) {
       throw engineError(`Saved signal ${savedIndex + 1} could not be restored.`);
     }
+    if (savedMethod === "MAXCHI") {
+      const discovery = requireObject(
+        signal.maxChiDiscovery,
+        `Saved MaxChi signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      const tractSide = discovery.tractSide === "left"
+        ? -1
+        : discovery.tractSide === "right" ? 1 : 0;
+      if (
+        module!._rdp_restore_maxchi_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.peakPair, -1),
+          tractSide,
+          integer(discovery.peakAttempt),
+          integer(discovery.peakAlignmentPosition),
+          integer(discovery.variableSites, integer(signal.informativeSites)),
+          integer(discovery.initialHalfWindow),
+          integer(discovery.grownHalfWindow),
+          integer(discovery.criticalDifference),
+          finiteNumber(discovery.maximumChiSquare),
+          finiteNumber(discovery.rawPValue, 1),
+          finiteNumber(discovery.withinTripletPValue, finiteNumber(signal.localPValue, 1)),
+          finiteNumber(discovery.leftFlankChiSquare),
+          finiteNumber(discovery.rightFlankChiSquare),
+          discovery.missingDataWindowFilterApplied === true ? 1 : 0,
+          discovery.linearEdgeWindowFilterApplied === true ? 1 : 0,
+        ) !== 1
+      ) {
+        throw engineError(`Saved MaxChi signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
+    if (savedMethod === "CHIMAERA") {
+      const discovery = requireObject(
+        signal.chimaeraDiscovery,
+        `Saved CHIMAERA signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      const tractSide = discovery.tractSide === "left"
+        ? -1
+        : discovery.tractSide === "right" ? 1 : 0;
+      if (
+        module!._rdp_restore_chimaera_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.targetLocal, -1),
+          tractSide,
+          integer(discovery.peakAttempt),
+          integer(discovery.peakAlignmentPosition),
+          integer(discovery.informationRichSites, integer(signal.informativeSites)),
+          integer(discovery.initialHalfWindow),
+          integer(discovery.grownHalfWindow),
+          integer(discovery.criticalDifference),
+          finiteNumber(discovery.maximumChiSquare),
+          finiteNumber(discovery.rawPValue, 1),
+          finiteNumber(discovery.withinTripletPValue, finiteNumber(signal.localPValue, 1)),
+          finiteNumber(discovery.leftFlankChiSquare),
+          finiteNumber(discovery.rightFlankChiSquare),
+          finiteNumber(discovery.insideParentOneMatchRate),
+          finiteNumber(discovery.outsideParentOneMatchRate),
+          discovery.missingDataWindowFilterApplied === true ? 1 : 0,
+          discovery.linearEdgeWindowFilterApplied === true ? 1 : 0,
+        ) !== 1
+      ) {
+        throw engineError(`Saved CHIMAERA signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
+    if (savedMethod === "GENECONV") {
+      const discovery = requireObject(
+        signal.geneconvDiscovery,
+        `Saved GENECONV signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      if (
+        module!._rdp_restore_geneconv_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.track, -1),
+          integer(discovery.polymorphicSites, integer(signal.informativeSites)),
+          integer(discovery.positiveSites),
+          integer(discovery.discordantSites),
+          integer(discovery.mismatchPenalty),
+          integer(discovery.fragmentScore),
+          integer(discovery.criticalScore),
+          finiteNumber(discovery.lambda),
+          finiteNumber(discovery.karlinAltschulK),
+          finiteNumber(discovery.rawPValue, finiteNumber(signal.localPValue, 1)),
+        ) !== 1
+      ) {
+        throw engineError(`Saved GENECONV signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
+    if (savedMethod === "3SEQ") {
+      const discovery = requireObject(
+        signal.threeSeqDiscovery,
+        `Saved 3SEQ signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      if (discovery.walkDirection !== "ascent" && discovery.walkDirection !== "descent") {
+        throw new Error(`Saved 3SEQ signal ${savedIndex + 1} has an invalid walk direction.`);
+      }
+      if (discovery.missingDataSplitApplied === true && !supportsThreeSeqSplit) {
+        throw new Error(
+          `Saved 3SEQ signal ${savedIndex + 1} claims post-erasure split evidence in a pre-v15 project.`,
+        );
+      }
+      if (
+        module!._rdp_restore_threeseq_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.targetLocal, -1),
+          discovery.walkDirection === "ascent" ? 1 : -1,
+          integer(discovery.informationRichSites, integer(signal.informativeSites)),
+          integer(discovery.parentOneMatches),
+          integer(discovery.parentTwoMatches),
+          integer(discovery.probabilityExcursion, integer(discovery.maximumExcursion)),
+          integer(discovery.maximumExcursion),
+          finiteNumber(discovery.rawPValue, finiteNumber(signal.localPValue, 1)),
+          discovery.exactProbability === true ? 1 : 0,
+          discovery.siegmundFallback === true ? 1 : 0,
+          discovery.missingDataSplitApplied === true ? 1 : 0,
+        ) !== 1
+      ) {
+        throw engineError(`Saved 3SEQ signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
   });
-  if (
-    module._rdp_restore_scan_finish(context, integer(analysis.correctionTests)) !== 1
-  ) {
-    throw engineError("The saved primary analysis could not be restored.");
+  const savedCycleTermination = pending < 0 && typeof analysis.cycleTermination === "string"
+    ? analysis.cycleTermination
+    : "restored-project";
+  const cycleTerminationBytes = encoder.encode(savedCycleTermination);
+  const cycleTerminationPointer = copyBytes(cycleTerminationBytes);
+  try {
+    if (
+      module._rdp_restore_scan_finish(
+        context,
+        integer(analysis.correctionTests),
+        pending < 0 ? finiteNumber(analysis.cumulativeTriplets) : 0,
+        pending < 0
+          ? integer(analysis.scanRounds, Math.max(1, eventsToRestore.length + 1))
+          : Math.max(1, eventsToRestore.length + 1),
+        pending < 0 ? finiteNumber(analysis.maxChiProfilesScanned) : 0,
+        pending < 0 ? finiteNumber(analysis.maxChiPeakAttempts) : 0,
+        pending < 0 ? finiteNumber(analysis.maxChiCandidatesFound) : 0,
+        pending < 0 ? finiteNumber(analysis.maxChiPeakLimitTriplets) : 0,
+        pending < 0 ? finiteNumber(analysis.chimaeraProfilesScanned) : 0,
+        pending < 0 ? finiteNumber(analysis.chimaeraPeakAttempts) : 0,
+        pending < 0 ? finiteNumber(analysis.chimaeraCandidatesFound) : 0,
+        pending < 0 ? finiteNumber(analysis.chimaeraPeakLimitTargets) : 0,
+        pending < 0 ? finiteNumber(analysis.geneconvFragmentsScored) : 0,
+        pending < 0 ? finiteNumber(analysis.geneconvQualifiedFragments) : 0,
+        pending < 0 ? finiteNumber(analysis.geneconvCandidatesFound) : 0,
+        pending < 0 ? finiteNumber(analysis.geneconvOverlapRejections) : 0,
+        pending < 0 ? finiteNumber(analysis.geneconvNumericalFallbackTracks) : 0,
+        pending < 0 && supportsThreeSeqDiscovery
+          ? finiteNumber(analysis.threeSeqProfilesScanned) : 0,
+        pending < 0 && supportsThreeSeqDiscovery
+          ? finiteNumber(analysis.threeSeqExactEvaluations) : 0,
+        pending < 0 && supportsThreeSeqDiscovery
+          ? finiteNumber(analysis.threeSeqApproximateEvaluations) : 0,
+        pending < 0 && supportsThreeSeqDiscovery
+          ? finiteNumber(analysis.threeSeqCandidatesFound) : 0,
+        cycleTerminationPointer,
+        cycleTerminationBytes.byteLength,
+      ) !== 1
+    ) {
+      throw engineError("The saved primary analysis could not be restored.");
+    }
+  } finally {
+    module._free(cycleTerminationPointer);
   }
 
   eventsToRestore.forEach((savedEvent, index) => {
@@ -668,8 +1036,13 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       mask[index] = 0;
     }
   });
+  const referenceGroups = new Array<number>(dataset.sequenceCount).fill(0);
+  request.options.referenceGroupIndices.slice(0, referenceGroups.length).forEach((value, index) => {
+    referenceGroups[index] = Math.max(0, Math.min(0xffff_ffff, integer(value)));
+  });
   const maskPointer = copyBytes(mask);
   const disabledPointer = copyBytes(disabled);
+  const referenceGroupsPointer = copyUint32(referenceGroups);
   try {
     const correction = request.options.correction === "bonferroni" ? 0 : 1;
     const started = module._rdp_scan_begin(
@@ -678,16 +1051,34 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       correction,
       request.options.pValueCutoff,
       request.options.windowSites,
+      request.options.maxChiEnabled ? 1 : 0,
+      request.options.maxChiWindowSites,
+      request.options.chimaeraEnabled ? 1 : 0,
+      request.options.chimaeraWindowSites,
+      request.options.geneconvEnabled ? 1 : 0,
+      request.options.geneconvMismatchScale,
+      request.options.geneconvMaxOverlaps,
+      request.options.threeSeqEnabled ? 1 : 0,
+      request.options.bootscanSecondaryEnabled ? 1 : 0,
+      request.options.bootscanWindowSites,
+      request.options.bootscanStepSites,
+      request.options.bootscanBootstrapReplicates,
+      request.options.bootscanSupportCutoff,
+      request.options.bootscanRandomSeed,
       request.options.polishBreakpoints ? 1 : 0,
+      request.options.analysisMode === "query-reference" ? 1 : 0,
+      referenceGroupsPointer,
+      referenceGroups.length,
       maskPointer,
       mask.length,
       disabledPointer,
       disabled.length,
     );
-    if (started !== 1) throw engineError("The RDP scan could not be started.");
+    if (started !== 1) throw engineError("The recombination scan could not be started.");
   } finally {
     module._free(maskPointer);
     module._free(disabledPointer);
+    module._free(referenceGroupsPointer);
   }
 
   scanActive = true;
@@ -700,7 +1091,7 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       if (status === 3) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         if (module._rdp_reconcile(context) !== 1) {
-          throw engineError("The primary signals could not be reconciled into event hypotheses.");
+          throw engineError("The discovery signals could not be reconciled into event hypotheses.");
         }
         emitProgress();
         break;

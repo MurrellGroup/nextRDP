@@ -84,6 +84,13 @@ function confidenceRange(beginning: number, ending: number, wraps: boolean): str
   return `${Math.abs(beginning).toLocaleString()} → ${Math.abs(ending).toLocaleString()}${wraps ? " · wraps origin" : ""}`;
 }
 
+function inputRoleLabel(role: EventAlignmentView["rows"][number]): string {
+  if (role.queryReferenceInputRole === "not-applied") return "";
+  return role.queryReferenceInputRole === "reference"
+    ? ` · reference group ${role.referenceGroup ?? "?"}`
+    : " · query input";
+}
+
 function CoordinateRuler({ panel }: { panel: EventAlignmentPanel }) {
   const style = {
     gridTemplateColumns: `210px repeat(${panel.coordinates.length}, 16px)`,
@@ -188,7 +195,7 @@ function AlignmentPanelView({
               <div className="alignment-matrix-row" style={style} key={row.sequenceIndex}>
                 <span className={`alignment-sticky-cell role-${row.role}`}>
                   <span title={row.sequenceName}>{row.sequenceName}</span>
-                  <small>{roleLabels[row.role]}</small>
+                  <small>{roleLabels[row.role]}{inputRoleLabel(row)}</small>
                   <i>
                     {row.currentGroupMember ? "current group" : ""}
                     {row.trace ? `${row.currentGroupMember ? " · " : ""}masked trace` : ""}

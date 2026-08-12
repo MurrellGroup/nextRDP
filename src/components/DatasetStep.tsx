@@ -1,5 +1,5 @@
-import { AlertTriangle, FileText, Search, ShieldCheck, UploadCloud } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { AlertTriangle, FileText, Info, Search, ShieldCheck, UploadCloud } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { DatasetSummary, SequenceAnalysisState } from "../lib/types";
 import { Metric } from "./Metric";
@@ -12,12 +12,18 @@ interface DatasetStepProps {
   fileSize: number;
   masked: Set<number>;
   disabled: Set<number>;
+  referenceGroups: Map<number, number>;
+  eligibleSequenceCount: number;
+  exploratoryTripletCount: number;
   busy: boolean;
   onLoad: (file: File) => void;
   onSequenceStateChange: (index: number, state: SequenceAnalysisState) => void;
   onAllSequenceStatesChange: (
     action: "auto-mask" | "enable-all" | "mask-all" | "disable-all",
   ) => void;
+  onReferenceGroupChange: (index: number, group: number) => void;
+  onReferenceGroupsChange: (indices: number[], group: number) => void;
+  onAllReferenceGroupsChange: (action: "detect" | "compact" | "clear") => void;
   onExportFullAlignment: () => void;
   onExportEnabledSequences: () => void;
   onExportMaskedOrDisabledSequences: () => void;
@@ -26,10 +32,6 @@ interface DatasetStepProps {
 
 const integer = new Intl.NumberFormat();
 const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
-
-function chooseThree(count: number): number {
-  return count < 3 ? 0 : (count * (count - 1) * (count - 2)) / 6;
-}
 
 function bytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -45,10 +47,16 @@ export function DatasetStep({
   fileSize,
   masked,
   disabled,
+  referenceGroups,
+  eligibleSequenceCount,
+  exploratoryTripletCount,
   busy,
   onLoad,
   onSequenceStateChange,
   onAllSequenceStatesChange,
+  onReferenceGroupChange,
+  onReferenceGroupsChange,
+  onAllReferenceGroupsChange,
   onExportFullAlignment,
   onExportEnabledSequences,
   onExportMaskedOrDisabledSequences,
@@ -57,20 +65,59 @@ export function DatasetStep({
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [filter, setFilter] = useState("");
-  const activeSequenceCount = Math.max(
+  const [selectedSequenceIndices, setSelectedSequenceIndices] = useState<Set<number>>(new Set());
+  const [bulkReferenceGroup, setBulkReferenceGroup] = useState("");
+  const curatedEnabledCount = Math.max(
     0,
     (dataset?.sequenceCount ?? 0) - masked.size - disabled.size,
   );
-  const activeTripletCount = chooseThree(activeSequenceCount);
+  const referenceGroupCount = new Set(referenceGroups.values()).size;
 
-  const visibleSequences = useMemo(() => {
+  const matchingSequences = useMemo(() => {
     if (!dataset) return [];
     const needle = filter.trim().toLowerCase();
-    const matches = needle
+    return needle
       ? dataset.sequences.filter((sequence) => sequence.name.toLowerCase().includes(needle))
       : dataset.sequences;
-    return matches.slice(0, 500);
   }, [dataset, filter]);
+  const visibleSequences = matchingSequences.slice(0, 500);
+  const allMatchingSelected = matchingSequences.length > 0 && matchingSequences.every(
+    (sequence) => selectedSequenceIndices.has(sequence.index),
+  );
+  const normalizedBulkGroup = Number(bulkReferenceGroup);
+  const bulkGroupIsValid = Number.isInteger(normalizedBulkGroup) &&
+    normalizedBulkGroup > 0 && normalizedBulkGroup <= 0xffff_ffff;
+
+  useEffect(() => {
+    setFilter("");
+    setSelectedSequenceIndices(new Set());
+    setBulkReferenceGroup("");
+  }, [dataset]);
+
+  const toggleSequenceSelection = (index: number) => {
+    setSelectedSequenceIndices((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const toggleMatchingSelection = () => {
+    setSelectedSequenceIndices((current) => {
+      const next = new Set(current);
+      matchingSequences.forEach((sequence) => {
+        if (allMatchingSelected) next.delete(sequence.index);
+        else next.add(sequence.index);
+      });
+      return next;
+    });
+  };
+
+  const applySelectedReferenceGroup = (group: number) => {
+    if (selectedSequenceIndices.size === 0) return;
+    onReferenceGroupsChange([...selectedSequenceIndices], group);
+  };
 
   const chooseFile = (files: FileList | null) => {
     const file = files?.item(0);
@@ -155,8 +202,8 @@ export function DatasetStep({
             <Metric label="Variable sites" value={integer.format(dataset.variableSiteCount)} />
             <Metric label="Mean identity" value={dataset.meanPairIdentity == null ? "—" : percent.format(dataset.meanPairIdentity)} />
             <Metric
-              label="Triplets"
-              value={integer.format(activeTripletCount)}
+              label="Exploratory triplets"
+              value={integer.format(exploratoryTripletCount)}
               detail={`${masked.size} masked · ${disabled.size} disabled`}
             />
           </div>
@@ -172,7 +219,7 @@ export function DatasetStep({
             <div className="card-heading sequence-heading">
               <div>
                 <span className="eyebrow">Sequence curation</span>
-                <h2>Choose the exploratory set</h2>
+                <h2>Choose the primary analysis set</h2>
                 <p>
                   Enabled rows enter every screen. Masked rows skip the primary triplet catalogue
                   but remain in secondary checks and trees; disabled rows remain only as tree context.
@@ -225,9 +272,115 @@ export function DatasetStep({
                 </div>
               </div>
             </div>
+            <div className="reference-toolbar">
+              <div>
+                <strong>Query vs reference roles</strong>
+                <span>
+                  Leave a group blank for a query. References with the same positive group number
+                  are never paired together; the scan scheme is selected on the next page. Detecting
+                  names does not silently change enabled, masked, or disabled states.
+                </span>
+              </div>
+              <div>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={() => onAllReferenceGroupsChange("detect")}
+                  disabled={busy}
+                  title="Infer documented REF-A&lt;name&gt; style reference groups"
+                >
+                  Detect REF names
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={() => onAllReferenceGroupsChange("compact")}
+                  disabled={busy || referenceGroups.size === 0}
+                  title="Renumber groups by first appearance without changing membership"
+                >
+                  Compact groups
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={() => onAllReferenceGroupsChange("clear")}
+                  disabled={busy || referenceGroups.size === 0}
+                >
+                  All queries
+                </button>
+              </div>
+            </div>
+            {referenceGroups.size > 0 ? (
+              <div className="notice notice-blue reference-detection-note">
+                <Info size={17} />
+                <p>
+                  {referenceGroups.size.toLocaleString()} reference-labelled sequence{referenceGroups.size === 1 ? "" : "s"} across {referenceGroupCount.toLocaleString()} group{referenceGroupCount === 1 ? "" : "s"}. These assignments affect primary triplets only if you choose query vs reference on the settings page.
+                </p>
+              </div>
+            ) : null}
+            <div className="reference-selection-toolbar" aria-label="Bulk query and reference assignment">
+              <span>
+                {selectedSequenceIndices.size > 0
+                  ? `${selectedSequenceIndices.size.toLocaleString()} selected`
+                  : "Select rows, or select every row matching the current name filter."}
+              </span>
+              <div>
+                <label className="bulk-reference-group-field">
+                  <span>Reference group</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="4294967295"
+                    step="1"
+                    inputMode="numeric"
+                    value={bulkReferenceGroup}
+                    placeholder="e.g. 2"
+                    disabled={busy}
+                    onChange={(event) => setBulkReferenceGroup(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="button button-secondary button-compact"
+                  type="button"
+                  onClick={() => applySelectedReferenceGroup(normalizedBulkGroup)}
+                  disabled={busy || selectedSequenceIndices.size === 0 || !bulkGroupIsValid}
+                >
+                  Assign group
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={() => applySelectedReferenceGroup(0)}
+                  disabled={busy || selectedSequenceIndices.size === 0}
+                >
+                  Make queries
+                </button>
+                <button
+                  className="button button-quiet button-compact"
+                  type="button"
+                  onClick={() => setSelectedSequenceIndices(new Set())}
+                  disabled={busy || selectedSequenceIndices.size === 0}
+                >
+                  Clear selection
+                </button>
+              </div>
+            </div>
             <div className="sequence-table" role="table" aria-label="Alignment sequences">
               <div className="sequence-row sequence-header" role="row">
-                <span role="columnheader">Analysis</span>
+                <span className="sequence-analysis-cell" role="columnheader">
+                  <input
+                    type="checkbox"
+                    checked={allMatchingSelected}
+                    disabled={busy || matchingSequences.length === 0}
+                    aria-label={allMatchingSelected
+                      ? "Unselect every sequence matching the current filter"
+                      : "Select every sequence matching the current filter"}
+                    title={`${allMatchingSelected ? "Unselect" : "Select"} all ${matchingSequences.length.toLocaleString()} matching rows`}
+                    onChange={toggleMatchingSelection}
+                  />
+                  <span>Analysis</span>
+                </span>
+                <span role="columnheader">Query / reference</span>
                 <span role="columnheader">Sequence</span>
                 <span role="columnheader">Valid sites</span>
                 <span role="columnheader">Missing</span>
@@ -246,7 +399,14 @@ export function DatasetStep({
                     key={sequence.index}
                     role="row"
                   >
-                    <span>
+                    <span className="sequence-analysis-cell">
+                      <input
+                        type="checkbox"
+                        checked={selectedSequenceIndices.has(sequence.index)}
+                        disabled={busy}
+                        aria-label={`Select ${sequence.name} for bulk query/reference assignment`}
+                        onChange={() => toggleSequenceSelection(sequence.index)}
+                      />
                       <select
                         className={`sequence-state sequence-state-${analysisState}`}
                         aria-label={`Analysis state for ${sequence.name}`}
@@ -262,6 +422,29 @@ export function DatasetStep({
                         <option value="disabled">Disabled</option>
                       </select>
                     </span>
+                    <label className="reference-group-field">
+                      <span className="sr-only">Reference group for {sequence.name}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="4294967295"
+                        step="1"
+                        inputMode="numeric"
+                        value={referenceGroups.get(sequence.index) ?? ""}
+                        placeholder="Query"
+                        disabled={busy}
+                        aria-label={`Reference group for ${sequence.name}; blank means query`}
+                        onChange={(event) => onReferenceGroupChange(
+                          sequence.index,
+                          event.target.value === "" ? 0 : Number(event.target.value),
+                        )}
+                      />
+                      <small>
+                        {referenceGroups.has(sequence.index)
+                          ? `Ref ${referenceGroups.get(sequence.index)}`
+                          : "Query"}
+                      </small>
+                    </label>
                     <strong title={sequence.name}>{sequence.name}</strong>
                     <span>{integer.format(sequence.validSites)}</span>
                     <span>{percent.format(sequence.missingFraction)}</span>
@@ -269,8 +452,10 @@ export function DatasetStep({
                 );
               })}
             </div>
-            {dataset.sequences.length > 500 ? (
-              <p className="table-footnote">Showing the first 500 matching sequences for browser rendering performance.</p>
+            {matchingSequences.length > 500 ? (
+              <p className="table-footnote">
+                Showing the first 500 matching sequences for browser rendering performance. The header checkbox selects all {matchingSequences.length.toLocaleString()} matches, including rows not rendered.
+              </p>
             ) : null}
             <div className="sequence-export-actions">
               <span>
@@ -289,7 +474,7 @@ export function DatasetStep({
                   className="button button-quiet button-compact"
                   type="button"
                   onClick={onExportEnabledSequences}
-                  disabled={busy || activeSequenceCount === 0}
+                  disabled={busy || curatedEnabledCount === 0}
                 >
                   Save enabled FASTA
                 </button>
@@ -314,15 +499,15 @@ export function DatasetStep({
 
           <footer className="step-actions">
             <span>
-              {activeSequenceCount < 3
-                ? "Enable at least three unmasked sequences to continue."
-                : `${activeSequenceCount} sequences will enter the primary scan.`}
+              {eligibleSequenceCount < 3
+                ? "Enable at least three unmasked sequences with enough usable sites to continue."
+                : `${eligibleSequenceCount} sequences currently meet the primary-scan threshold.`}
             </span>
             <button
               className="button button-primary"
               type="button"
               onClick={onContinue}
-              disabled={busy || activeSequenceCount < 3}
+              disabled={busy || eligibleSequenceCount < 3}
             >
               Set analysis options
             </button>

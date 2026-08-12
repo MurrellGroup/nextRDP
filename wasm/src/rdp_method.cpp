@@ -51,14 +51,45 @@ struct CorrelationRegionLayout {
   std::array<std::size_t, 4> boundaries{};
 };
 
-std::uint64_t choose_three(std::uint64_t count) {
-  if (count < 3) return 0;
-  return count * (count - 1) * (count - 2) / 6;
+std::uint64_t saturating_multiply(std::uint64_t left, std::uint64_t right) {
+  if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
+    return std::numeric_limits<std::uint64_t>::max();
+  }
+  return left * right;
+}
+
+std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) {
+  return right > std::numeric_limits<std::uint64_t>::max() - left
+      ? std::numeric_limits<std::uint64_t>::max()
+      : left + right;
 }
 
 std::uint64_t choose_two(std::uint64_t count) {
   if (count < 2) return 0;
-  return count * (count - 1) / 2;
+  std::uint64_t left = count;
+  std::uint64_t right = count - 1;
+  if ((left & 1U) == 0) left /= 2;
+  else right /= 2;
+  return saturating_multiply(left, right);
+}
+
+std::uint64_t choose_three(std::uint64_t count) {
+  if (count < 3) return 0;
+  std::array<std::uint64_t, 3> factors{count, count - 1, count - 2};
+  for (auto& factor : factors) {
+    if ((factor & 1U) == 0) {
+      factor /= 2;
+      break;
+    }
+  }
+  for (auto& factor : factors) {
+    if (factor % 3 == 0) {
+      factor /= 3;
+      break;
+    }
+  }
+  return saturating_multiply(
+      saturating_multiply(factors[0], factors[1]), factors[2]);
 }
 
 std::array<std::uint8_t, 2> pair_members(std::uint8_t pair) {
@@ -67,6 +98,66 @@ std::array<std::uint8_t, 2> pair_members(std::uint8_t pair) {
     case 1: return {0, 2};
     default: return {1, 2};
   }
+}
+
+std::uint8_t source_scan_method_priority(SignalMethod method) {
+  // MainForm22/Module2 dispatch the active ordinary method passes in the
+  // manual's RDP, GENECONV, MAXCHI, CHIMAERA, 3SEQ order among the methods
+  // currently active in this port. Signal IDs are generated
+  // per triplet in the fused browser pass, so ties need this explicit key to
+  // retain the source's method-major event ordering.
+  switch (method) {
+    case SignalMethod::rdp: return 0;
+    case SignalMethod::geneconv: return 1;
+    case SignalMethod::maxchi: return 2;
+    case SignalMethod::chimaera: return 3;
+    case SignalMethod::threeseq: return 4;
+  }
+  return std::numeric_limits<std::uint8_t>::max();
+}
+
+std::size_t nearest_coordinate_index(
+    const std::vector<std::size_t>& coordinates,
+    std::size_t coordinate) {
+  if (coordinates.empty()) return 0;
+  const auto upper = std::lower_bound(
+      coordinates.begin(), coordinates.end(), coordinate);
+  if (upper == coordinates.begin()) return 0;
+  if (upper == coordinates.end()) return coordinates.size() - 1;
+  const std::size_t upper_index = static_cast<std::size_t>(
+      upper - coordinates.begin());
+  const std::size_t lower_index = upper_index - 1;
+  const std::size_t upper_distance = *upper >= coordinate
+      ? *upper - coordinate
+      : coordinate - *upper;
+  const std::size_t lower_distance = coordinates[lower_index] >= coordinate
+      ? coordinates[lower_index] - coordinate
+      : coordinate - coordinates[lower_index];
+  return lower_distance <= upper_distance ? lower_index : upper_index;
+}
+
+std::vector<std::size_t> plot_sample_indices(
+    std::size_t count,
+    std::vector<std::size_t> required) {
+  constexpr std::size_t kTargetPlotPoints = 2000;
+  if (count == 0) return {};
+  required.reserve(required.size() +
+      std::min(count, kTargetPlotPoints) + 2);
+  const std::size_t stride = std::max<std::size_t>(
+      1, (count + kTargetPlotPoints - 1) / kTargetPlotPoints);
+  for (std::size_t index = 0; index < count; index += stride) {
+    required.push_back(index);
+  }
+  required.push_back(0);
+  required.push_back(count - 1);
+  required.erase(
+      std::remove_if(
+          required.begin(), required.end(),
+          [count](std::size_t index) { return index >= count; }),
+      required.end());
+  std::sort(required.begin(), required.end());
+  required.erase(std::unique(required.begin(), required.end()), required.end());
+  return required;
 }
 
 bool source_in_list(
@@ -115,6 +206,7 @@ std::uint64_t signal_signature(const Signal& signal) {
     hash *= 1099511628211ULL;
   };
   const auto triplet = canonical_triplet(signal.triplet);
+  mix(static_cast<std::uint8_t>(signal.method));
   mix(triplet[0]);
   mix(triplet[1]);
   mix(triplet[2]);
@@ -189,6 +281,14 @@ const char* review_state_name(ReviewState state) {
     case ReviewState::rejected: return "rejected";
     default: return "unreviewed";
   }
+}
+
+const char* signal_method_name(SignalMethod method) {
+  if (method == SignalMethod::maxchi) return "MAXCHI";
+  if (method == SignalMethod::chimaera) return "CHIMAERA";
+  if (method == SignalMethod::geneconv) return "GENECONV";
+  if (method == SignalMethod::threeseq) return "3SEQ";
+  return "RDP";
 }
 
 std::string csv_cell(std::string_view value) {
@@ -1675,7 +1775,7 @@ void write_maxchi_recheck_json(
       << (evidence.bonferroni_applied ? "true" : "false")
       << ",\"correctionTests\":" << evidence.correction_tests
       << ",\"variableSites\":" << evidence.variable_sites
-      << ",\"fixedWindowSites\":70"
+      << ",\"fixedWindowSites\":" << evidence.fixed_window_sites
       << ",\"halfWindow\":" << evidence.half_window
       << ",\"criticalDifference\":" << evidence.critical_difference
       << ",\"grownHalfWindow\":" << evidence.grown_half_window
@@ -1699,6 +1799,404 @@ void write_maxchi_recheck_json(
   else json::number(out, evidence.corrected_p_value);
   out << ",\"sourceRecheckHit\":"
       << (evidence.source_recheck_hit ? "true" : "false") << '}';
+}
+
+const char* chimaera_recheck_status(const ChimaeraRecheckEvidence& evidence) {
+  if (evidence.representative_skipped) {
+    return "representative-skipped";
+  }
+  if (!evidence.requested) return "not-in-final-distance-list";
+  if (!evidence.profile_available) return "profile-unavailable";
+  return "complete-active-unvalidated";
+}
+
+void write_chimaera_recheck_json(
+    std::ostringstream& out,
+    const ChimaeraRecheckEvidence& evidence) {
+  out << "{\"status\":\"" << chimaera_recheck_status(evidence)
+      << "\",\"kernel\":\"FastRecCheckChim-three-target-strongest-peak\""
+      << ",\"eventDiscoveryApplied\":false"
+      << ",\"requested\":" << (evidence.requested ? "true" : "false")
+      << ",\"representativeSkipped\":"
+      << (evidence.representative_skipped ? "true" : "false")
+      << ",\"profileAvailable\":"
+      << (evidence.profile_available ? "true" : "false")
+      << ",\"missingDataWindowFilterApplied\":"
+      << (evidence.missing_data_window_filter_applied ? "true" : "false")
+      << ",\"linearEdgeWindowFilterApplied\":"
+      << (evidence.linear_edge_window_filter_applied ? "true" : "false")
+      << ",\"bonferroniApplied\":"
+      << (evidence.bonferroni_applied ? "true" : "false")
+      << ",\"correctionTests\":" << evidence.correction_tests
+      << ",\"fixedWindowSites\":" << evidence.fixed_window_sites
+      << ",\"targetProfilesScanned\":" << evidence.target_profiles_scanned
+      << ",\"bestTarget\":";
+  if (evidence.best_target < 0) out << "null";
+  else out << static_cast<unsigned int>(evidence.best_target);
+  out << ",\"informationRichSites\":" << evidence.information_rich_sites
+      << ",\"halfWindow\":" << evidence.half_window
+      << ",\"criticalDifference\":" << evidence.critical_difference
+      << ",\"grownHalfWindow\":" << evidence.grown_half_window
+      << ",\"peakAlignmentPosition\":";
+  if (evidence.best_target < 0) out << "null";
+  else out << evidence.peak_alignment_position;
+  out << ",\"maximumChiSquare\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.maximum_chi_square);
+  out << ",\"localPValue\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.local_p_value);
+  out << ",\"withinTripletPValue\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.within_triplet_p_value);
+  out << ",\"correctedPValue\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.corrected_p_value);
+  out << ",\"sourceRecheckHit\":"
+      << (evidence.source_recheck_hit ? "true" : "false") << '}';
+}
+
+const char* geneconv_recheck_status(const GeneconvRecheckEvidence& evidence) {
+  if (evidence.representative_skipped) {
+    return "representative-skipped";
+  }
+  if (!evidence.requested) return "not-in-final-distance-list";
+  if (!evidence.profile_available) return "profile-unavailable";
+  return "complete-active-unvalidated";
+}
+
+void write_geneconv_recheck_json(
+    std::ostringstream& out,
+    const GeneconvRecheckEvidence& evidence) {
+  out << "{\"status\":\"" << geneconv_recheck_status(evidence)
+      << "\",\"kernel\":\"GCXoverD-six-track-best-fragment\""
+      << ",\"eventDiscoveryApplied\":false"
+      << ",\"requested\":" << (evidence.requested ? "true" : "false")
+      << ",\"representativeSkipped\":"
+      << (evidence.representative_skipped ? "true" : "false")
+      << ",\"profileAvailable\":"
+      << (evidence.profile_available ? "true" : "false")
+      << ",\"bonferroniApplied\":"
+      << (evidence.bonferroni_applied ? "true" : "false")
+      << ",\"ignoredIndels\":"
+      << (evidence.ignored_indels ? "true" : "false")
+      << ",\"overlapFilterApplied\":"
+      << (evidence.overlap_filter_applied ? "true" : "false")
+      << ",\"minimumFragmentFiltersApplied\":"
+      << (evidence.minimum_fragment_filters_applied ? "true" : "false")
+      << ",\"sourceSkewFilterRejected\":"
+      << (evidence.source_skew_filter_rejected ? "true" : "false")
+      << ",\"correctionTests\":" << evidence.correction_tests
+      << ",\"polymorphicSites\":" << evidence.polymorphic_sites
+      << ",\"tracksScreened\":" << evidence.tracks_screened
+      << ",\"fragmentsScored\":" << evidence.fragments_scored
+      << ",\"qualifiedFragments\":" << evidence.qualified_fragments
+      << ",\"overlapRejectedFragments\":"
+      << evidence.overlap_rejected_fragments
+      << ",\"numericalFallbackTracks\":"
+      << evidence.numerical_fallback_tracks
+      << ",\"bestTrack\":";
+  if (evidence.best_track < 0) out << "null";
+  else out << static_cast<unsigned int>(evidence.best_track);
+  out << ",\"recombinantLocal\":";
+  if (evidence.recombinant_local < 0) out << "null";
+  else out << static_cast<unsigned int>(evidence.recombinant_local);
+  out << ",\"beginning\":";
+  if (evidence.best_track < 0) out << "null";
+  else out << evidence.beginning;
+  out << ",\"ending\":";
+  if (evidence.best_track < 0) out << "null";
+  else out << evidence.ending;
+  out << ",\"wrapsOrigin\":"
+      << (evidence.wraps_origin ? "true" : "false")
+      << ",\"fragmentScore\":";
+  if (evidence.best_track < 0) out << "null";
+  else out << evidence.fragment_score;
+  out << ",\"criticalScore\":";
+  if (evidence.best_track < 0) out << "null";
+  else out << evidence.critical_score;
+  out << ",\"rawPValue\":";
+  if (evidence.best_track < 0) out << "null";
+  else json::number(out, evidence.raw_p_value);
+  out << ",\"correctedPValue\":";
+  if (evidence.best_track < 0) out << "null";
+  else json::number(out, evidence.corrected_p_value);
+  out << ",\"sourceRecheckHit\":"
+      << (evidence.source_recheck_hit ? "true" : "false") << '}';
+}
+
+const char* threeseq_recheck_status(const ThreeSeqRecheckEvidence& evidence) {
+  if (evidence.representative_skipped) return "representative-skipped";
+  if (!evidence.requested) return "not-in-final-distance-list";
+  if (!evidence.profile_available) return "profile-unavailable";
+  return "complete-active-unvalidated";
+}
+
+void write_threeseq_recheck_json(
+    std::ostringstream& out,
+    const ThreeSeqRecheckEvidence& evidence) {
+  out << "{\"status\":\"" << threeseq_recheck_status(evidence)
+      << "\",\"kernel\":\"TSXOver-Findall-two-orientations\""
+      << ",\"eventDiscoveryApplied\":false"
+      << ",\"requested\":" << (evidence.requested ? "true" : "false")
+      << ",\"representativeSkipped\":"
+      << (evidence.representative_skipped ? "true" : "false")
+      << ",\"profileAvailable\":"
+      << (evidence.profile_available ? "true" : "false")
+      << ",\"correctionApplied\":"
+      << (evidence.correction_applied ? "true" : "false")
+      << ",\"correctionTests\":" << evidence.correction_tests
+      << ",\"targetProfilesScanned\":"
+      << evidence.target_profiles_scanned
+      << ",\"exactProbabilityEvaluations\":"
+      << evidence.exact_probability_evaluations
+      << ",\"approximateProbabilityEvaluations\":"
+      << evidence.approximate_probability_evaluations
+      << ",\"qualifyingOrientations\":"
+      << evidence.qualifying_orientations
+      << ",\"sourceListEntries\":" << evidence.source_list_entries
+      << ",\"bestTarget\":";
+  if (evidence.best_target < 0) out << "null";
+  else out << static_cast<unsigned int>(evidence.best_target);
+  out << ",\"bestDirection\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::string(
+      out,
+      evidence.best_direction == ThreeSeqWalkDirection::ascent
+          ? "ascent"
+          : "descent");
+  out << ",\"informationRichSites\":" << evidence.information_rich_sites
+      << ",\"parentOneMatches\":" << evidence.parent_one_matches
+      << ",\"parentTwoMatches\":" << evidence.parent_two_matches
+      << ",\"probabilityExcursion\":" << evidence.probability_excursion
+      << ",\"maximumExcursion\":" << evidence.maximum_excursion
+      << ",\"beginning\":";
+  if (evidence.best_target < 0) out << "null";
+  else out << evidence.beginning;
+  out << ",\"ending\":";
+  if (evidence.best_target < 0) out << "null";
+  else out << evidence.ending;
+  out << ",\"wrapsOrigin\":"
+      << (evidence.wraps_origin ? "true" : "false")
+      << ",\"rawPValue\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.raw_p_value);
+  out << ",\"correctedPValue\":";
+  if (evidence.best_target < 0) out << "null";
+  else json::number(out, evidence.corrected_p_value);
+  out << ",\"exactProbability\":"
+      << (evidence.exact_probability ? "true" : "false")
+      << ",\"siegmundFallback\":"
+      << (evidence.siegmund_fallback ? "true" : "false")
+      << ",\"missingDataSplitApplied\":"
+      << (evidence.missing_data_split_applied ? "true" : "false")
+      << ",\"sourceRecheckHit\":"
+      << (evidence.source_recheck_hit ? "true" : "false") << '}';
+}
+
+const char* bootscan_recheck_status(const BootscanRecheckEvidence& evidence) {
+  if (evidence.representative_skipped) return "representative-skipped";
+  if (!evidence.requested) return "not-requested";
+  if (!evidence.profile_available) return "profile-unavailable";
+  return "complete-active-unvalidated";
+}
+
+void write_bootscan_recheck_json(
+    std::ostringstream& out,
+    const BootscanRecheckEvidence& evidence) {
+  out << "{\"status\":\"" << bootscan_recheck_status(evidence)
+      << "\",\"kernel\":\"BSXoverM-SEQBOOT2-FastBootDistIP-DrawBSPlotsIII\""
+      << ",\"eventDiscoveryApplied\":false"
+      << ",\"coordinateChanging\":false"
+      << ",\"requested\":" << (evidence.requested ? "true" : "false")
+      << ",\"representativeSkipped\":"
+      << (evidence.representative_skipped ? "true" : "false")
+      << ",\"profileAvailable\":"
+      << (evidence.profile_available ? "true" : "false")
+      << ",\"sourceDistanceMode\":"
+      << (evidence.source_distance_mode ? "true" : "false")
+      << ",\"sourceBinomialProbability\":"
+      << (evidence.source_binomial_probability ? "true" : "false")
+      << ",\"sourceCircularWindows\":"
+      << (evidence.source_circular_windows ? "true" : "false")
+      << ",\"erasedWindowFilterApplied\":"
+      << (evidence.erased_window_filter_applied ? "true" : "false")
+      << ",\"bonferroniApplied\":"
+      << (evidence.bonferroni_applied ? "true" : "false")
+      << ",\"correctionTests\":" << evidence.correction_tests
+      << ",\"windowSites\":" << evidence.window_sites
+      << ",\"stepSites\":" << evidence.step_sites
+      << ",\"bootstrapReplicates\":" << evidence.bootstrap_replicates
+      << ",\"randomSeed\":" << evidence.random_seed
+      << ",\"supportCutoff\":";
+  json::number(out, evidence.support_cutoff);
+  out << ",\"windowsScanned\":" << evidence.windows_scanned
+      << ",\"eventWindowsScored\":" << evidence.event_windows_scored
+      << ",\"usableEventWindows\":" << evidence.usable_event_windows
+      << ",\"informativeSites\":" << evidence.informative_sites
+      << ",\"tractInformativeSites\":" << evidence.tract_informative_sites
+      << ",\"tractPairMatches\":" << evidence.tract_pair_matches
+      << ",\"outsidePairMatches\":" << evidence.outside_pair_matches
+      << ",\"scoredPair\":";
+  if (evidence.scored_pair < 0) out << "null";
+  else out << static_cast<unsigned int>(evidence.scored_pair);
+  out << ",\"maximumPairSupport\":";
+  json::number(out, evidence.maximum_pair_support);
+  out << ",\"meanScoredPairSupport\":";
+  json::number(out, evidence.mean_scored_pair_support);
+  out << ",\"localPValue\":";
+  if (!evidence.profile_available) out << "null";
+  else json::number(out, evidence.local_p_value);
+  out << ",\"correctedPValue\":";
+  if (!evidence.profile_available) out << "null";
+  else json::number(out, evidence.corrected_p_value);
+  out << ",\"supportGatePassed\":"
+      << (evidence.support_gate_passed ? "true" : "false")
+      << ",\"sourceRecheckHit\":"
+      << (evidence.source_recheck_hit ? "true" : "false") << '}';
+}
+
+void write_maxchi_discovery_json(
+    std::ostringstream& out,
+    const MaxChiDiscoveryCandidate& discovery) {
+  out << "{\"status\":\"source-shaped-active-unvalidated\""
+      << ",\"kernel\":\"MCXoverF-multi-peak-destroy-retry\""
+      << ",\"peakOrdering\":\"raw-chi-square-lazy-heap\""
+      << ",\"smoothingUse\":\"twelve-term-eleven-divisor-source-basin-destruction-only\""
+      << ",\"peakAttempt\":" << discovery.peak_attempt
+      << ",\"peakPair\":";
+  if (discovery.peak_pair < 0) out << "null";
+  else out << static_cast<unsigned int>(discovery.peak_pair);
+  out << ",\"tractSide\":\"";
+  if (discovery.tract_side == MaxChiTractSide::left) out << "left";
+  else if (discovery.tract_side == MaxChiTractSide::right) out << "right";
+  else out << "unavailable";
+  out << "\",\"peakAlignmentPosition\":" << discovery.peak_alignment_position
+      << ",\"variableSites\":" << discovery.variable_sites
+      << ",\"initialHalfWindow\":" << discovery.initial_half_window
+      << ",\"grownHalfWindow\":" << discovery.grown_half_window
+      << ",\"criticalDifference\":" << discovery.critical_difference
+      << ",\"maximumChiSquare\":";
+  json::number(out, discovery.maximum_chi_square);
+  out << ",\"rawPValue\":";
+  json::number(out, discovery.raw_p_value);
+  out << ",\"withinTripletPValue\":";
+  json::number(out, discovery.within_triplet_p_value);
+  out << ",\"correctedPValue\":";
+  json::number(out, discovery.corrected_p_value);
+  out << ",\"leftFlankChiSquare\":";
+  json::number(out, discovery.left_flank_chi_square);
+  out << ",\"rightFlankChiSquare\":";
+  json::number(out, discovery.right_flank_chi_square);
+  out << ",\"missingDataWindowFilterApplied\":"
+      << (discovery.missing_data_window_filter_applied ? "true" : "false")
+      << ",\"linearEdgeWindowFilterApplied\":"
+      << (discovery.linear_edge_window_filter_applied ? "true" : "false")
+      << '}';
+}
+
+void write_chimaera_discovery_json(
+    std::ostringstream& out,
+    const ChimaeraDiscoveryCandidate& discovery) {
+  out << "{\"status\":\"source-shaped-active-unvalidated\""
+      << ",\"kernel\":\"AlistChi-FastRecCheckChim-CXoverA\""
+      << ",\"profile\":\"target-specific-information-rich-binary-string\""
+      << ",\"peakOrdering\":\"raw-chi-square-lazy-heap-per-target\""
+      << ",\"smoothingUse\":\"twelve-term-eleven-divisor-source-basin-destruction-only\""
+      << ",\"targetLocal\":" << static_cast<unsigned int>(discovery.target_local)
+      << ",\"peakAttempt\":" << discovery.peak_attempt
+      << ",\"tractSide\":\"";
+  if (discovery.tract_side == MaxChiTractSide::left) out << "left";
+  else if (discovery.tract_side == MaxChiTractSide::right) out << "right";
+  else out << "unavailable";
+  out << "\",\"peakAlignmentPosition\":" << discovery.peak_alignment_position
+      << ",\"informationRichSites\":" << discovery.information_rich_sites
+      << ",\"initialHalfWindow\":" << discovery.initial_half_window
+      << ",\"grownHalfWindow\":" << discovery.grown_half_window
+      << ",\"criticalDifference\":" << discovery.critical_difference
+      << ",\"maximumChiSquare\":";
+  json::number(out, discovery.maximum_chi_square);
+  out << ",\"rawPValue\":";
+  json::number(out, discovery.raw_p_value);
+  out << ",\"withinTripletPValue\":";
+  json::number(out, discovery.within_triplet_p_value);
+  out << ",\"correctedPValue\":";
+  json::number(out, discovery.corrected_p_value);
+  out << ",\"leftFlankChiSquare\":";
+  json::number(out, discovery.left_flank_chi_square);
+  out << ",\"rightFlankChiSquare\":";
+  json::number(out, discovery.right_flank_chi_square);
+  out << ",\"insideParentOneMatchRate\":";
+  json::number(out, discovery.inside_parent_one_match_rate);
+  out << ",\"outsideParentOneMatchRate\":";
+  json::number(out, discovery.outside_parent_one_match_rate);
+  out << ",\"missingDataWindowFilterApplied\":"
+      << (discovery.missing_data_window_filter_applied ? "true" : "false")
+      << ",\"linearEdgeWindowFilterApplied\":"
+      << (discovery.linear_edge_window_filter_applied ? "true" : "false")
+      << '}';
+}
+
+void write_geneconv_discovery_json(
+    std::ostringstream& out,
+    const GeneconvDiscoveryCandidate& discovery) {
+  out << "{\"status\":\"source-shaped-active-unvalidated\""
+      << ",\"kernel\":\"FindSubSeqGCAP6-GetFragsP-GetMaxFragScoreP-CalcKMaxP-GCCalcPValP2-GCXoverD\""
+      << ",\"probabilityModel\":\"karlin-altschul\""
+      << ",\"indelMode\":\"ignored\""
+      << ",\"overlapPolicy\":\"stable-lowest-p-configured-coverage\""
+      << ",\"minimumFragmentFiltersApplied\":false"
+      << ",\"track\":" << static_cast<unsigned int>(discovery.track)
+      << ",\"polymorphicSites\":" << discovery.polymorphic_sites
+      << ",\"positiveSites\":" << discovery.positive_sites
+      << ",\"discordantSites\":" << discovery.discordant_sites
+      << ",\"mismatchPenalty\":" << discovery.mismatch_penalty
+      << ",\"fragmentScore\":" << discovery.fragment_score
+      << ",\"criticalScore\":" << discovery.critical_score
+      << ",\"lambda\":";
+  json::number(out, discovery.lambda);
+  out << ",\"karlinAltschulK\":";
+  json::number(out, discovery.karlin_altschul_k);
+  out << ",\"rawPValue\":";
+  json::number(out, discovery.raw_p_value);
+  out << ",\"correctedPValue\":";
+  json::number(out, discovery.corrected_p_value);
+  out << ",\"karlinAltschulProbability\":"
+      << (discovery.karlin_altschul_probability ? "true" : "false")
+      << ",\"ignoredIndels\":"
+      << (discovery.ignored_indels ? "true" : "false")
+      << ",\"overlapFilterApplied\":"
+      << (discovery.overlap_filter_applied ? "true" : "false") << '}';
+}
+
+void write_threeseq_discovery_json(
+    std::ostringstream& out,
+    const ThreeSeqDiscoveryCandidate& discovery) {
+  out << "{\"status\":\"source-shaped-active-unvalidated\""
+      << ",\"kernel\":\"FindSubSeqTS-Seq3PVals-CheckwrapC-TSXOver\""
+      << ",\"profile\":\"target-specific-information-rich-random-walk\""
+      << ",\"probabilityModel\":\"exact-hypergeometric-walk-with-siegmund-fallback\""
+      << ",\"correctionModel\":\"dunn-sidak-when-project-correction-enabled\""
+      << ",\"targetLocal\":" << static_cast<unsigned int>(discovery.target_local)
+      << ",\"walkDirection\":\""
+      << (discovery.direction == ThreeSeqWalkDirection::ascent
+              ? "ascent"
+              : "descent")
+      << "\",\"informationRichSites\":" << discovery.information_rich_sites
+      << ",\"parentOneMatches\":" << discovery.parent_one_matches
+      << ",\"parentTwoMatches\":" << discovery.parent_two_matches
+      << ",\"probabilityExcursion\":" << discovery.probability_excursion
+      << ",\"maximumExcursion\":" << discovery.maximum_excursion
+      << ",\"rawPValue\":";
+  json::number(out, discovery.raw_p_value);
+  out << ",\"correctedPValue\":";
+  json::number(out, discovery.corrected_p_value);
+  out << ",\"exactProbability\":"
+      << (discovery.exact_probability ? "true" : "false")
+      << ",\"siegmundFallback\":"
+      << (discovery.siegmund_fallback ? "true" : "false")
+      << ",\"missingDataSplitApplied\":"
+      << (discovery.missing_data_split_applied ? "true" : "false") << '}';
 }
 
 }  // namespace
@@ -1774,6 +2272,11 @@ void RdpScanner::rebuild_working_before_event(std::size_t event_index) {
       (void)erase_event_tract(events_[index]);
     }
   }
+  // An empty prefix (most visibly, editing event zero) performs no erasure,
+  // so erase_event_tract has no opportunity to rebuild the active schedule.
+  // Refresh unconditionally to prevent a later rescan from inheriting the
+  // old round's sequence/query/reference cursors and correction count.
+  refresh_active_sequences();
 }
 
 std::uint64_t RdpScanner::valid_triplet_count() const {
@@ -1789,8 +2292,9 @@ std::uint64_t RdpScanner::valid_triplet_count() const {
   }
   for (const std::uint64_t origin_count : origin_counts) {
     if (origin_count < 2) continue;
-    const std::uint64_t invalid = choose_two(origin_count) * (count - origin_count) +
-        choose_three(origin_count);
+    const std::uint64_t invalid = saturating_add(
+        saturating_multiply(choose_two(origin_count), count - origin_count),
+        choose_three(origin_count));
     total = invalid > total ? 0 : total - invalid;
   }
   return total;
@@ -1806,6 +2310,9 @@ bool RdpScanner::sequence_disabled(std::uint32_t sequence) const {
 
 void RdpScanner::refresh_active_sequences() {
   active_sequences_.clear();
+  query_sequences_.clear();
+  reference_sequences_.clear();
+  active_reference_group_count_ = 0;
   const std::size_t fragment_minimum = std::max<std::size_t>(5, options_.window_sites);
   for (std::size_t sequence = 0; sequence < working_alignment_.sequence_count(); ++sequence) {
     if (sequence >= working_origins_.size()) continue;
@@ -1822,8 +2329,58 @@ void RdpScanner::refresh_active_sequences() {
     if (valid_sites < fragment_minimum) continue;
     active_sequences_.push_back(static_cast<std::uint32_t>(sequence));
   }
-  total_triplets_ = valid_triplet_count();
-  correction_tests_ = std::min(total_triplets_, kNativeCorrectionCap);
+
+  if (options_.analysis_mode == AnalysisMode::query_reference) {
+    std::vector<std::uint32_t> active_reference_groups;
+    std::unordered_map<std::uint32_t, std::uint64_t> reference_group_counts;
+    std::vector<std::uint8_t> active_query_origins(alignment_.sequence_count(), 0);
+    reference_sequences_.reserve(active_sequences_.size());
+    query_sequences_.reserve(active_sequences_.size());
+    for (const std::uint32_t working_sequence : active_sequences_) {
+      const std::uint32_t origin = working_origins_[working_sequence];
+      const std::uint32_t group = origin < options_.reference_groups.size()
+          ? options_.reference_groups[origin]
+          : 0;
+      if (group == 0) {
+        query_sequences_.push_back(working_sequence);
+        active_query_origins[origin] = 1;
+      } else {
+        reference_sequences_.push_back(working_sequence);
+        active_reference_groups.push_back(group);
+        ++reference_group_counts[group];
+      }
+    }
+    sort_unique(active_reference_groups);
+    active_reference_group_count_ = active_reference_groups.size();
+    std::uint64_t pair_count = choose_two(reference_sequences_.size());
+    for (const auto& [group, count] : reference_group_counts) {
+      (void)group;
+      const std::uint64_t within_group = choose_two(count);
+      pair_count = within_group > pair_count ? 0 : pair_count - within_group;
+    }
+    const std::uint64_t query_count = query_sequences_.size();
+    total_triplets_ = pair_count != 0 &&
+            query_count > std::numeric_limits<std::uint64_t>::max() / pair_count
+        ? std::numeric_limits<std::uint64_t>::max()
+        : query_count * pair_count;
+    const std::uint64_t query_origin_count = static_cast<std::uint64_t>(std::count(
+        active_query_origins.begin(), active_query_origins.end(), std::uint8_t{1}));
+    // MakeAnalysisListQvR uses reference-group pairs multiplied by query
+    // origins for its project correction, even when a group contains several
+    // reference records. Keep that supplied behavior separate from the exact
+    // number of scheduled working triplets shown in progress.
+    const std::uint64_t reference_group_pairs =
+        choose_two(active_reference_groups.size());
+    const std::uint64_t source_correction = reference_group_pairs != 0 &&
+            query_origin_count >
+                std::numeric_limits<std::uint64_t>::max() / reference_group_pairs
+        ? std::numeric_limits<std::uint64_t>::max()
+        : reference_group_pairs * query_origin_count;
+    correction_tests_ = std::min(source_correction, kNativeCorrectionCap);
+  } else {
+    total_triplets_ = valid_triplet_count();
+    correction_tests_ = std::min(total_triplets_, kNativeCorrectionCap);
+  }
 }
 
 bool RdpScanner::working_triplet_is_valid(
@@ -1835,7 +2392,77 @@ bool RdpScanner::working_triplet_is_valid(
   const std::uint32_t first = working_origins_[triplet[0]];
   const std::uint32_t second = working_origins_[triplet[1]];
   const std::uint32_t third = working_origins_[triplet[2]];
-  return first != second && first != third && second != third;
+  if (first == second || first == third || second == third) return false;
+  if (options_.analysis_mode != AnalysisMode::query_reference) return true;
+  const std::array<std::uint32_t, 3> groups{
+      options_.reference_groups[first],
+      options_.reference_groups[second],
+      options_.reference_groups[third],
+  };
+  std::size_t query_count = 0;
+  std::array<std::uint32_t, 2> reference_groups{};
+  std::size_t reference_count = 0;
+  for (const std::uint32_t group : groups) {
+    if (group == 0) ++query_count;
+    else if (reference_count < reference_groups.size()) {
+      reference_groups[reference_count++] = group;
+    }
+  }
+  return query_count == 1 && reference_count == 2 &&
+      reference_groups[0] != reference_groups[1];
+}
+
+bool RdpScanner::current_triplet(
+    std::array<std::uint32_t, 3>& triplet) const {
+  if (options_.analysis_mode == AnalysisMode::query_reference) {
+    if (!reference_pair_is_valid() || query_cursor_ >= query_sequences_.size()) {
+      return false;
+    }
+    triplet = {
+        reference_sequences_[reference_first_cursor_],
+        reference_sequences_[reference_second_cursor_],
+        query_sequences_[query_cursor_],
+    };
+    return true;
+  }
+  if (cursor_a_ >= active_sequences_.size() ||
+      cursor_b_ >= active_sequences_.size() ||
+      cursor_c_ >= active_sequences_.size()) {
+    return false;
+  }
+  triplet = {
+      active_sequences_[cursor_a_],
+      active_sequences_[cursor_b_],
+      active_sequences_[cursor_c_],
+  };
+  return true;
+}
+
+bool RdpScanner::reference_pair_is_valid() const {
+  if (reference_first_cursor_ >= reference_sequences_.size() ||
+      reference_second_cursor_ >= reference_sequences_.size() ||
+      reference_first_cursor_ >= reference_second_cursor_) {
+    return false;
+  }
+  const std::uint32_t first_origin =
+      working_origins_[reference_sequences_[reference_first_cursor_]];
+  const std::uint32_t second_origin =
+      working_origins_[reference_sequences_[reference_second_cursor_]];
+  return first_origin != second_origin &&
+      options_.reference_groups[first_origin] != options_.reference_groups[second_origin];
+}
+
+bool RdpScanner::advance_reference_pair() {
+  const std::size_t count = reference_sequences_.size();
+  while (reference_first_cursor_ < count) {
+    if (++reference_second_cursor_ >= count) {
+      ++reference_first_cursor_;
+      if (reference_first_cursor_ + 1 >= count) return false;
+      reference_second_cursor_ = reference_first_cursor_ + 1;
+    }
+    if (reference_pair_is_valid()) return true;
+  }
+  return false;
 }
 
 void RdpScanner::map_signal_to_original(Signal& signal) const {
@@ -1861,6 +2488,13 @@ void RdpScanner::reset_round_cursor() {
   cursor_a_ = 0;
   cursor_b_ = 1;
   cursor_c_ = 2;
+  query_cursor_ = 0;
+  reference_first_cursor_ = 0;
+  reference_second_cursor_ = 1;
+  if (options_.analysis_mode == AnalysisMode::query_reference &&
+      !reference_pair_is_valid()) {
+    (void)advance_reference_pair();
+  }
   processed_triplets_ = 0;
   profile_scratch_.category.clear();
   profile_scratch_.coordinates.clear();
@@ -1882,11 +2516,59 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
     error = "The RDP window must contain at least five variable sites.";
     return false;
   }
+  if (options.maxchi_enabled && options.maxchi_window_sites < 12) {
+    error = "The MaxChi window must contain at least twelve variable sites.";
+    return false;
+  }
+  if (options.chimaera_enabled && options.chimaera_window_sites < 12) {
+    error = "The CHIMAERA window must contain at least twelve information-rich sites.";
+    return false;
+  }
+  if (options.geneconv_enabled &&
+      (options.geneconv_mismatch_scale < 1 ||
+       options.geneconv_mismatch_scale > 1000)) {
+    error = "The GENECONV mismatch scale must be between one and 1000.";
+    return false;
+  }
+  if (options.geneconv_enabled &&
+      (options.geneconv_max_overlaps < 1 ||
+       options.geneconv_max_overlaps > 100)) {
+    error = "The GENECONV overlap allowance must be between one and 100.";
+    return false;
+  }
+  if (options.bootscan_secondary_enabled &&
+      (options.bootscan_window_sites < 5 ||
+       options.bootscan_window_sites > 5000)) {
+    error = "The secondary BootScan window must contain between five and 5000 sites.";
+    return false;
+  }
+  if (options.bootscan_secondary_enabled &&
+      (options.bootscan_step_sites < 1 ||
+       options.bootscan_step_sites > options.bootscan_window_sites / 2)) {
+    error = "The secondary BootScan step must be at least one site and no more than half its window.";
+    return false;
+  }
+  if (options.bootscan_secondary_enabled &&
+      (options.bootscan_bootstrap_replicates < 10 ||
+       options.bootscan_bootstrap_replicates > 1000)) {
+    error = "The secondary BootScan replicate count must be between ten and 1000.";
+    return false;
+  }
+  if (options.bootscan_secondary_enabled &&
+      (!(options.bootscan_support_cutoff >= 0.5 &&
+         options.bootscan_support_cutoff <= 1.0) ||
+       options.bootscan_random_seed == 0)) {
+    error = "The secondary BootScan support cutoff must be between 0.5 and one, and its random seed must be nonzero.";
+    return false;
+  }
   if (options.mask.size() != alignment_.sequence_count()) {
     options.mask.assign(alignment_.sequence_count(), 0);
   }
   if (options.disabled.size() != alignment_.sequence_count()) {
     options.disabled.assign(alignment_.sequence_count(), 0);
+  }
+  if (options.reference_groups.size() != alignment_.sequence_count()) {
+    options.reference_groups.assign(alignment_.sequence_count(), 0);
   }
   for (std::size_t sequence = 0; sequence < alignment_.sequence_count(); ++sequence) {
     if (options.disabled[sequence] != 0) options.mask[sequence] = 0;
@@ -1895,8 +2577,10 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
   options_ = std::move(options);
   reset_working_alignment();
   refresh_active_sequences();
-  if (active_sequences_.size() < 3) {
-    error = "At least three enabled, unmasked sequences are required for an exploratory RDP scan.";
+  if (active_sequences_.size() < 3 || total_triplets_ == 0) {
+    error = options_.analysis_mode == AnalysisMode::query_reference
+        ? "A query-vs-reference scan requires at least one enabled query and enabled references from two different groups."
+        : "At least three enabled, unmasked sequences are required for an exploratory recombination scan.";
     return false;
   }
 
@@ -1904,6 +2588,23 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
   events_.clear();
   reset_round_cursor();
   cumulative_triplets_ = 0;
+  maxchi_profiles_scanned_ = 0;
+  maxchi_peak_attempts_ = 0;
+  maxchi_candidates_found_ = 0;
+  maxchi_peak_limit_triplets_ = 0;
+  chimaera_profiles_scanned_ = 0;
+  chimaera_peak_attempts_ = 0;
+  chimaera_candidates_found_ = 0;
+  chimaera_peak_limit_targets_ = 0;
+  geneconv_fragments_scored_ = 0;
+  geneconv_qualified_fragments_ = 0;
+  geneconv_candidates_found_ = 0;
+  geneconv_overlap_rejections_ = 0;
+  geneconv_numerical_fallback_tracks_ = 0;
+  threeseq_profiles_scanned_ = 0;
+  threeseq_exact_evaluations_ = 0;
+  threeseq_approximate_evaluations_ = 0;
+  threeseq_candidates_found_ = 0;
   cancelled_.store(false);
   running_ = true;
   primary_done_ = false;
@@ -1911,6 +2612,7 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
   scan_round_ = 1;
   round_signal_begin_ = 0;
   fixed_event_count_ = 0;
+  cumulative_triplets_authoritative_ = false;
   cycle_termination_ = "scanning";
   reconciliation_required_after_ = -1;
   return true;
@@ -1919,13 +2621,15 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
 int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
   if (!running_) {
     if (done_) return 1;
-    error = "No RDP scan is active.";
+    error = "No recombination scan is active.";
     return -1;
   }
   if (active_sequences_.size() < 3 || total_triplets_ == 0) {
     running_ = false;
     primary_done_ = true;
-    cycle_termination_ = "fewer-than-three-active-origins";
+    cycle_termination_ = options_.analysis_mode == AnalysisMode::query_reference
+        ? "no-eligible-query-reference-triplets"
+        : "fewer-than-three-active-origins";
     return 3;
   }
   const std::size_t budget = std::max<std::size_t>(1, triplet_budget);
@@ -1934,11 +2638,12 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
       running_ = false;
       return 2;
     }
-    const std::array<std::uint32_t, 3> triplet{
-        active_sequences_[cursor_a_],
-        active_sequences_[cursor_b_],
-        active_sequences_[cursor_c_],
-    };
+    std::array<std::uint32_t, 3> triplet{};
+    if (!current_triplet(triplet)) {
+      error = "The current triplet schedule ended before its recorded total.";
+      running_ = false;
+      return -1;
+    }
     if (working_triplet_is_valid(triplet)) {
       scan_triplet(triplet);
       ++processed_triplets_;
@@ -1985,6 +2690,11 @@ void RdpScanner::cancel() {
 }
 
 bool RdpScanner::advance_triplet() {
+  if (options_.analysis_mode == AnalysisMode::query_reference) {
+    if (++query_cursor_ < query_sequences_.size()) return true;
+    query_cursor_ = 0;
+    return advance_reference_pair();
+  }
   const std::size_t count = active_sequences_.size();
   if (++cursor_c_ < count) return true;
   ++cursor_b_;
@@ -2003,19 +2713,32 @@ bool RdpScanner::advance_triplet() {
 
 bool RdpScanner::build_profile(
     const std::array<std::uint32_t, 3>& triplet,
-    TripletProfile& profile) const {
-  return build_profile_on(working_alignment_, triplet, profile);
+    TripletProfile& profile,
+    MaxChiWorkspace* maxchi_workspace) const {
+  return build_profile_on(
+      working_alignment_, triplet, profile, maxchi_workspace);
 }
 
 bool RdpScanner::build_profile_on(
     const Alignment& alignment,
     const std::array<std::uint32_t, 3>& triplet,
-    TripletProfile& profile) const {
+    TripletProfile& profile,
+    MaxChiWorkspace* maxchi_workspace) const {
   profile.category.clear();
   profile.coordinates.clear();
   profile.category_counts.fill(0);
   profile.similarities.fill(0.0);
   profile.sequences = triplet;
+  if (maxchi_workspace) {
+    maxchi_workspace->coordinates.clear();
+    maxchi_workspace->coordinates.reserve(alignment.length);
+    for (auto& matches : maxchi_workspace->matches) {
+      matches.clear();
+      matches.reserve(alignment.length);
+    }
+    maxchi_workspace->variable_prefix.assign(alignment.length + 1, 0);
+    maxchi_workspace->triplet_missing_data.assign(alignment.length, 0);
+  }
   if (profile.category.capacity() < alignment.length / 4) {
     profile.category.reserve(alignment.length / 4);
     profile.coordinates.reserve(alignment.length / 4);
@@ -2027,6 +2750,34 @@ bool RdpScanner::build_profile_on(
     const std::uint8_t first = alignment.at(triplet[0], position);
     const std::uint8_t second = alignment.at(triplet[1], position);
     const std::uint8_t third = alignment.at(triplet[2], position);
+    if (maxchi_workspace) {
+      for (const std::uint32_t working_sequence : triplet) {
+        if (working_sequence >= working_origins_.size()) {
+          maxchi_workspace->triplet_missing_data[position] = 1;
+          break;
+        }
+        const std::uint32_t origin = working_origins_[working_sequence];
+        if (origin >= alignment_.sequence_count()) continue;
+        const std::size_t original_offset = origin * alignment_.length + position;
+        const bool input_missing = original_offset < native_input_missing_data_.size() &&
+            native_input_missing_data_[original_offset] != 0;
+        const bool erased_or_fragment_gap = alignment_.at(origin, position) != 0 &&
+            alignment.at(working_sequence, position) == 0;
+        if (input_missing || erased_or_fragment_gap) {
+          maxchi_workspace->triplet_missing_data[position] = 1;
+          break;
+        }
+      }
+      if (first != 0 && second != 0 && third != 0 &&
+          (first != second || first != third)) {
+        maxchi_workspace->coordinates.push_back(position + 1);
+        maxchi_workspace->matches[0].push_back(first == second ? 1 : 0);
+        maxchi_workspace->matches[1].push_back(first == third ? 1 : 0);
+        maxchi_workspace->matches[2].push_back(second == third ? 1 : 0);
+      }
+      maxchi_workspace->variable_prefix[position + 1] =
+          maxchi_workspace->coordinates.size();
+    }
     if (first != 0 && second != 0) {
       ++comparable[0];
       if (first == second) ++identical[0];
@@ -2050,16 +2801,16 @@ bool RdpScanner::build_profile_on(
     ++profile.category_counts[category];
   }
 
-  const std::size_t half_window = options_.window_sites / 2;
-  if (profile.category.size() < half_window * 2) return false;
-  for (const std::size_t count : profile.category_counts) {
-    if (count < std::max<std::size_t>(1, half_window / 3)) return false;
-  }
-
   for (std::size_t pair = 0; pair < profile.similarities.size(); ++pair) {
     profile.similarities[pair] = comparable[pair] == 0
         ? 0.0
         : static_cast<double>(identical[pair]) / static_cast<double>(comparable[pair]);
+  }
+
+  const std::size_t half_window = options_.window_sites / 2;
+  if (profile.category.size() < half_window * 2) return false;
+  for (const std::size_t count : profile.category_counts) {
+    if (count < std::max<std::size_t>(1, half_window / 3)) return false;
   }
   compute_rolling_counts(profile);
 
@@ -2270,20 +3021,212 @@ std::vector<Signal> RdpScanner::triplet_signals(
 
 void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
   TripletProfile& profile = profile_scratch_;
-  if (!build_profile(triplet, profile)) return;
-  const auto order = ranked_pairs(profile);
-  const std::array<double, 3> average{
-      static_cast<double>(profile.category_counts[0]) / profile.category.size(),
-      static_cast<double>(profile.category_counts[1]) / profile.category.size(),
-      static_cast<double>(profile.category_counts[2]) / profile.category.size(),
-  };
   auto& candidates = signal_candidates_scratch_;
   candidates.clear();
-  if (candidates.capacity() == 0) candidates.reserve(4);
-  append_candidate_signals(profile, order[0], order[1], order[2], true, candidates);
-  append_candidate_signals(profile, order[0], order[2], order[1], true, candidates);
-  if (average[order[0]] < 0.7) {
-    append_candidate_signals(profile, order[1], order[0], order[2], true, candidates);
+  if (candidates.capacity() == 0) candidates.reserve(8);
+
+  if (build_profile(
+          triplet,
+          profile,
+          (options_.maxchi_enabled || options_.chimaera_enabled ||
+           options_.geneconv_enabled || options_.threeseq_enabled)
+              ? &maxchi_workspace_
+              : nullptr)) {
+    const auto order = ranked_pairs(profile);
+    const std::array<double, 3> average{
+        static_cast<double>(profile.category_counts[0]) / profile.category.size(),
+        static_cast<double>(profile.category_counts[1]) / profile.category.size(),
+        static_cast<double>(profile.category_counts[2]) / profile.category.size(),
+    };
+    append_candidate_signals(profile, order[0], order[1], order[2], true, candidates);
+    append_candidate_signals(profile, order[0], order[2], order[1], true, candidates);
+    if (average[order[0]] < 0.7) {
+      append_candidate_signals(profile, order[1], order[0], order[2], true, candidates);
+    }
+  }
+
+  // Preserve the supplied method-major dispatch order after RDP. This makes
+  // stable signal IDs agree with the same order already used for exact-P
+  // event ties and keeps project replay deterministic across method mixes.
+  if (options_.geneconv_enabled) {
+    GeneconvDiscoveryOptions discovery_options;
+    discovery_options.circular = options_.circular;
+    discovery_options.bonferroni =
+        options_.correction == CorrectionMode::bonferroni;
+    discovery_options.p_value_cutoff = options_.p_value_cutoff;
+    discovery_options.correction_tests =
+        std::max<std::uint64_t>(1, correction_tests_);
+    discovery_options.mismatch_scale = options_.geneconv_mismatch_scale;
+    discovery_options.maximum_overlapping_fragments =
+        options_.geneconv_max_overlaps;
+    const GeneconvDiscoverySummary geneconv_summary =
+        geneconv_discover_prepared(
+            maxchi_workspace_,
+            profile.similarities,
+            discovery_options,
+            geneconv_workspace_,
+            geneconv_candidates_scratch_);
+    geneconv_fragments_scored_ += geneconv_summary.fragments_scored;
+    geneconv_qualified_fragments_ += geneconv_summary.qualified_fragments;
+    geneconv_candidates_found_ += geneconv_summary.emitted_candidates;
+    geneconv_overlap_rejections_ +=
+        geneconv_summary.overlap_rejected_fragments;
+    geneconv_numerical_fallback_tracks_ +=
+        geneconv_summary.numerical_fallback_tracks;
+    for (const auto& discovery : geneconv_candidates_scratch_) {
+      Signal signal;
+      signal.method = SignalMethod::geneconv;
+      signal.triplet = triplet;
+      signal.recombinant = triplet[discovery.recombinant_local];
+      signal.major_parent = triplet[discovery.major_parent_local];
+      signal.minor_parent = triplet[discovery.minor_parent_local];
+      signal.beginning = discovery.beginning;
+      signal.ending = discovery.ending;
+      signal.wraps_origin = discovery.wraps_origin;
+      signal.informative_beginning = discovery.informative_beginning;
+      signal.informative_ending = discovery.informative_ending;
+      signal.local_p_value = discovery.raw_p_value;
+      signal.corrected_p_value = discovery.corrected_p_value;
+      signal.correction_tests = geneconv_summary.correction_tests;
+      signal.pair_similarity = discovery.pair_similarity;
+      signal.informative_sites = discovery.polymorphic_sites;
+      signal.candidate_pair = discovery.candidate_pair;
+      signal.geneconv_discovery = discovery;
+      candidates.push_back(std::move(signal));
+    }
+  }
+
+  if (options_.maxchi_enabled) {
+    MaxChiDiscoveryOptions discovery_options;
+    discovery_options.circular = options_.circular;
+    discovery_options.bonferroni =
+        options_.correction == CorrectionMode::bonferroni;
+    discovery_options.p_value_cutoff = options_.p_value_cutoff;
+    discovery_options.correction_tests =
+        std::max<std::uint64_t>(1, correction_tests_);
+    discovery_options.fixed_window_sites = options_.maxchi_window_sites;
+    const MaxChiDiscoverySummary maxchi_summary = maxchi_discover_prepared(
+        maxchi_workspace_.triplet_missing_data,
+        discovery_options,
+        maxchi_workspace_,
+        maxchi_candidates_scratch_);
+    if (maxchi_summary.profile_available) ++maxchi_profiles_scanned_;
+    maxchi_peak_attempts_ += maxchi_summary.peak_attempts;
+    maxchi_candidates_found_ += maxchi_summary.emitted_candidates;
+    if (maxchi_summary.peak_attempt_limit_reached) ++maxchi_peak_limit_triplets_;
+    for (const auto& discovery : maxchi_candidates_scratch_) {
+      Signal signal;
+      signal.method = SignalMethod::maxchi;
+      signal.triplet = triplet;
+      signal.recombinant = triplet[discovery.recombinant_local];
+      signal.major_parent = triplet[discovery.major_parent_local];
+      signal.minor_parent = triplet[discovery.minor_parent_local];
+      signal.beginning = discovery.beginning;
+      signal.ending = discovery.ending;
+      signal.wraps_origin = discovery.wraps_origin;
+      signal.informative_beginning = discovery.informative_beginning;
+      signal.informative_ending = discovery.informative_ending;
+      // For a common signal contract, localPValue is the source position- and
+      // three-profile corrected value before the project-wide triplet factor.
+      signal.local_p_value = discovery.within_triplet_p_value;
+      signal.corrected_p_value = discovery.corrected_p_value;
+      signal.correction_tests = maxchi_summary.correction_tests;
+      signal.pair_similarity = discovery.pair_similarity;
+      signal.informative_sites = discovery.variable_sites;
+      signal.candidate_pair = discovery.candidate_pair;
+      signal.maxchi_discovery = discovery;
+      candidates.push_back(std::move(signal));
+    }
+  }
+
+  if (options_.chimaera_enabled) {
+    ChimaeraDiscoveryOptions discovery_options;
+    discovery_options.circular = options_.circular;
+    discovery_options.bonferroni =
+        options_.correction == CorrectionMode::bonferroni;
+    discovery_options.p_value_cutoff = options_.p_value_cutoff;
+    discovery_options.correction_tests =
+        std::max<std::uint64_t>(1, correction_tests_);
+    discovery_options.fixed_window_sites = options_.chimaera_window_sites;
+    const ChimaeraDiscoverySummary chimaera_summary =
+        chimaera_discover_prepared(
+            maxchi_workspace_,
+            maxchi_workspace_.triplet_missing_data,
+            profile.similarities,
+            discovery_options,
+            chimaera_workspace_,
+            chimaera_candidates_scratch_);
+    chimaera_profiles_scanned_ += chimaera_summary.target_profiles_scanned;
+    chimaera_peak_attempts_ += chimaera_summary.peak_attempts;
+    chimaera_candidates_found_ += chimaera_summary.emitted_candidates;
+    chimaera_peak_limit_targets_ += chimaera_summary.peak_limit_targets;
+    for (const auto& discovery : chimaera_candidates_scratch_) {
+      Signal signal;
+      signal.method = SignalMethod::chimaera;
+      signal.triplet = triplet;
+      signal.recombinant = triplet[discovery.recombinant_local];
+      signal.major_parent = triplet[discovery.major_parent_local];
+      signal.minor_parent = triplet[discovery.minor_parent_local];
+      signal.beginning = discovery.beginning;
+      signal.ending = discovery.ending;
+      signal.wraps_origin = discovery.wraps_origin;
+      signal.informative_beginning = discovery.informative_beginning;
+      signal.informative_ending = discovery.informative_ending;
+      signal.local_p_value = discovery.within_triplet_p_value;
+      signal.corrected_p_value = discovery.corrected_p_value;
+      signal.correction_tests = chimaera_summary.correction_tests;
+      signal.pair_similarity = discovery.pair_similarity;
+      signal.informative_sites = discovery.information_rich_sites;
+      signal.candidate_pair = discovery.candidate_pair;
+      signal.chimaera_discovery = discovery;
+      candidates.push_back(std::move(signal));
+    }
+  }
+
+  if (options_.threeseq_enabled) {
+    ThreeSeqDiscoveryOptions discovery_options;
+    discovery_options.circular = options_.circular;
+    discovery_options.correction_enabled =
+        options_.correction == CorrectionMode::bonferroni;
+    discovery_options.p_value_cutoff = options_.p_value_cutoff;
+    discovery_options.correction_tests =
+        std::max<std::uint64_t>(1, correction_tests_);
+    discovery_options.post_erasure_split_enabled = !events_.empty();
+    const ThreeSeqDiscoverySummary threeseq_summary =
+        threeseq_discover_prepared(
+            maxchi_workspace_,
+            maxchi_workspace_.triplet_missing_data,
+            profile.similarities,
+            discovery_options,
+            threeseq_workspace_,
+            threeseq_candidates_scratch_);
+    threeseq_profiles_scanned_ += threeseq_summary.target_profiles_scanned;
+    threeseq_exact_evaluations_ +=
+        threeseq_summary.exact_probability_evaluations;
+    threeseq_approximate_evaluations_ +=
+        threeseq_summary.approximate_probability_evaluations;
+    threeseq_candidates_found_ += threeseq_summary.emitted_candidates;
+    for (const auto& discovery : threeseq_candidates_scratch_) {
+      Signal signal;
+      signal.method = SignalMethod::threeseq;
+      signal.triplet = triplet;
+      signal.recombinant = triplet[discovery.recombinant_local];
+      signal.major_parent = triplet[discovery.major_parent_local];
+      signal.minor_parent = triplet[discovery.minor_parent_local];
+      signal.beginning = discovery.beginning;
+      signal.ending = discovery.ending;
+      signal.wraps_origin = discovery.wraps_origin;
+      signal.informative_beginning = discovery.informative_beginning;
+      signal.informative_ending = discovery.informative_ending;
+      signal.local_p_value = discovery.raw_p_value;
+      signal.corrected_p_value = discovery.corrected_p_value;
+      signal.correction_tests = threeseq_summary.correction_tests;
+      signal.pair_similarity = discovery.pair_similarity;
+      signal.informative_sites = discovery.information_rich_sites;
+      signal.candidate_pair = discovery.candidate_pair;
+      signal.threeseq_discovery = discovery;
+      candidates.push_back(std::move(signal));
+    }
   }
 
   for (auto& signal : candidates) {
@@ -2295,6 +3238,7 @@ void RdpScanner::scan_triplet(const std::array<std::uint32_t, 3>& triplet) {
       if (signal_id < round_signal_begin_ || signal_id >= signals_.size()) continue;
       auto& existing = signals_[signal_id];
       if (canonical_triplet(existing.triplet) == triplet &&
+          existing.method == signal.method &&
           existing.recombinant == signal.recombinant &&
           existing.beginning == signal.beginning &&
           existing.ending == signal.ending) {
@@ -2414,6 +3358,11 @@ void RdpScanner::assign_event_support(
           return a.corrected_p_value < b.corrected_p_value;
         }
         if (a.local_p_value != b.local_p_value) return a.local_p_value < b.local_p_value;
+        if (source_scan_method_priority(a.method) !=
+            source_scan_method_priority(b.method)) {
+          return source_scan_method_priority(a.method) <
+              source_scan_method_priority(b.method);
+        }
         return left < right;
       });
 }
@@ -2919,7 +3868,15 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   // the distance/tree evidence. Reported identities remain the originals,
   // while the recheck sees the retained fragment rows that actually exposed
   // the current tract.
-  event.maxchi_triplet_recheck = maxchi_triplet_recheck(representatives);
+  fast_method_triplet_rechecks(
+      representatives,
+      event.beginning,
+      event.ending,
+      event.maxchi_triplet_recheck,
+      event.chimaera_triplet_recheck,
+      event.geneconv_triplet_recheck,
+      event.threeseq_triplet_recheck,
+      event.bootscan_triplet_recheck);
   const CorrelationRegionLayout layout = build_correlation_regions(
       working_alignment_,
       representatives,
@@ -5016,13 +5973,15 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
           remove[sequence] = 1;
         }
       }
-      const double outside_rank = static_cast<double>(
+      const double outside_outlier_outside_rank = static_cast<double>(
           representative_rank[0][outside_outlier]);
-      const double inside_rank = static_cast<double>(
+      const double outside_outlier_inside_rank = static_cast<double>(
           representative_rank[1][outside_outlier]);
-      if ((outside_rank / source_rank_denominator > 0.95 &&
-           inside_rank / source_rank_denominator < 0.75) ||
-          (outside_rank - inside_rank) / source_rank_denominator > 0.5) {
+      if ((outside_outlier_outside_rank / source_rank_denominator > 0.95 &&
+           outside_outlier_inside_rank / source_rank_denominator < 0.75) ||
+          (outside_outlier_outside_rank - outside_outlier_inside_rank) /
+                  source_rank_denominator >
+              0.5) {
         for (const std::uint32_t sequence : consensus_lists[role]) {
           if (sequence != representatives[role] &&
               raw_small(0, outside_inlier, sequence) >
@@ -5108,17 +6067,27 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   }
 
   // The next active block in native FinalTrim rechecks every surviving RList
-  // candidate against the other two role representatives. For an RDP-origin
-  // event ProgramFlag=0 dispatches XOver here; the other method families are
-  // deliberately not inferred. Native temporarily widens LowestProb to at
-  // least LowP*100000 (and its corrected project threshold). Generate the
-  // structurally valid browser RDP candidates without the ordinary scan gate,
-  // then retain only rows inside that explicit widened local threshold. The
-  // normal corrected-cutoff result remains separate and auditable.
+  // candidate against the other two role representatives. For the primary RDP
+  // branch, native temporarily widens LowestProb to at least LowP*100000 (and
+  // its corrected project threshold). Generate structurally valid browser RDP
+  // candidates without the ordinary scan gate, then retain only rows inside
+  // that explicit widened local threshold. MaxChi, CHIMAERA, GENECONV, and
+  // optional distance-mode re-BootScan
+  // remain separate non-coordinate-changing ordinary-kernel corroboration
+  // records; TSXOver(1) supplies the corresponding two-orientation 3SEQ
+  // evidence. Every normal corrected-cutoff result stays separate and auditable.
   std::array<std::vector<PostGroupRdpRecheckEvidence>, 3>
       post_group_rdp_rechecks;
   std::array<std::vector<MaxChiRecheckEvidence>, 3>
       post_group_maxchi_rechecks;
+  std::array<std::vector<ChimaeraRecheckEvidence>, 3>
+      post_group_chimaera_rechecks;
+  std::array<std::vector<GeneconvRecheckEvidence>, 3>
+      post_group_geneconv_rechecks;
+  std::array<std::vector<ThreeSeqRecheckEvidence>, 3>
+      post_group_threeseq_rechecks;
+  std::array<std::vector<BootscanRecheckEvidence>, 3>
+      post_group_bootscan_rechecks;
   const double post_group_local_cutoff = std::min(
       1.0,
       std::max(
@@ -5127,6 +6096,10 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   for (std::size_t role = 0; role < 3; ++role) {
     post_group_rdp_rechecks[role].resize(ordinary_sequence_count);
     post_group_maxchi_rechecks[role].resize(ordinary_sequence_count);
+    post_group_chimaera_rechecks[role].resize(ordinary_sequence_count);
+    post_group_geneconv_rechecks[role].resize(ordinary_sequence_count);
+    post_group_threeseq_rechecks[role].resize(ordinary_sequence_count);
+    post_group_bootscan_rechecks[role].resize(ordinary_sequence_count);
     const std::size_t comp_zero = kSourceCompRoles[role][0];
     const std::size_t comp_one = kSourceCompRoles[role][1];
     for (const std::uint32_t sequence : consensus_lists[role]) {
@@ -5142,10 +6115,24 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         // Module2.bas line 25099 skips ISeqs(WinPP) itself.
         recheck.representative_skipped = true;
         post_group_maxchi_rechecks[role][sequence].representative_skipped = true;
+        post_group_chimaera_rechecks[role][sequence].representative_skipped = true;
+        post_group_geneconv_rechecks[role][sequence].representative_skipped = true;
+        post_group_threeseq_rechecks[role][sequence].representative_skipped = true;
+        if (options_.bootscan_secondary_enabled) {
+          post_group_bootscan_rechecks[role][sequence].requested = true;
+          post_group_bootscan_rechecks[role][sequence].representative_skipped = true;
+        }
         continue;
       }
-      post_group_maxchi_rechecks[role][sequence] =
-          maxchi_triplet_recheck(triplet);
+      fast_method_triplet_rechecks(
+          triplet,
+          event.beginning,
+          event.ending,
+          post_group_maxchi_rechecks[role][sequence],
+          post_group_chimaera_rechecks[role][sequence],
+          post_group_geneconv_rechecks[role][sequence],
+          post_group_threeseq_rechecks[role][sequence],
+          post_group_bootscan_rechecks[role][sequence]);
       recheck.requested = true;
       bool profile_available = false;
       const auto candidates = triplet_signals(
@@ -5218,6 +6205,14 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
           post_group_rdp_rechecks[role][evidence.sequence];
       evidence.post_group_maxchi_recheck =
           post_group_maxchi_rechecks[role][evidence.sequence];
+      evidence.post_group_chimaera_recheck =
+          post_group_chimaera_rechecks[role][evidence.sequence];
+      evidence.post_group_geneconv_recheck =
+          post_group_geneconv_rechecks[role][evidence.sequence];
+      evidence.post_group_threeseq_recheck =
+          post_group_threeseq_rechecks[role][evidence.sequence];
+      evidence.post_group_bootscan_recheck =
+          post_group_bootscan_rechecks[role][evidence.sequence];
       evidence.significant = score.final_distance_member;
     }
     std::stable_sort(
@@ -5478,18 +6473,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   }
 }
 
-MaxChiRecheckEvidence RdpScanner::maxchi_triplet_recheck(
+void RdpScanner::prepare_maxchi_missing_data(
     const std::array<std::uint32_t, 3>& triplet) {
-  MaxChiRecheckEvidence evidence;
-  evidence.requested = true;
-  if (working_alignment_.length == 0 ||
-      std::any_of(triplet.begin(), triplet.end(), [&](std::uint32_t sequence) {
-        return sequence >= working_alignment_.sequence_count() ||
-            sequence >= working_origins_.size();
-      })) {
-    return evidence;
-  }
-
   auto& triplet_missing_data = maxchi_workspace_.triplet_missing_data;
   triplet_missing_data.assign(working_alignment_.length, 0);
   for (std::size_t coordinate = 0; coordinate < working_alignment_.length; ++coordinate) {
@@ -5507,6 +6492,21 @@ MaxChiRecheckEvidence RdpScanner::maxchi_triplet_recheck(
       }
     }
   }
+}
+
+MaxChiRecheckEvidence RdpScanner::maxchi_triplet_recheck(
+    const std::array<std::uint32_t, 3>& triplet) {
+  MaxChiRecheckEvidence evidence;
+  evidence.requested = true;
+  if (working_alignment_.length == 0 ||
+      std::any_of(triplet.begin(), triplet.end(), [&](std::uint32_t sequence) {
+        return sequence >= working_alignment_.sequence_count() ||
+            sequence >= working_origins_.size();
+      })) {
+    return evidence;
+  }
+
+  prepare_maxchi_missing_data(triplet);
 
   MaxChiRecheckOptions recheck_options;
   recheck_options.circular = options_.circular;
@@ -5515,12 +6515,108 @@ MaxChiRecheckEvidence RdpScanner::maxchi_triplet_recheck(
   recheck_options.p_value_cutoff = options_.p_value_cutoff;
   recheck_options.correction_tests =
       std::max<std::uint64_t>(1, correction_tests_);
+  recheck_options.fixed_window_sites = options_.maxchi_window_sites;
   return maxchi_recheck(
       working_alignment_,
       triplet,
-      triplet_missing_data,
+      maxchi_workspace_.triplet_missing_data,
       recheck_options,
       maxchi_workspace_);
+}
+
+void RdpScanner::fast_method_triplet_rechecks(
+    const std::array<std::uint32_t, 3>& triplet,
+    std::size_t event_beginning,
+    std::size_t event_ending,
+    MaxChiRecheckEvidence& maxchi,
+    ChimaeraRecheckEvidence& chimaera,
+    GeneconvRecheckEvidence& geneconv,
+    ThreeSeqRecheckEvidence& threeseq,
+    BootscanRecheckEvidence& bootscan) {
+  maxchi = maxchi_triplet_recheck(triplet);
+  chimaera = {};
+  chimaera.requested = true;
+  geneconv = {};
+  geneconv.requested = true;
+  threeseq = {};
+  threeseq.requested = true;
+  bootscan = {};
+  bootscan.requested = options_.bootscan_secondary_enabled;
+  if (working_alignment_.length == 0 ||
+      std::any_of(triplet.begin(), triplet.end(), [&](std::uint32_t sequence) {
+        return sequence >= working_alignment_.sequence_count() ||
+            sequence >= working_origins_.size();
+      })) {
+    return;
+  }
+  ChimaeraRecheckOptions recheck_options;
+  recheck_options.circular = options_.circular;
+  recheck_options.bonferroni =
+      options_.correction == CorrectionMode::bonferroni;
+  recheck_options.p_value_cutoff = options_.p_value_cutoff;
+  recheck_options.correction_tests =
+      std::max<std::uint64_t>(1, correction_tests_);
+  recheck_options.fixed_window_sites = options_.chimaera_window_sites;
+  chimaera = chimaera_recheck_prepared(
+      maxchi_workspace_,
+      maxchi_workspace_.triplet_missing_data,
+      recheck_options,
+      chimaera_workspace_);
+
+  GeneconvDiscoveryOptions geneconv_options;
+  geneconv_options.circular = options_.circular;
+  geneconv_options.bonferroni =
+      options_.correction == CorrectionMode::bonferroni;
+  geneconv_options.p_value_cutoff = options_.p_value_cutoff;
+  geneconv_options.correction_tests =
+      std::max<std::uint64_t>(1, correction_tests_);
+  geneconv_options.mismatch_scale = options_.geneconv_mismatch_scale;
+  geneconv_options.maximum_overlapping_fragments =
+      options_.geneconv_max_overlaps;
+  geneconv = geneconv_recheck_prepared(
+      maxchi_workspace_,
+      {},
+      geneconv_options,
+      geneconv_workspace_,
+      geneconv_candidates_scratch_);
+
+  ThreeSeqDiscoveryOptions threeseq_options;
+  threeseq_options.circular = options_.circular;
+  threeseq_options.correction_enabled =
+      options_.correction == CorrectionMode::bonferroni;
+  threeseq_options.post_erasure_split_enabled = true;
+  threeseq_options.p_value_cutoff = options_.p_value_cutoff;
+  threeseq_options.correction_tests =
+      std::max<std::uint64_t>(1, correction_tests_);
+  threeseq = threeseq_recheck_prepared(
+      maxchi_workspace_,
+      maxchi_workspace_.triplet_missing_data,
+      threeseq_options,
+      threeseq_workspace_);
+
+  if (options_.bootscan_secondary_enabled) {
+    BootscanRecheckOptions bootscan_options;
+    bootscan_options.circular = options_.circular;
+    bootscan_options.bonferroni =
+        options_.correction == CorrectionMode::bonferroni;
+    bootscan_options.p_value_cutoff = options_.p_value_cutoff;
+    bootscan_options.correction_tests =
+        std::max<std::uint64_t>(1, correction_tests_);
+    bootscan_options.window_sites = options_.bootscan_window_sites;
+    bootscan_options.step_sites = options_.bootscan_step_sites;
+    bootscan_options.bootstrap_replicates =
+        options_.bootscan_bootstrap_replicates;
+    bootscan_options.support_cutoff = options_.bootscan_support_cutoff;
+    bootscan_options.random_seed = options_.bootscan_random_seed;
+    bootscan = bootscan_recheck(
+        working_alignment_,
+        triplet,
+        maxchi_workspace_.triplet_missing_data,
+        event_beginning,
+        event_ending,
+        bootscan_options,
+        bootscan_workspace_);
+  }
 }
 
 bool RdpScanner::matches_fixed_event(const Signal& signal) const {
@@ -5646,7 +6742,12 @@ bool RdpScanner::finish_detection_round(std::string& error) {
     if (candidate.corrected_p_value < anchor.corrected_p_value ||
         (candidate.corrected_p_value == anchor.corrected_p_value &&
          (candidate.local_p_value < anchor.local_p_value ||
-          (candidate.local_p_value == anchor.local_p_value && index < anchor_id)))) {
+          (candidate.local_p_value == anchor.local_p_value &&
+           (source_scan_method_priority(candidate.method) <
+                source_scan_method_priority(anchor.method) ||
+            (source_scan_method_priority(candidate.method) ==
+                 source_scan_method_priority(anchor.method) &&
+             index < anchor_id)))))) {
       anchor_id = static_cast<std::uint32_t>(index);
     }
   }
@@ -5681,7 +6782,7 @@ bool RdpScanner::finish_detection_round(std::string& error) {
   event.fragment_assisted_detection = anchor.fragment_assisted;
   assign_event_support(event, assigned, pair_index);
   if (event.support_signal_ids.empty()) {
-    error = "The strongest cyclic RDP signal could not be assigned to an event.";
+    error = "The strongest cyclic recombination signal could not be assigned to an event.";
     cycle_termination_ = "event-assignment-error";
     return false;
   }
@@ -5750,7 +6851,9 @@ bool RdpScanner::finish_detection_round(std::string& error) {
     return false;
   }
   if (active_sequences_.size() < 3 || total_triplets_ == 0) {
-    cycle_termination_ = "fewer-than-three-active-origins";
+    cycle_termination_ = options_.analysis_mode == AnalysisMode::query_reference
+        ? "no-eligible-query-reference-triplets"
+        : "fewer-than-three-active-origins";
     return false;
   }
   cycle_termination_ = "scanning";
@@ -5991,11 +7094,33 @@ bool RdpScanner::reconcile_after(std::uint32_t event_id, std::string& error) {
       event.tract_erased_for_detection = false;
     }
   }
+  // If every preserved event is rejected, the loop above performs no tract
+  // erasure. Reconstruct the original active schedule explicitly in that
+  // case (and normalize it after mixed accepted/rejected prefixes).
+  refresh_active_sequences();
 
   fixed_event_count_ = events_.size();
   round_signal_begin_ = signals_.size();
   scan_round_ = events_.size() + 1;
   cumulative_triplets_ = 0;
+  maxchi_profiles_scanned_ = 0;
+  maxchi_peak_attempts_ = 0;
+  maxchi_candidates_found_ = 0;
+  maxchi_peak_limit_triplets_ = 0;
+  chimaera_profiles_scanned_ = 0;
+  chimaera_peak_attempts_ = 0;
+  chimaera_candidates_found_ = 0;
+  chimaera_peak_limit_targets_ = 0;
+  geneconv_fragments_scored_ = 0;
+  geneconv_qualified_fragments_ = 0;
+  geneconv_candidates_found_ = 0;
+  geneconv_overlap_rejections_ = 0;
+  geneconv_numerical_fallback_tracks_ = 0;
+  threeseq_profiles_scanned_ = 0;
+  threeseq_exact_evaluations_ = 0;
+  threeseq_approximate_evaluations_ = 0;
+  threeseq_candidates_found_ = 0;
+  cumulative_triplets_authoritative_ = false;
   reset_round_cursor();
   running_ = true;
   primary_done_ = false;
@@ -6009,13 +7134,34 @@ bool RdpScanner::restore(
     ScanOptions options,
     std::vector<Signal> signals,
     std::uint64_t correction_tests,
+    std::uint64_t cumulative_triplets,
+    std::size_t scan_rounds,
+    std::uint64_t maxchi_profiles_scanned,
+    std::uint64_t maxchi_peak_attempts,
+    std::uint64_t maxchi_candidates_found,
+    std::uint64_t maxchi_peak_limit_triplets,
+    std::uint64_t chimaera_profiles_scanned,
+    std::uint64_t chimaera_peak_attempts,
+    std::uint64_t chimaera_candidates_found,
+    std::uint64_t chimaera_peak_limit_targets,
+    std::uint64_t geneconv_fragments_scored,
+    std::uint64_t geneconv_qualified_fragments,
+    std::uint64_t geneconv_candidates_found,
+    std::uint64_t geneconv_overlap_rejections,
+    std::uint64_t geneconv_numerical_fallback_tracks,
+    std::uint64_t threeseq_profiles_scanned,
+    std::uint64_t threeseq_exact_evaluations,
+    std::uint64_t threeseq_approximate_evaluations,
+    std::uint64_t threeseq_candidates_found,
+    std::string cycle_termination,
     std::string& error) {
   if (alignment_.sequence_count() < 3 || alignment_.length == 0) {
     error = "A valid saved alignment is required before restoring an analysis.";
     return false;
   }
   if (options.mask.size() != alignment_.sequence_count() ||
-      options.disabled.size() != alignment_.sequence_count()) {
+      options.disabled.size() != alignment_.sequence_count() ||
+      options.reference_groups.size() != alignment_.sequence_count()) {
     error = "The saved sequence curation state does not match the saved alignment.";
     return false;
   }
@@ -6028,19 +7174,57 @@ bool RdpScanner::restore(
   }
   if (!(options.p_value_cutoff > 0.0 && options.p_value_cutoff <= 1.0) ||
       options.window_sites < 5 ||
+      (options.maxchi_enabled && options.maxchi_window_sites < 12) ||
+      (options.chimaera_enabled && options.chimaera_window_sites < 12) ||
+      (options.geneconv_enabled &&
+       (options.geneconv_mismatch_scale < 1 ||
+        options.geneconv_mismatch_scale > 1000 ||
+        options.geneconv_max_overlaps < 1 ||
+        options.geneconv_max_overlaps > 100)) ||
+      (options.bootscan_secondary_enabled &&
+       (options.bootscan_window_sites < 5 ||
+        options.bootscan_window_sites > 5000 ||
+        options.bootscan_step_sites < 1 ||
+        options.bootscan_step_sites > options.bootscan_window_sites / 2 ||
+        options.bootscan_bootstrap_replicates < 10 ||
+        options.bootscan_bootstrap_replicates > 1000 ||
+        !(options.bootscan_support_cutoff >= 0.5 &&
+          options.bootscan_support_cutoff <= 1.0) ||
+        options.bootscan_random_seed == 0)) ||
       primary_sequence_count < 3) {
-    error = "The saved scan settings are outside the supported RDP range.";
+    error = "The saved scan settings are outside the supported analysis range.";
     return false;
   }
   for (std::size_t index = 0; index < signals.size(); ++index) {
     auto& signal = signals[index];
     signal.id = static_cast<std::uint32_t>(index);
-    signal.correction_tests = signal.correction_tests == 0
-        ? std::min(correction_tests, kNativeCorrectionCap)
-        : std::min(signal.correction_tests, kNativeCorrectionCap);
+    signal.correction_tests = std::min(signal.correction_tests, kNativeCorrectionCap);
     for (const auto sequence : signal.triplet) {
       if (sequence >= alignment_.sequence_count()) {
-        error = "A saved RDP signal refers to a sequence outside the alignment.";
+        error = "A saved recombination signal refers to a sequence outside the alignment.";
+        return false;
+      }
+    }
+    if (signal.triplet[0] == signal.triplet[1] ||
+        signal.triplet[0] == signal.triplet[2] ||
+        signal.triplet[1] == signal.triplet[2]) {
+      error = "A saved recombination signal repeats an original sequence in its triplet.";
+      return false;
+    }
+    if (options.analysis_mode == AnalysisMode::query_reference) {
+      std::size_t query_members = 0;
+      std::array<std::uint32_t, 2> saved_reference_groups{};
+      std::size_t reference_members = 0;
+      for (const std::uint32_t sequence : signal.triplet) {
+        const std::uint32_t group = options.reference_groups[sequence];
+        if (group == 0) ++query_members;
+        else if (reference_members < saved_reference_groups.size()) {
+          saved_reference_groups[reference_members++] = group;
+        }
+      }
+      if (query_members != 1 || reference_members != 2 ||
+          saved_reference_groups[0] == saved_reference_groups[1]) {
+        error = "A saved query-vs-reference signal violates its one-query, two-cross-group-reference constraint.";
         return false;
       }
     }
@@ -6049,7 +7233,21 @@ bool RdpScanner::restore(
         signal.minor_parent >= alignment_.sequence_count() || signal.beginning < 1 ||
         signal.ending < 1 || signal.beginning > alignment_.length ||
         signal.ending > alignment_.length) {
-      error = "A saved RDP signal contains invalid roles or breakpoints.";
+      error = "A saved recombination signal contains invalid roles or breakpoints.";
+      return false;
+    }
+    const auto triplet_contains = [&](std::uint32_t sequence) {
+      return std::find(
+          signal.triplet.begin(), signal.triplet.end(), sequence) !=
+          signal.triplet.end();
+    };
+    if (signal.recombinant == signal.major_parent ||
+        signal.recombinant == signal.minor_parent ||
+        signal.major_parent == signal.minor_parent ||
+        !triplet_contains(signal.recombinant) ||
+        !triplet_contains(signal.major_parent) ||
+        !triplet_contains(signal.minor_parent)) {
+      error = "A saved recombination signal must assign its three distinct triplet members to the three event roles.";
       return false;
     }
   }
@@ -6057,20 +7255,68 @@ bool RdpScanner::restore(
   signals_ = std::move(signals);
   reset_working_alignment();
   refresh_active_sequences();
+  const std::uint64_t recomputed_correction_tests = correction_tests_;
+  if (total_triplets_ == 0) {
+    error = options_.analysis_mode == AnalysisMode::query_reference
+        ? "The saved query-vs-reference plan no longer contains one query and two differently grouped references."
+        : "The saved exploratory plan no longer contains an eligible triplet.";
+    return false;
+  }
   processed_triplets_ = total_triplets_;
-  cumulative_triplets_ = processed_triplets_;
+  cumulative_triplets_ = std::max(processed_triplets_, cumulative_triplets);
+  cumulative_triplets_authoritative_ = cumulative_triplets > 0;
+  maxchi_profiles_scanned_ = maxchi_profiles_scanned;
+  maxchi_peak_attempts_ = maxchi_peak_attempts;
+  maxchi_candidates_found_ = maxchi_candidates_found;
+  maxchi_peak_limit_triplets_ = maxchi_peak_limit_triplets;
+  chimaera_profiles_scanned_ = chimaera_profiles_scanned;
+  chimaera_peak_attempts_ = chimaera_peak_attempts;
+  chimaera_candidates_found_ = chimaera_candidates_found;
+  chimaera_peak_limit_targets_ = chimaera_peak_limit_targets;
+  geneconv_fragments_scored_ = geneconv_fragments_scored;
+  geneconv_qualified_fragments_ = geneconv_qualified_fragments;
+  geneconv_candidates_found_ = geneconv_candidates_found;
+  geneconv_overlap_rejections_ = geneconv_overlap_rejections;
+  geneconv_numerical_fallback_tracks_ = geneconv_numerical_fallback_tracks;
+  threeseq_profiles_scanned_ = threeseq_profiles_scanned;
+  threeseq_exact_evaluations_ = threeseq_exact_evaluations;
+  threeseq_approximate_evaluations_ = threeseq_approximate_evaluations;
+  threeseq_candidates_found_ = threeseq_candidates_found;
+  // refresh_active_sequences has already reconstructed the correct scheme-
+  // specific factor. Use it when an early project did not persist an overall
+  // factor; falling back to total_triplets_ would over-correct grouped
+  // query/reference projects because their source factor is intentionally
+  // different from their materialized record-triplet workload.
   correction_tests_ = correction_tests == 0
-      ? std::min(total_triplets_, kNativeCorrectionCap)
+      ? recomputed_correction_tests
       : std::min(correction_tests, kNativeCorrectionCap);
+  for (auto& signal : signals_) {
+    if (signal.correction_tests == 0) signal.correction_tests = correction_tests_;
+  }
   running_ = false;
   primary_done_ = true;
   done_ = true;
   cancelled_.store(false);
   events_.clear();
-  scan_round_ = 1;
+  scan_round_ = std::max<std::size_t>(1, scan_rounds);
   round_signal_begin_ = signals_.size();
   fixed_event_count_ = 0;
-  cycle_termination_ = "restored-project";
+  constexpr std::array<std::string_view, 8> valid_cycle_terminations{
+      "not-started",
+      "scanning",
+      "no-significant-signals",
+      "fewer-than-three-active-origins",
+      "no-eligible-query-reference-triplets",
+      "event-assignment-error",
+      "no-new-tract-sites",
+      "restored-project",
+  };
+  cycle_termination_ = std::find(
+                           valid_cycle_terminations.begin(),
+                           valid_cycle_terminations.end(),
+                           cycle_termination) != valid_cycle_terminations.end()
+      ? std::move(cycle_termination)
+      : "restored-project";
   reconciliation_required_after_ = -1;
   return true;
 }
@@ -6168,9 +7414,19 @@ bool RdpScanner::restore_event_state(
   }
   events_.push_back(std::move(event));
   scan_round_ = std::max(scan_round_, detection_round + 1);
-  cumulative_triplets_ = std::max(
-      cumulative_triplets_,
-      total_triplets_ * static_cast<std::uint64_t>(events_.size() + 1));
+  processed_triplets_ = total_triplets_;
+  if (!cumulative_triplets_authoritative_) {
+    const std::uint64_t replayed_rounds =
+        static_cast<std::uint64_t>(events_.size() + 1);
+    const std::uint64_t estimated_cumulative = total_triplets_ != 0 &&
+            replayed_rounds >
+                std::numeric_limits<std::uint64_t>::max() / total_triplets_
+        ? std::numeric_limits<std::uint64_t>::max()
+        : total_triplets_ * replayed_rounds;
+    cumulative_triplets_ = std::max(
+        cumulative_triplets_,
+        estimated_cumulative);
+  }
   return true;
 }
 
@@ -6201,10 +7457,34 @@ std::string RdpScanner::progress_json() const {
   out << "{\"state\":\"" << state << "\",\"phase\":\"" << phase
       << "\",\"processedTriplets\":"
       << processed_triplets_ << ",\"totalTriplets\":" << total_triplets_
+      << ",\"correctionTests\":" << correction_tests_
+      << ",\"activeWorkingSequenceCount\":" << active_sequences_.size()
+      << ",\"queryWorkingSequenceCount\":" << query_sequences_.size()
+      << ",\"referenceWorkingSequenceCount\":" << reference_sequences_.size()
+      << ",\"activeReferenceGroupCount\":" << active_reference_group_count_
       << ",\"cumulativeTriplets\":" << cumulative_triplets_
       << ",\"scanRound\":" << scan_round_
       << ",\"fixedEventCount\":" << fixed_event_count_
       << ",\"signalCount\":" << signals_.size() << ",\"eventCount\":" << events_.size()
+      << ",\"maxChiProfilesScanned\":" << maxchi_profiles_scanned_
+      << ",\"maxChiPeakAttempts\":" << maxchi_peak_attempts_
+      << ",\"maxChiCandidatesFound\":" << maxchi_candidates_found_
+      << ",\"maxChiPeakLimitTriplets\":" << maxchi_peak_limit_triplets_
+      << ",\"chimaeraProfilesScanned\":" << chimaera_profiles_scanned_
+      << ",\"chimaeraPeakAttempts\":" << chimaera_peak_attempts_
+      << ",\"chimaeraCandidatesFound\":" << chimaera_candidates_found_
+      << ",\"chimaeraPeakLimitTargets\":" << chimaera_peak_limit_targets_
+      << ",\"geneconvFragmentsScored\":" << geneconv_fragments_scored_
+      << ",\"geneconvQualifiedFragments\":" << geneconv_qualified_fragments_
+      << ",\"geneconvCandidatesFound\":" << geneconv_candidates_found_
+      << ",\"geneconvOverlapRejections\":" << geneconv_overlap_rejections_
+      << ",\"geneconvNumericalFallbackTracks\":"
+      << geneconv_numerical_fallback_tracks_
+      << ",\"threeSeqProfilesScanned\":" << threeseq_profiles_scanned_
+      << ",\"threeSeqExactEvaluations\":" << threeseq_exact_evaluations_
+      << ",\"threeSeqApproximateEvaluations\":"
+      << threeseq_approximate_evaluations_
+      << ",\"threeSeqCandidatesFound\":" << threeseq_candidates_found_
       << ",\"cycleTermination\":\"" << cycle_termination_ << "\",\"fraction\":";
   json::number(out, std::clamp(fraction, 0.0, 1.0));
   out << '}';
@@ -6216,19 +7496,96 @@ std::string RdpScanner::results_json() const {
       std::none_of(events_.begin(), events_.end(), [](const UniqueEvent& event) {
         return event.review_state == ReviewState::unreviewed;
       });
+  std::size_t query_sequence_count = 0;
+  std::size_t reference_sequence_count = 0;
+  std::vector<std::uint32_t> reference_group_ids;
+  const std::size_t minimum_working_sites = std::max<std::size_t>(5, options_.window_sites);
+  for (std::size_t sequence = 0; sequence < alignment_.sequence_count(); ++sequence) {
+    if (sequence_masked(sequence) || sequence_disabled(sequence) ||
+        sequence >= alignment_.sequence_summaries.size() ||
+        alignment_.sequence_summaries[sequence].valid_sites < minimum_working_sites) {
+      continue;
+    }
+    const std::uint32_t group = options_.reference_groups[sequence];
+    if (group == 0) ++query_sequence_count;
+    else {
+      ++reference_sequence_count;
+      reference_group_ids.push_back(group);
+    }
+  }
+  sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.9.0-session-9\",\"status\":\"cyclic-three-set-reconciled\","
-         "\"method\":\"RDP\",\"reconciliationTier\":\"detectable-distance-phylogenetic\","
+  out << "{\"engineVersion\":\"0.16.0-session-16\",\"status\":\"cyclic-three-set-reconciled\","
+         "\"method\":\"RDP";
+  if (options_.geneconv_enabled) out << "+GENECONV";
+  if (options_.maxchi_enabled) out << "+MAXCHI";
+  if (options_.chimaera_enabled) out << "+CHIMAERA";
+  if (options_.threeseq_enabled) out << "+3SEQ";
+  out << "\",\"analysisMode\":\""
+      << (options_.analysis_mode == AnalysisMode::query_reference
+              ? "query-reference"
+              : "exploratory")
+      << "\",\"queryReference\":{\"active\":"
+      << (options_.analysis_mode == AnalysisMode::query_reference ? "true" : "false")
+      << ",\"querySequenceCount\":" << query_sequence_count
+      << ",\"referenceSequenceCount\":" << reference_sequence_count
+      << ",\"referenceGroupCount\":" << reference_group_ids.size()
+      << ",\"tripletConstraint\":\"one-query-two-different-reference-groups\","
+         "\"sourceCorrectionRule\":\"reference-group-pairs-times-query-origins\"},"
+         "\"discoveryMethods\":[\"RDP\"";
+  if (options_.geneconv_enabled) out << ",\"GENECONV\"";
+  if (options_.maxchi_enabled) out << ",\"MAXCHI\"";
+  if (options_.chimaera_enabled) out << ",\"CHIMAERA\"";
+  if (options_.threeseq_enabled) out << ",\"3SEQ\"";
+  out << "],\"reconciliationTier\":\"detectable-distance-phylogenetic\","
          "\"cycleMode\":\"strongest-first-tract-erasure-with-bounded-fragment-reentry\","
-         "\"lateConsensus\":{\"status\":\"active-rdp-maxchi-post-group-recheck\","
+         "\"lateConsensus\":{\"status\":\"active-rdp-maxchi-chimaera-geneconv-threeseq-plus-optional-bootscan-post-group-recheck\","
          "\"groupPruningApplied\":true,\"nativeGroupMembershipComplete\":true,"
          "\"primaryRdpPostGroupRecheckApplied\":true,"
          "\"nativePrimaryRdpRecheckComplete\":true,"
          "\"maxChiTripletRecheckApplied\":true,"
          "\"maxChiPostGroupRecheckApplied\":true,"
-         "\"maxChiKernelStatus\":\"source-shaped-strongest-peak-unvalidated\","
-         "\"maxChiEventDiscoveryApplied\":false,"
+         "\"maxChiKernelStatus\":\"source-shaped-multi-peak-destroy-retry-unvalidated\","
+         "\"maxChiEventDiscoveryApplied\":"
+      << (options_.maxchi_enabled ? "true" : "false")
+      << ",\"maxChiDiscoveryFeedsCyclicScheduler\":"
+      << (options_.maxchi_enabled ? "true" : "false")
+      << ",\"chimaeraKernelStatus\":\"source-shaped-target-profile-multi-peak-destroy-retry-unvalidated\""
+         ",\"chimaeraEventDiscoveryApplied\":"
+      << (options_.chimaera_enabled ? "true" : "false")
+      << ",\"chimaeraDiscoveryFeedsCyclicScheduler\":"
+      << (options_.chimaera_enabled ? "true" : "false")
+      << ",\"chimaeraTripletRecheckApplied\":true,"
+         "\"chimaeraPostGroupRecheckApplied\":true,"
+         "\"chimaeraRecheckKernelStatus\":\"source-shaped-three-target-strongest-peak-unvalidated\","
+         "\"geneconvKernelStatus\":\"source-shaped-six-track-ka-fragments-unvalidated\""
+         ",\"geneconvEventDiscoveryApplied\":"
+      << (options_.geneconv_enabled ? "true" : "false")
+      << ",\"geneconvDiscoveryFeedsCyclicScheduler\":"
+      << (options_.geneconv_enabled ? "true" : "false")
+      << ",\"geneconvTripletRecheckApplied\":true,"
+         "\"geneconvPostGroupRecheckApplied\":true,"
+         "\"geneconvRecheckKernelStatus\":\"source-shaped-six-track-best-fragment-unvalidated\","
+         "\"threeSeqKernelStatus\":\"source-shaped-hypergeometric-random-walk-unvalidated\""
+         ",\"threeSeqEventDiscoveryApplied\":"
+      << (options_.threeseq_enabled ? "true" : "false")
+      << ",\"threeSeqDiscoveryFeedsCyclicScheduler\":"
+      << (options_.threeseq_enabled ? "true" : "false")
+      << ",\"threeSeqTripletRecheckApplied\":true,"
+         "\"threeSeqPostGroupRecheckApplied\":true,"
+         "\"threeSeqRecheckKernelStatus\":\"source-shaped-findall-two-orientation-unvalidated\","
+         "\"bootscanSecondaryEnabled\":"
+      << (options_.bootscan_secondary_enabled ? "true" : "false")
+      << ",\"bootscanTripletRecheckApplied\":"
+      << (options_.bootscan_secondary_enabled ? "true" : "false")
+      << ",\"bootscanPostGroupRecheckApplied\":"
+      << (options_.bootscan_secondary_enabled ? "true" : "false")
+      << ",\"bootscanRecheckKernelStatus\":\"source-shaped-distance-bootstrap-binomial-unvalidated\","
+         "\"nativeBootscanFullRecheckComplete\":false,"
+         "\"nativeGeneconvFullRecheckComplete\":false,"
          "\"nativeMaxChiFullRecheckComplete\":false,"
+         "\"nativeChimaeraFullRecheckComplete\":false,"
+         "\"nativeThreeSeqFullRecheckComplete\":false,"
          "\"implementedStages\":["
          "\"MakeINList/MakeACOR\",\"MakeRList\",\"StripDupInv\","
          "\"FinalTrim duplicate-correlation cleanup\","
@@ -6245,10 +7602,27 @@ std::string RdpScanner::results_json() const {
          "\"Selected-role conservative raw/direct tree cleanup and strict inlier admission\","
          "\"Active two-of-three group update\","
          "\"FinalTrim primary-RDP post-group signal and probability recheck\","
-         "\"FastRecCheckMC2 strongest-peak MaxChi representative and finalized-list recheck\"],"
+         "\"MCXoverF raw-peak ordering, symmetric growth, FindSide tract selection, optimized second breakpoint, and smoothed basin destruction/retry\","
+         "\"AlistChi/FastRecCheckChim target rotations, information-rich binary profiles, CXoverA growth, tract-side selection, breakpoint optimization, and peak destruction/retry\","
+         "\"Combined RDP/GENECONV/MaxChi/CHIMAERA/3SEQ strongest-first cyclic event scheduler\","
+         "\"FastRecCheckMC2 strongest-peak MaxChi representative and finalized-list recheck\","
+         "\"FastRecCheckChim three-target strongest-peak representative and finalized-list recheck\","
+         "\"FindSubSeqGCAP6/GetFragsP/GetMaxFragScoreP/CalcKMaxP/GCCalcPValP2 ordinary-triplet GENECONV discovery\","
+         "\"Stable lowest-P GENECONV fragment ordering and configured overlap coverage\","
+         "\"GCXoverD ordinary-kernel GENECONV representative and finalized-list recheck\","
+         "\"FindSubSeqTS/Seq3PVals/CheckwrapC exact hypergeometric random-walk 3SEQ discovery with bounded SiegmundDiscrete fallback\","
+         "\"CheckSplit3Seq/SubPVal post-erasure missing-run trim and re-probability\","
+         "\"TSXOver(1) two-orientation representative and finalized-list 3SEQ recheck\","
+         "\"BSXoverM/SEQBOOT2/FastBootDistIP/DrawBSPlotsIII optional distance-mode representative and finalized-list BootScan recheck\"],"
          "\"pendingStages\":["
-         "\"MaxChi exploratory event discovery and native multi-peak destroy/retry scheduler\","
-         "\"remaining non-RDP method signal rechecks\"]},"
+         "\"validation of MaxChi discovery against native saved-output fixtures\","
+         "\"validation of CHIMAERA discovery against native saved-output fixtures\","
+         "\"native MaxChi permutation modes and manual doublet scans\","
+         "\"native CHIMAERA permutation modes and full late-list event reconstruction\","
+         "\"native GENECONV permutation modes, manual pair scans, alternative indel modes, and full late-list event reconstruction\","
+         "\"native 3SEQ manual permutation envelopes and full late event-catalogue reconstruction\","
+         "\"native BootScan primary discovery, similarity/permutation modes, and full late-list event reconstruction\","
+         "\"remaining unported method-family signal rechecks\"]},"
          "\"breakpointInspection\":{\"available\":true,"
          "\"source\":\"original-alignment\",\"maxFlankSites\":100,\"maxRows\":64,"
          "\"nativeCheckEndsStatus\":\"complete-active-unvalidated\","
@@ -6276,14 +7650,60 @@ std::string RdpScanner::results_json() const {
       << ",\"workingSequenceCount\":" << working_alignment_.sequence_count()
       << ",\"workingFragmentSequenceCount\":"
       << (working_alignment_.sequence_count() - alignment_.sequence_count())
+      << ",\"activeWorkingSequenceCount\":" << active_sequences_.size()
+      << ",\"queryWorkingSequenceCount\":" << query_sequences_.size()
+      << ",\"referenceWorkingSequenceCount\":" << reference_sequences_.size()
+      << ",\"activeReferenceGroupCount\":" << active_reference_group_count_
+      << ",\"processedTriplets\":" << processed_triplets_
+      << ",\"totalTriplets\":" << total_triplets_
       << ",\"scanRounds\":"
       << scan_round_ << ",\"cumulativeTriplets\":" << cumulative_triplets_
+      << ",\"maxChiProfilesScanned\":" << maxchi_profiles_scanned_
+      << ",\"maxChiPeakAttempts\":" << maxchi_peak_attempts_
+      << ",\"maxChiCandidatesFound\":" << maxchi_candidates_found_
+      << ",\"maxChiPeakLimitTriplets\":" << maxchi_peak_limit_triplets_
+      << ",\"chimaeraProfilesScanned\":" << chimaera_profiles_scanned_
+      << ",\"chimaeraPeakAttempts\":" << chimaera_peak_attempts_
+      << ",\"chimaeraCandidatesFound\":" << chimaera_candidates_found_
+      << ",\"chimaeraPeakLimitTargets\":" << chimaera_peak_limit_targets_
+      << ",\"geneconvFragmentsScored\":" << geneconv_fragments_scored_
+      << ",\"geneconvQualifiedFragments\":" << geneconv_qualified_fragments_
+      << ",\"geneconvCandidatesFound\":" << geneconv_candidates_found_
+      << ",\"geneconvOverlapRejections\":" << geneconv_overlap_rejections_
+      << ",\"geneconvNumericalFallbackTracks\":"
+      << geneconv_numerical_fallback_tracks_
+      << ",\"threeSeqProfilesScanned\":" << threeseq_profiles_scanned_
+      << ",\"threeSeqExactEvaluations\":" << threeseq_exact_evaluations_
+      << ",\"threeSeqApproximateEvaluations\":"
+      << threeseq_approximate_evaluations_
+      << ",\"threeSeqCandidatesFound\":" << threeseq_candidates_found_
       << ",\"cycleTermination\":\"" << cycle_termination_ << "\",\"correction\":\""
       << (options_.correction == CorrectionMode::bonferroni ? "bonferroni" : "none")
       << "\",\"correctionTests\":" << correction_tests_
       << ",\"circular\":" << (options_.circular ? "true" : "false")
       << ",\"polishBreakpoints\":"
       << (options_.polish_breakpoints ? "true" : "false")
+      << ",\"maxChiEnabled\":"
+      << (options_.maxchi_enabled ? "true" : "false")
+      << ",\"maxChiWindowSites\":" << options_.maxchi_window_sites
+      << ",\"chimaeraEnabled\":"
+      << (options_.chimaera_enabled ? "true" : "false")
+      << ",\"chimaeraWindowSites\":" << options_.chimaera_window_sites
+      << ",\"geneconvEnabled\":"
+      << (options_.geneconv_enabled ? "true" : "false")
+      << ",\"geneconvMismatchScale\":" << options_.geneconv_mismatch_scale
+      << ",\"geneconvMaxOverlaps\":" << options_.geneconv_max_overlaps
+      << ",\"threeSeqEnabled\":"
+      << (options_.threeseq_enabled ? "true" : "false")
+      << ",\"bootscanSecondaryEnabled\":"
+      << (options_.bootscan_secondary_enabled ? "true" : "false")
+      << ",\"bootscanWindowSites\":" << options_.bootscan_window_sites
+      << ",\"bootscanStepSites\":" << options_.bootscan_step_sites
+      << ",\"bootscanBootstrapReplicates\":"
+      << options_.bootscan_bootstrap_replicates
+      << ",\"bootscanSupportCutoff\":";
+  json::number(out, options_.bootscan_support_cutoff);
+  out << ",\"bootscanRandomSeed\":" << options_.bootscan_random_seed
       << ",\"maskedSequenceIndices\":[";
   bool wrote_mask = false;
   for (std::size_t index = 0; index < options_.mask.size(); ++index) {
@@ -6300,6 +7720,11 @@ std::string RdpScanner::results_json() const {
     wrote_disabled = true;
     out << index;
   }
+  out << "],\"referenceGroupIndices\":[";
+  for (std::size_t index = 0; index < options_.reference_groups.size(); ++index) {
+    if (index) out << ',';
+    out << options_.reference_groups[index];
+  }
   out << "],\"downstreamReconciliationRequiredAfter\":";
   if (reconciliation_required_after_ < 0) out << "null";
   else out << reconciliation_required_after_;
@@ -6309,7 +7734,8 @@ std::string RdpScanner::results_json() const {
   for (std::size_t index = 0; index < signals_.size(); ++index) {
     if (index) out << ',';
     const auto& signal = signals_[index];
-    out << "{\"id\":" << signal.id << ",\"method\":\"RDP\",\"triplet\":["
+    out << "{\"id\":" << signal.id << ",\"method\":\""
+        << signal_method_name(signal.method) << "\",\"triplet\":["
         << signal.triplet[0] << ',' << signal.triplet[1] << ',' << signal.triplet[2]
         << "],\"tripletNames\":[";
     for (std::size_t name = 0; name < 3; ++name) {
@@ -6318,6 +7744,19 @@ std::string RdpScanner::results_json() const {
     }
     out << "],\"recombinant\":" << signal.recombinant << ",\"recombinantName\":";
     json::string(out, alignment_.names[signal.recombinant]);
+    const std::uint32_t signal_reference_group =
+        options_.reference_groups[signal.recombinant];
+    out << ",\"queryReferenceInputRole\":\""
+        << (options_.analysis_mode != AnalysisMode::query_reference
+                ? "not-applied"
+                : signal_reference_group == 0 ? "query" : "reference")
+        << "\",\"referenceGroup\":";
+    if (options_.analysis_mode == AnalysisMode::query_reference &&
+        signal_reference_group != 0) {
+      out << signal_reference_group;
+    } else {
+      out << "null";
+    }
     out << ",\"majorParent\":" << signal.major_parent << ",\"majorParentName\":";
     json::string(out, alignment_.names[signal.major_parent]);
     out << ",\"minorParent\":" << signal.minor_parent << ",\"minorParentName\":";
@@ -6338,6 +7777,31 @@ std::string RdpScanner::results_json() const {
     }
     out << "],\"informativeSites\":" << signal.informative_sites
         << ",\"candidatePair\":" << static_cast<unsigned int>(signal.candidate_pair)
+        << ",\"maxChiDiscovery\":";
+    if (signal.method == SignalMethod::maxchi) {
+      write_maxchi_discovery_json(out, signal.maxchi_discovery);
+    } else {
+      out << "null";
+    }
+    out << ",\"chimaeraDiscovery\":";
+    if (signal.method == SignalMethod::chimaera) {
+      write_chimaera_discovery_json(out, signal.chimaera_discovery);
+    } else {
+      out << "null";
+    }
+    out << ",\"geneconvDiscovery\":";
+    if (signal.method == SignalMethod::geneconv) {
+      write_geneconv_discovery_json(out, signal.geneconv_discovery);
+    } else {
+      out << "null";
+    }
+    out << ",\"threeSeqDiscovery\":";
+    if (signal.method == SignalMethod::threeseq) {
+      write_threeseq_discovery_json(out, signal.threeseq_discovery);
+    } else {
+      out << "null";
+    }
+    out
         << ",\"fragmentAssisted\":" << (signal.fragment_assisted ? "true" : "false")
         << ",\"fragmentEventContext\":[";
     for (std::size_t member = 0; member < signal.fragment_event_context.size(); ++member) {
@@ -6357,7 +7821,60 @@ std::string RdpScanner::results_json() const {
   for (std::size_t index = 0; index < events_.size(); ++index) {
     if (index) out << ',';
     const auto& event = events_[index];
+    bool rdp_support = false;
+    bool maxchi_support = false;
+    bool chimaera_support = false;
+    bool geneconv_support = false;
+    bool threeseq_support = false;
+    for (const std::uint32_t signal_id : event.support_signal_ids) {
+      if (signal_id >= signals_.size()) continue;
+      if (signals_[signal_id].method == SignalMethod::maxchi) maxchi_support = true;
+      else if (signals_[signal_id].method == SignalMethod::chimaera) {
+        chimaera_support = true;
+      } else if (signals_[signal_id].method == SignalMethod::geneconv) {
+        geneconv_support = true;
+      } else if (signals_[signal_id].method == SignalMethod::threeseq) {
+        threeseq_support = true;
+      } else {
+        rdp_support = true;
+      }
+    }
     out << "{\"id\":" << event.id << ",\"anchorSignalId\":" << event.anchor_signal_id
+        << ",\"anchorMethod\":\""
+        << (event.anchor_signal_id < signals_.size()
+                ? signal_method_name(signals_[event.anchor_signal_id].method)
+                : "RDP")
+        << "\",\"detectionMethods\":[";
+    bool wrote_detection_method = false;
+    if (rdp_support) {
+      out << "\"RDP\"";
+      wrote_detection_method = true;
+    }
+    if (maxchi_support) {
+      if (wrote_detection_method) out << ',';
+      out << "\"MAXCHI\"";
+      wrote_detection_method = true;
+    }
+    if (chimaera_support) {
+      if (wrote_detection_method) out << ',';
+      out << "\"CHIMAERA\"";
+      wrote_detection_method = true;
+    }
+    if (geneconv_support) {
+      if (wrote_detection_method) out << ',';
+      out << "\"GENECONV\"";
+      wrote_detection_method = true;
+    }
+    if (threeseq_support) {
+      if (wrote_detection_method) out << ',';
+      out << "\"3SEQ\"";
+    }
+    out << ']'
+        << ",\"maxChiChimaeraOnlySupport\":"
+        << (!rdp_support && !geneconv_support && !threeseq_support &&
+                    maxchi_support && chimaera_support
+                ? "true"
+                : "false")
         << ",\"detectionRound\":" << event.detection_round
         << ",\"erasedNucleotideSites\":" << event.erased_nucleotide_sites
         << ",\"erasedWorkingSites\":" << event.erased_working_sites
@@ -6369,6 +7886,19 @@ std::string RdpScanner::results_json() const {
         << ",\"reconciliationBasis\":\"two-shared-sequences-and-30-percent-overlap\""
         << ",\"recombinant\":" << event.recombinant << ",\"recombinantName\":";
     json::string(out, alignment_.names[event.recombinant]);
+    const std::uint32_t event_reference_group =
+        options_.reference_groups[event.recombinant];
+    out << ",\"queryReferenceInputRole\":\""
+        << (options_.analysis_mode != AnalysisMode::query_reference
+                ? "not-applied"
+                : event_reference_group == 0 ? "query" : "reference")
+        << "\",\"referenceGroup\":";
+    if (options_.analysis_mode == AnalysisMode::query_reference &&
+        event_reference_group != 0) {
+      out << event_reference_group;
+    } else {
+      out << "null";
+    }
     out << ",\"majorParent\":" << event.major_parent << ",\"majorParentName\":";
     json::string(out, alignment_.names[event.major_parent]);
     out << ",\"minorParent\":" << event.minor_parent << ",\"minorParentName\":";
@@ -6495,6 +8025,14 @@ std::string RdpScanner::results_json() const {
     out << "]}}"
         << ",\"maxChiTripletRecheck\":";
     write_maxchi_recheck_json(out, event.maxchi_triplet_recheck);
+    out << ",\"chimaeraTripletRecheck\":";
+    write_chimaera_recheck_json(out, event.chimaera_triplet_recheck);
+    out << ",\"geneconvTripletRecheck\":";
+    write_geneconv_recheck_json(out, event.geneconv_triplet_recheck);
+    out << ",\"threeSeqTripletRecheck\":";
+    write_threeseq_recheck_json(out, event.threeseq_triplet_recheck);
+    out << ",\"bootscanTripletRecheck\":";
+    write_bootscan_recheck_json(out, event.bootscan_triplet_recheck);
     out << ",\"bestLocalPValue\":";
     json::number(out, event.best_local_p_value);
     out << ",\"bestCorrectedPValue\":";
@@ -7016,6 +8554,18 @@ std::string RdpScanner::results_json() const {
         }
         out << "},\"postGroupMaxChiRecheck\":";
         write_maxchi_recheck_json(out, evidence.post_group_maxchi_recheck);
+        out << ",\"postGroupChimaeraRecheck\":";
+        write_chimaera_recheck_json(
+            out, evidence.post_group_chimaera_recheck);
+        out << ",\"postGroupGeneconvRecheck\":";
+        write_geneconv_recheck_json(
+            out, evidence.post_group_geneconv_recheck);
+        out << ",\"postGroupThreeSeqRecheck\":";
+        write_threeseq_recheck_json(
+            out, evidence.post_group_threeseq_recheck);
+        out << ",\"postGroupBootscanRecheck\":";
+        write_bootscan_recheck_json(
+            out, evidence.post_group_bootscan_recheck);
         out << '}';
       }
       out << "],\"phylogeneticCorrelationEvidence\":[";
@@ -7070,6 +8620,12 @@ std::string RdpScanner::results_json() const {
              "\"nativePrimaryRdpRecheckComplete\":true,"
              "\"maxChiPostGroupRecheckStatus\":\"source-shaped-strongest-peak-unvalidated\","
              "\"nativeMaxChiFullRecheckComplete\":false,"
+             "\"geneconvPostGroupRecheckStatus\":\"source-shaped-six-track-best-fragment-unvalidated\","
+             "\"nativeGeneconvFullRecheckComplete\":false,"
+             "\"threeSeqPostGroupRecheckStatus\":\"source-shaped-findall-two-orientation-unvalidated\","
+             "\"nativeThreeSeqFullRecheckComplete\":false,"
+             "\"bootscanPostGroupRecheckStatus\":\"source-shaped-distance-bootstrap-binomial-unvalidated\","
+             "\"nativeBootscanFullRecheckComplete\":false,"
              "\"lateNativeConsensusComplete\":false}";
     }
     out << "],\"traceEvidence\":[";
@@ -7093,7 +8649,9 @@ std::string RdpScanner::results_json() const {
         << ",\"rolesProvisional\":true}";
   }
   out << "],\"notes\":["
-         "\"Events are selected cyclically from the strongest unexplained RDP signal; each inferred co-recombinant tract is erased before the next complete triplet screen.\","
+         "\"Events are selected cyclically from the strongest unexplained RDP, enabled MaxChi, enabled CHIMAERA, or enabled GENECONV signal; each inferred co-recombinant tract is erased before the next complete triplet screen.\","
+         "\"Automated query-vs-reference mode follows MakeAnalysisListQvR: every primary triplet contains one query and two references from different groups, but role inference remains unconstrained so a recombinant reference can still be detected.\","
+         "\"Query-vs-reference progress counts every scheduled cross-group reference-record/query triplet; its supplied multiple-testing factor instead counts active reference-group pairs times unique query origins and remains capped independently.\","
          "\"Signal grouping implements the supplied RDP5 detectable-signal rule: two shared triplet sequences and greater than 30% symmetric tract overlap.\","
          "\"Each anchor sequence is treated in turn as the presumed recombinant; three paired six-value correlations use the supplied direct and five category-relabelled Pearson paths.\","
          "\"Six Jukes-Cantor neighbour-joining trees are bootstrapped ten times, branches below 50 percent support are collapsed, and sequences in at least two of the three evidence sets form the co-recombinant group.\","
@@ -7104,7 +8662,10 @@ std::string RdpScanner::results_json() const {
          "\"BURT statistical confidence ports the supplied non-segmented PolishBP/BenHMM path: sorted three-symbol recoding, source circular expansion, 21 seeded Viterbi starts, forward/reverse posteriors, strict 0.995/0.999 range searches, signed interval matching, missing-data repositioning, three-usable-site reversion, and final gap relocation. These source-labelled 99/95 percent ranges remain distinct from parent-state brackets and CheckEnds warnings.\","
          "\"The on-demand graphical tree view reuses compact edge lists from the six reconciliation topologies; arbitrary rooting and weak-branch expansion are display-only and never change event evidence.\","
          "\"Below the supplied 100000-site cutoff, erased tracts re-enter subsequent rounds as gap-padded synthetic fragments with original-sequence provenance; same-origin working copies never occupy one triplet and the retained-fragment cap is explicit.\","
-         "\"Distance membership applies the supplied MakeACOR topology-affinity gate, MakeRList dual-correlation override, StripDupInv inverse-only removal, FinalTrim fixed-point and two expansion passes, selected-role pruning, OKSeq 15, all three ConsensusOK list-rebuild passes, shared selected-tree cleanup, and the primary-RDP post-group recheck. Post-group rechecks for the unported non-RDP method families remain a documented parity boundary.\"]}";
+         "\"MaxChi discovery preserves raw-peak ordering across three pair tracks, source window growth, FindSide tract choice, optimized second-breakpoint search, smoothed basin destruction, and the three-wasted-attempt/100-peak retry bounds; provisional roles are still arbitrated by the shared late consensus.\","
+         "\"CHIMAERA discovery rotates each triplet member through the candidate-recombinant role, discards sites where neither parent matches that target, scans the resulting binary string, and shares the supplied MaxChi tract-boundary machinery without rescanning alignment bytes.\","
+         "\"GENECONV discovery builds the supplied six signed fragment tracks from the shared non-monomorphic profile, applies source mismatch penalties and Karlin-Altschul tails, then accepts fragments in stable lowest-P order under the configured overlap limit.\","
+         "\"Distance membership applies the supplied MakeACOR topology-affinity gate, MakeRList dual-correlation override, StripDupInv inverse-only removal, FinalTrim fixed-point and two expansion passes, selected-role pruning, OKSeq 15, all three ConsensusOK list-rebuild passes, shared selected-tree cleanup, and the RDP plus GENECONV/MaxChi/CHIMAERA/3SEQ post-group rechecks. Ordinary and cyclic 3SEQ discovery contributes exact or explicitly labelled Siegmund-fallback evidence, later rounds apply the supplied CheckSplit3Seq/SubPVal missing-run trim before a second corrected threshold, and TSXOver(1) audits both Findall orientations without changing reconciled coordinates. Its manual envelopes and full late event-catalogue reconstruction remain documented boundaries. GENECONV permutation/manual/alternative-indel modes, full late event reconstruction, and the remaining method families remain documented parity boundaries.\"]}";
   return out.str();
 }
 
@@ -7117,34 +8678,237 @@ bool RdpScanner::set_review_state(std::uint32_t signal_id, ReviewState state) {
 SignalPlot RdpScanner::signal_plot(std::uint32_t signal_id, std::string& error) const {
   SignalPlot plot;
   if (signal_id >= signals_.size()) {
-    error = "The selected RDP signal does not exist.";
+    error = "The selected recombination signal does not exist.";
     return plot;
   }
   const auto& signal = signals_[signal_id];
+  plot.signal_id = signal_id;
+  plot.method = signal.method;
+  // The first event is detected on the unmodified input rows. Later cyclic
+  // signals may have used erased rows or synthetic fragments; the compact
+  // retained signal contract does not store every working-profile point, so
+  // its on-demand graph is deliberately labelled as an original-alignment
+  // reconstruction rather than presented as the historical detection trace.
+  plot.detection_profile_exact = signal.event_id == 0 && !signal.fragment_assisted;
+  if (signal.method == SignalMethod::threeseq) {
+    ThreeSeqWorkspace workspace;
+    MaxChiWorkspace variable_workspace;
+    const ThreeSeqPlotProfile profile = threeseq_plot_profile(
+        alignment_, signal.triplet, workspace, variable_workspace);
+    if (!profile.available) {
+      error = "The selected triplet no longer has a usable 3SEQ random-walk profile.";
+      return plot;
+    }
+    plot.window_sites = 0;
+    plot.minimum_value = 0.0;
+    plot.maximum_value = 0.0;
+    std::vector<std::size_t> required{
+        nearest_coordinate_index(profile.coordinates, signal.beginning),
+        nearest_coordinate_index(profile.coordinates, signal.ending),
+    };
+    for (const auto& trace : profile.target_walks) {
+      const auto [minimum, maximum] =
+          std::minmax_element(trace.begin(), trace.end());
+      if (minimum != trace.end()) {
+        plot.minimum_value = std::min(plot.minimum_value, *minimum);
+        plot.maximum_value = std::max(plot.maximum_value, *maximum);
+        required.push_back(static_cast<std::size_t>(minimum - trace.begin()));
+        required.push_back(static_cast<std::size_t>(maximum - trace.begin()));
+      }
+    }
+    const auto sample_indices = plot_sample_indices(
+        profile.coordinates.size(), std::move(required));
+    plot.points.reserve(sample_indices.size());
+    for (const std::size_t position : sample_indices) {
+      PlotPoint point;
+      point.alignment_position = profile.coordinates[position];
+      for (std::size_t target = 0; target < 3; ++target) {
+        point.pair_identity[target] = profile.target_walks[target][position];
+      }
+      plot.points.push_back(point);
+    }
+    return plot;
+  }
+  if (signal.method == SignalMethod::geneconv) {
+    GeneconvWorkspace workspace;
+    GeneconvDiscoveryOptions discovery_options;
+    discovery_options.circular = options_.circular;
+    discovery_options.bonferroni =
+        options_.correction == CorrectionMode::bonferroni;
+    discovery_options.p_value_cutoff = options_.p_value_cutoff;
+    discovery_options.correction_tests =
+        std::max<std::uint64_t>(1, signal.correction_tests);
+    discovery_options.mismatch_scale = options_.geneconv_mismatch_scale;
+    discovery_options.maximum_overlapping_fragments =
+        options_.geneconv_max_overlaps;
+    const GeneconvPlotProfile profile = geneconv_plot_profile(
+        alignment_, signal.triplet, discovery_options, workspace);
+    if (!profile.available) {
+      error = "The selected triplet no longer has a usable GENECONV fragment profile.";
+      return plot;
+    }
+    plot.window_sites = 0;
+    std::vector<std::size_t> required{
+        nearest_coordinate_index(profile.coordinates, signal.beginning),
+        nearest_coordinate_index(profile.coordinates, signal.ending),
+    };
+    for (const auto& trace : profile.negative_log10_p_value) {
+      const auto maximum = std::max_element(trace.begin(), trace.end());
+      if (maximum != trace.end()) {
+        plot.maximum_value = std::max(plot.maximum_value, *maximum);
+        required.push_back(static_cast<std::size_t>(maximum - trace.begin()));
+      }
+    }
+    const auto sample_indices = plot_sample_indices(
+        profile.coordinates.size(), std::move(required));
+    plot.points.reserve(sample_indices.size());
+    for (const std::size_t position : sample_indices) {
+      PlotPoint point;
+      point.alignment_position = profile.coordinates[position];
+      for (std::size_t pair = 0; pair < 3; ++pair) {
+        point.pair_identity[pair] = profile.negative_log10_p_value[pair][position];
+      }
+      plot.points.push_back(point);
+    }
+    return plot;
+  }
+  if (signal.method == SignalMethod::chimaera) {
+    MaxChiWorkspace variable_workspace;
+    MaxChiWorkspace target_workspace;
+    std::vector<std::uint8_t> plot_missing_data(alignment_.length, 0);
+    for (std::size_t position = 0; position < alignment_.length; ++position) {
+      for (const std::uint32_t sequence : signal.triplet) {
+        const std::size_t offset =
+            static_cast<std::size_t>(sequence) * alignment_.length + position;
+        if (offset < native_input_missing_data_.size() &&
+            native_input_missing_data_[offset] != 0) {
+          plot_missing_data[position] = 1;
+          break;
+        }
+      }
+    }
+    const ChimaeraPlotProfile profile = chimaera_plot_profile(
+        alignment_,
+        signal.triplet,
+        signal.chimaera_discovery.target_local,
+        plot_missing_data,
+        options_.circular,
+        options_.chimaera_window_sites,
+        options_.p_value_cutoff,
+        variable_workspace,
+        target_workspace);
+    if (!profile.available) {
+      error = "The selected triplet no longer has a usable CHIMAERA target profile.";
+      return plot;
+    }
+    plot.window_sites = profile.half_window * 2;
+    const auto maximum = std::max_element(
+        profile.chi_square.begin(), profile.chi_square.end());
+    std::vector<std::size_t> required{
+        nearest_coordinate_index(profile.coordinates, signal.beginning),
+        nearest_coordinate_index(profile.coordinates, signal.ending),
+        nearest_coordinate_index(
+            profile.coordinates,
+            signal.chimaera_discovery.peak_alignment_position),
+    };
+    if (maximum != profile.chi_square.end()) {
+      plot.maximum_value = std::max(plot.maximum_value, *maximum);
+      required.push_back(static_cast<std::size_t>(
+          maximum - profile.chi_square.begin()));
+    }
+    const auto sample_indices = plot_sample_indices(
+        profile.coordinates.size(), std::move(required));
+    constexpr std::array<std::size_t, 3> target_parent_one_pair{{0, 2, 1}};
+    const std::size_t trace_pair = target_parent_one_pair[profile.target_local];
+    plot.points.reserve(sample_indices.size());
+    for (const std::size_t position : sample_indices) {
+      PlotPoint point;
+      point.alignment_position = profile.coordinates[position];
+      point.pair_identity[trace_pair] = profile.chi_square[position];
+      plot.points.push_back(point);
+    }
+    return plot;
+  }
+  if (signal.method == SignalMethod::maxchi) {
+    MaxChiWorkspace workspace;
+    // Native input MissingData is independent of cyclic tract erasure and can
+    // be reconstructed exactly for every retained original triplet. Feeding
+    // it into the review profile keeps first-round plots identical to the
+    // discovery exclusions and makes later reconstructions more informative.
+    std::vector<std::uint8_t> plot_missing_data(alignment_.length, 0);
+    for (std::size_t position = 0; position < alignment_.length; ++position) {
+      for (const std::uint32_t sequence : signal.triplet) {
+        const std::size_t offset =
+            static_cast<std::size_t>(sequence) * alignment_.length + position;
+        if (offset < native_input_missing_data_.size() &&
+            native_input_missing_data_[offset] != 0) {
+          plot_missing_data[position] = 1;
+          break;
+        }
+      }
+    }
+    const MaxChiPlotProfile profile = maxchi_plot_profile(
+        alignment_,
+        signal.triplet,
+        plot_missing_data,
+        options_.circular,
+        options_.maxchi_window_sites,
+        options_.p_value_cutoff,
+        workspace);
+    if (!profile.available) {
+      error = "The selected triplet no longer has a usable MaxChi profile.";
+      return plot;
+    }
+    plot.window_sites = profile.half_window * 2;
+    std::vector<std::size_t> required{
+        nearest_coordinate_index(profile.coordinates, signal.beginning),
+        nearest_coordinate_index(profile.coordinates, signal.ending),
+        nearest_coordinate_index(
+            profile.coordinates,
+            signal.maxchi_discovery.peak_alignment_position),
+    };
+    for (std::size_t pair = 0; pair < profile.chi_square.size(); ++pair) {
+      const auto maximum = std::max_element(
+          profile.chi_square[pair].begin(), profile.chi_square[pair].end());
+      if (maximum != profile.chi_square[pair].end()) {
+        plot.maximum_value = std::max(plot.maximum_value, *maximum);
+        required.push_back(static_cast<std::size_t>(
+            maximum - profile.chi_square[pair].begin()));
+      }
+    }
+    const auto sample_indices = plot_sample_indices(
+        profile.coordinates.size(), std::move(required));
+    plot.points.reserve(sample_indices.size());
+    for (const std::size_t position : sample_indices) {
+      PlotPoint point;
+      point.alignment_position = profile.coordinates[position];
+      for (std::size_t pair = 0; pair < 3; ++pair) {
+        point.pair_identity[pair] = profile.chi_square[pair][position];
+      }
+      plot.points.push_back(point);
+    }
+    return plot;
+  }
+
   TripletProfile profile;
   if (!build_profile_on(alignment_, signal.triplet, profile)) {
     error = "The selected triplet no longer passes the RDP informative-site filters.";
     return plot;
   }
-  plot.signal_id = signal_id;
   plot.window_sites = options_.window_sites;
   const std::size_t effective_window = options_.window_sites / 2 * 2 + 1;
-  const std::size_t stride = std::max<std::size_t>(1, profile.category.size() / 2000);
-  for (std::size_t position = 0; position < profile.category.size(); position += stride) {
+  const auto sample_indices = plot_sample_indices(
+      profile.category.size(),
+      {
+          nearest_coordinate_index(profile.coordinates, signal.beginning),
+          nearest_coordinate_index(profile.coordinates, signal.ending),
+      });
+  plot.points.reserve(sample_indices.size());
+  for (const std::size_t position : sample_indices) {
     PlotPoint point;
     point.alignment_position = profile.coordinates[position];
     for (std::size_t pair = 0; pair < 3; ++pair) {
       point.pair_identity[pair] = static_cast<double>(profile.rolling_counts[pair][position]) /
-          static_cast<double>(effective_window);
-    }
-    plot.points.push_back(point);
-  }
-  if (!profile.coordinates.empty() &&
-      (plot.points.empty() || plot.points.back().alignment_position != profile.coordinates.back())) {
-    PlotPoint point;
-    point.alignment_position = profile.coordinates.back();
-    for (std::size_t pair = 0; pair < 3; ++pair) {
-      point.pair_identity[pair] = static_cast<double>(profile.rolling_counts[pair].back()) /
           static_cast<double>(effective_window);
     }
     plot.points.push_back(point);
@@ -7158,7 +8922,7 @@ std::string RdpScanner::event_alignment_json(
     std::size_t row_limit,
     std::string& error) const {
   if (event_id >= events_.size()) {
-    error = "The selected RDP event does not exist.";
+    error = "The selected recombination event does not exist.";
     return {};
   }
   if (alignment_.length == 0 || alignment_.sequence_count() == 0) {
@@ -7247,7 +9011,7 @@ std::string RdpScanner::event_alignment_json(
       const std::vector<std::uint32_t>& uncertain_erasure_event_ids,
       std::int32_t nearest_erasure_informative_sites,
       const BreakpointUncertaintyEvidence& uncertainty) {
-    AlignmentPanel panel{name, center, {}, 0};
+    AlignmentPanel panel{.name = name, .center = center};
     panel.adjacent_erasure_event_ids = adjacent_erasure_event_ids;
     panel.uncertain_erasure_event_ids = uncertain_erasure_event_ids;
     panel.nearest_erasure_informative_sites = nearest_erasure_informative_sites;
@@ -7342,9 +9106,21 @@ std::string RdpScanner::event_alignment_json(
   for (std::size_t row = 0; row < candidates.size(); ++row) {
     if (row) out << ',';
     const std::uint32_t sequence = candidates[row];
+    const std::uint32_t reference_group = options_.reference_groups[sequence];
     out << "{\"sequenceIndex\":" << sequence << ",\"sequenceName\":";
     json::string(out, alignment_.names[sequence]);
-    out << ",\"role\":\"" << role_name(sequence) << "\",\"masked\":"
+    out << ",\"role\":\"" << role_name(sequence)
+        << "\",\"queryReferenceInputRole\":\""
+        << (options_.analysis_mode != AnalysisMode::query_reference
+                ? "not-applied"
+                : reference_group == 0 ? "query" : "reference")
+        << "\",\"referenceGroup\":";
+    if (options_.analysis_mode == AnalysisMode::query_reference && reference_group != 0) {
+      out << reference_group;
+    } else {
+      out << "null";
+    }
+    out << ",\"masked\":"
         << (sequence_masked(sequence) ? "true" : "false")
         << ",\"disabled\":" << (sequence_disabled(sequence) ? "true" : "false")
         << ",\"currentGroupMember\":"
@@ -7470,7 +9246,7 @@ std::string RdpScanner::event_trees_json(
     std::uint32_t event_id,
     std::string& error) const {
   if (event_id >= events_.size()) {
-    error = "The selected RDP event does not exist.";
+    error = "The selected recombination event does not exist.";
     return {};
   }
 
@@ -7516,6 +9292,10 @@ std::string RdpScanner::event_trees_json(
     if (index) out << ',';
     const auto& leaf = event.tree_panel_leaves[index];
     const std::uint32_t original = leaf.original_sequence;
+    const bool input_role_available = original < options_.reference_groups.size();
+    const std::uint32_t reference_group = input_role_available
+        ? options_.reference_groups[original]
+        : 0;
     out << "{\"node\":" << index
         << ",\"workingSequenceIndex\":" << leaf.working_sequence
         << ",\"sequenceIndex\":" << original
@@ -7525,7 +9305,18 @@ std::string RdpScanner::event_trees_json(
     out << ",\"fragmentEventId\":";
     if (leaf.fragment_event < 0) out << "null";
     else out << leaf.fragment_event;
-    out << ",\"role\":\"" << role_name(original) << "\",\"masked\":"
+    out << ",\"role\":\"" << role_name(original)
+        << "\",\"queryReferenceInputRole\":\""
+        << (options_.analysis_mode != AnalysisMode::query_reference || !input_role_available
+                ? "not-applied"
+                : reference_group == 0 ? "query" : "reference")
+        << "\",\"referenceGroup\":";
+    if (options_.analysis_mode == AnalysisMode::query_reference && reference_group != 0) {
+      out << reference_group;
+    } else {
+      out << "null";
+    }
+    out << ",\"masked\":"
         << (sequence_masked(original) ? "true" : "false")
         << ",\"disabled\":" << (sequence_disabled(original) ? "true" : "false")
         << ",\"currentGroupMember\":"
@@ -7570,10 +9361,36 @@ std::string RdpScanner::event_trees_json(
 }
 
 std::string RdpScanner::csv() const {
+  std::size_t query_sequence_count = 0;
+  std::size_t reference_sequence_count = 0;
+  std::vector<std::uint32_t> reference_group_ids;
+  std::ostringstream active_query_names;
+  std::ostringstream active_reference_assignments;
+  const std::size_t minimum_working_sites = std::max<std::size_t>(5, options_.window_sites);
+  for (std::size_t sequence = 0; sequence < alignment_.sequence_count(); ++sequence) {
+    if (sequence_masked(sequence) || sequence_disabled(sequence) ||
+        sequence >= alignment_.sequence_summaries.size() ||
+        alignment_.sequence_summaries[sequence].valid_sites < minimum_working_sites) {
+      continue;
+    }
+    const std::uint32_t group = options_.reference_groups[sequence];
+    if (group == 0) {
+      if (query_sequence_count != 0) active_query_names << "; ";
+      active_query_names << alignment_.names[sequence];
+      ++query_sequence_count;
+    }
+    else {
+      if (reference_sequence_count != 0) active_reference_assignments << "; ";
+      active_reference_assignments << alignment_.names[sequence] << '=' << group;
+      ++reference_sequence_count;
+      reference_group_ids.push_back(group);
+    }
+  }
+  sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "Event,Method,Detection round,Erased original nucleotide sites,Erased working sites,"
+  out << "Event,Analysis scheme,Query sequences,Reference sequences,Reference groups,Active query names,Active reference assignments,Method,Detection methods,MaxChi/CHIMAERA-only support caution,Anchor discovery diagnostics,Detection round,Erased original nucleotide sites,Erased working sites,"
          "Fragments added,Fragment-assisted detection,Tract applied during detection,"
-         "Recombinant,Major parent,Minor parent,Beginning,Ending,Wraps origin,"
+         "Recombinant,Recombinant input role,Recombinant reference group,Major parent,Minor parent,Beginning,Ending,Wraps origin,"
          "BURT confidence status,BURT applied to event,Beginning BURT confidence,"
          "Ending BURT confidence,"
          "Beginning adjacent erased events,Ending adjacent erased events,"
@@ -7590,6 +9407,27 @@ std::string RdpScanner::csv() const {
          "MaxChi maximum chi-square,MaxChi local p-value,MaxChi within-triplet p-value,"
          "MaxChi correction tests,"
          "MaxChi corrected p-value,MaxChi source recheck hit,"
+         "CHIMAERA triplet recheck status,CHIMAERA target profiles,"
+         "CHIMAERA best target,CHIMAERA information-rich sites,CHIMAERA half-window,"
+         "CHIMAERA grown half-window,CHIMAERA peak alignment position,"
+         "CHIMAERA maximum chi-square,CHIMAERA local p-value,"
+         "CHIMAERA within-triplet p-value,CHIMAERA correction tests,"
+         "CHIMAERA corrected p-value,CHIMAERA source recheck hit,"
+         "GENECONV triplet recheck status,GENECONV polymorphic sites,"
+         "GENECONV tracks screened,GENECONV best track,"
+         "GENECONV provisional recombinant local role,GENECONV beginning,"
+         "GENECONV ending,GENECONV wraps origin,GENECONV fragment score,"
+         "GENECONV critical score,GENECONV raw KA p-value,"
+         "GENECONV correction tests,GENECONV corrected p-value,"
+         "GENECONV source recheck hit,"
+         "3SEQ triplet recheck status,3SEQ target profiles,"
+         "3SEQ qualifying orientations,3SEQ source list entries,"
+         "3SEQ best target,3SEQ best direction,3SEQ information-rich sites,"
+         "3SEQ parent-one matches,3SEQ parent-two matches,"
+         "3SEQ probability excursion,3SEQ maximum excursion,"
+         "3SEQ beginning,3SEQ ending,3SEQ wraps origin,3SEQ raw p-value,"
+         "3SEQ correction tests,3SEQ corrected p-value,3SEQ exact probability,"
+         "3SEQ Siegmund fallback,3SEQ missing-data split,3SEQ source recheck hit,"
          "Supporting signals,Detectable sequences,"
          "Distance-correlation sequences,FinalTrim duplicate-filtered pairs,"
          "Phylogenetic-correlation sequences,"
@@ -7601,10 +9439,147 @@ std::string RdpScanner::csv() const {
          "Review state,Manually adjusted,Native full-consensus parity\n";
   for (const auto& event : events_) {
     const auto& hypothesis = event.role_hypotheses[0];
+    const Signal* anchor_signal = event.anchor_signal_id < signals_.size()
+        ? &signals_[event.anchor_signal_id]
+        : nullptr;
+    bool has_rdp_detection = false;
+    bool has_maxchi_detection = false;
+    bool has_chimaera_detection = false;
+    bool has_geneconv_detection = false;
+    bool has_threeseq_detection = false;
     std::ostringstream support;
     for (std::size_t index = 0; index < event.support_signal_ids.size(); ++index) {
       if (index) support << ';';
-      support << event.support_signal_ids[index] + 1;
+      const std::uint32_t signal_id = event.support_signal_ids[index];
+      if (signal_id < signals_.size()) {
+        support << signal_method_name(signals_[signal_id].method) << ':';
+        if (signals_[signal_id].method == SignalMethod::maxchi) {
+          has_maxchi_detection = true;
+        } else if (signals_[signal_id].method == SignalMethod::chimaera) {
+          has_chimaera_detection = true;
+        } else if (signals_[signal_id].method == SignalMethod::geneconv) {
+          has_geneconv_detection = true;
+        } else if (signals_[signal_id].method == SignalMethod::threeseq) {
+          has_threeseq_detection = true;
+        } else {
+          has_rdp_detection = true;
+        }
+      }
+      support << signal_id + 1;
+    }
+    std::ostringstream detection_methods;
+    if (has_rdp_detection) detection_methods << "RDP";
+    if (has_geneconv_detection) {
+      if (has_rdp_detection) detection_methods << '+';
+      detection_methods << "GENECONV";
+    }
+    if (has_maxchi_detection) {
+      if (has_rdp_detection || has_geneconv_detection) detection_methods << '+';
+      detection_methods << "MAXCHI";
+    }
+    if (has_chimaera_detection) {
+      if (has_rdp_detection || has_geneconv_detection || has_maxchi_detection) {
+        detection_methods << '+';
+      }
+      detection_methods << "CHIMAERA";
+    }
+    if (has_threeseq_detection) {
+      if (has_rdp_detection || has_maxchi_detection || has_chimaera_detection ||
+          has_geneconv_detection) {
+        detection_methods << '+';
+      }
+      detection_methods << "3SEQ";
+    }
+    std::ostringstream anchor_discovery;
+    if (anchor_signal && anchor_signal->method == SignalMethod::maxchi) {
+      const auto& discovery = anchor_signal->maxchi_discovery;
+      anchor_discovery
+          << "MCXoverF/attempt=" << discovery.peak_attempt
+          << "/pair=" << static_cast<int>(discovery.peak_pair)
+          << "/side="
+          << (discovery.tract_side == MaxChiTractSide::left ? "left" : "right")
+          << "/peak=" << discovery.peak_alignment_position
+          << "/variable-sites=" << discovery.variable_sites
+          << "/window=" << discovery.initial_half_window
+          << "/grown=" << discovery.grown_half_window
+          << "/critical-difference=" << discovery.critical_difference
+          << "/chi2=" << discovery.maximum_chi_square
+          << "/raw-P=" << discovery.raw_p_value
+          << "/within-triplet-P=" << discovery.within_triplet_p_value
+          << "/corrected-P=" << discovery.corrected_p_value
+          << "/flanks=" << discovery.left_flank_chi_square
+          << ':' << discovery.right_flank_chi_square;
+      if (discovery.missing_data_window_filter_applied) {
+        anchor_discovery << "/missing-filter";
+      }
+      if (discovery.linear_edge_window_filter_applied) {
+        anchor_discovery << "/linear-edge-filter";
+      }
+    } else if (anchor_signal &&
+               anchor_signal->method == SignalMethod::chimaera) {
+      const auto& discovery = anchor_signal->chimaera_discovery;
+      anchor_discovery
+          << "AlistChi/FastRecCheckChim/CXoverA"
+          << "/target=" << static_cast<int>(discovery.target_local)
+          << "/attempt=" << discovery.peak_attempt
+          << "/side="
+          << (discovery.tract_side == MaxChiTractSide::left ? "left" : "right")
+          << "/peak=" << discovery.peak_alignment_position
+          << "/information-rich-sites=" << discovery.information_rich_sites
+          << "/window=" << discovery.initial_half_window
+          << "/grown=" << discovery.grown_half_window
+          << "/critical-difference=" << discovery.critical_difference
+          << "/chi2=" << discovery.maximum_chi_square
+          << "/raw-P=" << discovery.raw_p_value
+          << "/within-triplet-P=" << discovery.within_triplet_p_value
+          << "/corrected-P=" << discovery.corrected_p_value
+          << "/flanks=" << discovery.left_flank_chi_square
+          << ':' << discovery.right_flank_chi_square
+          << "/inside-parent-one=" << discovery.inside_parent_one_match_rate
+          << "/outside-parent-one=" << discovery.outside_parent_one_match_rate;
+      if (discovery.missing_data_window_filter_applied) {
+        anchor_discovery << "/missing-filter";
+      }
+      if (discovery.linear_edge_window_filter_applied) {
+        anchor_discovery << "/linear-edge-filter";
+      }
+    } else if (anchor_signal &&
+               anchor_signal->method == SignalMethod::geneconv) {
+      const auto& discovery = anchor_signal->geneconv_discovery;
+      anchor_discovery
+          << "FindSubSeqGCAP6/GetFragsP/GetMaxFragScoreP/CalcKMaxP/GCCalcPValP2/GCXoverD"
+          << "/track=" << static_cast<int>(discovery.track)
+          << "/polymorphic-sites=" << discovery.polymorphic_sites
+          << "/positive-sites=" << discovery.positive_sites
+          << "/discordant-sites=" << discovery.discordant_sites
+          << "/mismatch-penalty=" << discovery.mismatch_penalty
+          << "/score=" << discovery.fragment_score
+          << "/critical-score=" << discovery.critical_score
+          << "/lambda=" << discovery.lambda
+          << "/K=" << discovery.karlin_altschul_k
+          << "/raw-KA-P=" << discovery.raw_p_value
+          << "/corrected-P=" << discovery.corrected_p_value
+          << "/ignored-indels/overlap-limit=" << options_.geneconv_max_overlaps
+          << "/no-minimum-fragment-filters";
+    } else if (anchor_signal &&
+               anchor_signal->method == SignalMethod::threeseq) {
+      const auto& discovery = anchor_signal->threeseq_discovery;
+      anchor_discovery
+          << "FindSubSeqTS/Seq3PVals/CheckwrapC/TSXOver"
+          << "/target=" << static_cast<int>(discovery.target_local)
+          << "/direction="
+          << (discovery.direction == ThreeSeqWalkDirection::ascent
+                  ? "ascent"
+                  : "descent")
+          << "/information-rich-sites=" << discovery.information_rich_sites
+          << "/parent-one-matches=" << discovery.parent_one_matches
+          << "/parent-two-matches=" << discovery.parent_two_matches
+          << "/probability-excursion=" << discovery.probability_excursion
+          << "/maximum-excursion=" << discovery.maximum_excursion
+          << "/raw-P=" << discovery.raw_p_value
+          << "/corrected-P=" << discovery.corrected_p_value
+          << (discovery.exact_probability ? "/exact-DP" : "")
+          << (discovery.siegmund_fallback ? "/SiegmundDiscrete" : "");
     }
     std::ostringstream detectable;
     for (std::size_t index = 0; index < hypothesis.detectable_signal_set.size(); ++index) {
@@ -7856,6 +9831,105 @@ std::string RdpScanner::csv() const {
           finaltrim_matrix_diagnostics << "/MaxChi-peak=none";
         }
       }
+      const auto& chimaera = evidence.post_group_chimaera_recheck;
+      finaltrim_matrix_diagnostics
+          << "/CHIMAERA-recheck=" << chimaera_recheck_status(chimaera);
+      if (chimaera.profile_available) {
+        finaltrim_matrix_diagnostics
+            << "/CHIMAERA-target-profiles="
+            << chimaera.target_profiles_scanned;
+        if (chimaera.best_target >= 0) {
+          finaltrim_matrix_diagnostics
+              << "/CHIMAERA-target="
+              << static_cast<int>(chimaera.best_target)
+              << "/CHIMAERA-information-rich-sites="
+              << chimaera.information_rich_sites
+              << "/CHIMAERA-half-window=" << chimaera.half_window
+              << "/CHIMAERA-grown-half-window="
+              << chimaera.grown_half_window
+              << "/CHIMAERA-peak=" << chimaera.peak_alignment_position
+              << "/CHIMAERA-chi2=" << chimaera.maximum_chi_square
+              << "/CHIMAERA-local-P=" << chimaera.local_p_value
+              << "/CHIMAERA-within-triplet-P="
+              << chimaera.within_triplet_p_value
+              << "/CHIMAERA-corrected-P=" << chimaera.corrected_p_value
+              << (chimaera.source_recheck_hit
+                      ? "/CHIMAERA-hit"
+                      : "/CHIMAERA-no-hit");
+        } else {
+          finaltrim_matrix_diagnostics << "/CHIMAERA-peak=none";
+        }
+      }
+      const auto& geneconv = evidence.post_group_geneconv_recheck;
+      finaltrim_matrix_diagnostics
+          << "/GENECONV-recheck=" << geneconv_recheck_status(geneconv);
+      if (geneconv.profile_available) {
+        finaltrim_matrix_diagnostics
+            << "/GENECONV-polymorphic-sites=" << geneconv.polymorphic_sites
+            << "/GENECONV-tracks=" << geneconv.tracks_screened
+            << "/GENECONV-positive-starts=" << geneconv.fragments_scored
+            << "/GENECONV-qualified=" << geneconv.qualified_fragments
+            << "/GENECONV-overlap-rejections="
+            << geneconv.overlap_rejected_fragments
+            << "/GENECONV-fallback-tracks="
+            << geneconv.numerical_fallback_tracks;
+        if (geneconv.best_track >= 0) {
+          finaltrim_matrix_diagnostics
+              << "/GENECONV-track=" << static_cast<int>(geneconv.best_track)
+              << "/GENECONV-recombinant-local="
+              << static_cast<int>(geneconv.recombinant_local)
+              << "/GENECONV-tract=" << geneconv.beginning << '-'
+              << geneconv.ending
+              << (geneconv.wraps_origin ? "-wrap" : "-linear")
+              << "/GENECONV-score=" << geneconv.fragment_score
+              << "/GENECONV-critical=" << geneconv.critical_score
+              << "/GENECONV-raw-P=" << geneconv.raw_p_value
+              << "/GENECONV-corrected-P=" << geneconv.corrected_p_value
+              << (geneconv.source_recheck_hit
+                      ? "/GENECONV-hit"
+                      : "/GENECONV-no-hit");
+        } else {
+          finaltrim_matrix_diagnostics << "/GENECONV-fragment=none";
+        }
+      }
+      const auto& threeseq = evidence.post_group_threeseq_recheck;
+      finaltrim_matrix_diagnostics
+          << "/3SEQ-recheck=" << threeseq_recheck_status(threeseq)
+          << "/3SEQ-target-profiles=" << threeseq.target_profiles_scanned
+          << "/3SEQ-qualifying-orientations="
+          << threeseq.qualifying_orientations
+          << "/3SEQ-source-list-entries=" << threeseq.source_list_entries;
+      if (threeseq.best_target >= 0) {
+        finaltrim_matrix_diagnostics
+            << "/3SEQ-target=" << static_cast<int>(threeseq.best_target)
+            << "/3SEQ-direction="
+            << (threeseq.best_direction == ThreeSeqWalkDirection::ascent
+                    ? "ascent"
+                    : "descent")
+            << "/3SEQ-information-rich-sites="
+            << threeseq.information_rich_sites
+            << "/3SEQ-parent-matches=" << threeseq.parent_one_matches
+            << ':' << threeseq.parent_two_matches
+            << "/3SEQ-probability-excursion="
+            << threeseq.probability_excursion
+            << "/3SEQ-maximum-excursion=" << threeseq.maximum_excursion
+            << "/3SEQ-tract=" << threeseq.beginning << '-'
+            << threeseq.ending
+            << (threeseq.wraps_origin ? "-wrap" : "-linear")
+            << "/3SEQ-raw-P=" << threeseq.raw_p_value
+            << "/3SEQ-corrected-P=" << threeseq.corrected_p_value
+            << (threeseq.exact_probability
+                    ? "/3SEQ-exact"
+                    : threeseq.siegmund_fallback
+                        ? "/3SEQ-Siegmund"
+                        : "/3SEQ-probability-route-unavailable")
+            << (threeseq.missing_data_split_applied
+                    ? "/3SEQ-missing-split"
+                    : "")
+            << (threeseq.source_recheck_hit ? "/3SEQ-hit" : "/3SEQ-no-hit");
+      } else {
+        finaltrim_matrix_diagnostics << "/3SEQ-orientation=none";
+      }
       if (matrix.tree_distance_fallback) finaltrim_matrix_diagnostics << "/JC-fallback";
       const auto& match = evidence.calc_match;
       if (match.available) {
@@ -7878,12 +9952,42 @@ std::string RdpScanner::csv() const {
         finaltrim_matrix_diagnostics << "/M17-M18=unavailable";
       }
     }
-    out << event.id + 1 << ",RDP," << event.detection_round << ','
+    out << event.id + 1 << ','
+        << (options_.analysis_mode == AnalysisMode::query_reference
+                ? "query-reference"
+                : "exploratory")
+        << ',' << query_sequence_count
+        << ',' << reference_sequence_count
+        << ',' << reference_group_ids.size()
+        << ',' << csv_cell(active_query_names.str())
+        << ',' << csv_cell(active_reference_assignments.str()) << ','
+        << (anchor_signal
+                ? signal_method_name(anchor_signal->method)
+                : "RDP")
+        << ',' << csv_cell(detection_methods.str())
+        << ',' << (!has_rdp_detection && !has_geneconv_detection &&
+                           !has_threeseq_detection && has_maxchi_detection &&
+                           has_chimaera_detection
+                        ? "yes"
+                        : "no")
+        << ',' << csv_cell(anchor_discovery.str())
+        << ',' << event.detection_round << ','
         << event.erased_nucleotide_sites << ','
         << event.erased_working_sites << ',' << event.fragment_sequences_added << ','
         << (event.fragment_assisted_detection ? "yes" : "no") << ','
         << (event.tract_erased_for_detection ? "yes" : "no") << ','
-        << csv_cell(alignment_.names[event.recombinant]) << ','
+        << csv_cell(alignment_.names[event.recombinant]) << ',';
+    const std::uint32_t recombinant_reference_group =
+        options_.reference_groups[event.recombinant];
+    out << (options_.analysis_mode != AnalysisMode::query_reference
+                ? "not-applied"
+                : recombinant_reference_group == 0 ? "query" : "reference")
+        << ',';
+    if (options_.analysis_mode == AnalysisMode::query_reference &&
+        recombinant_reference_group != 0) {
+      out << recombinant_reference_group;
+    }
+    out << ','
         << csv_cell(alignment_.names[event.major_parent]) << ','
         << csv_cell(alignment_.names[event.minor_parent]) << ',' << event.beginning << ','
         << event.ending << ',' << (event.wraps_origin ? "yes" : "no") << ','
@@ -7950,6 +10054,72 @@ std::string RdpScanner::csv() const {
       out << ",,,,,,,";
     }
     out << (event.maxchi_triplet_recheck.source_recheck_hit ? "yes" : "no") << ','
+        << chimaera_recheck_status(event.chimaera_triplet_recheck) << ','
+        << event.chimaera_triplet_recheck.target_profiles_scanned << ',';
+    if (event.chimaera_triplet_recheck.best_target >= 0) {
+      out << static_cast<int>(event.chimaera_triplet_recheck.best_target) << ','
+          << event.chimaera_triplet_recheck.information_rich_sites << ','
+          << event.chimaera_triplet_recheck.half_window << ','
+          << event.chimaera_triplet_recheck.grown_half_window << ','
+          << event.chimaera_triplet_recheck.peak_alignment_position << ','
+          << event.chimaera_triplet_recheck.maximum_chi_square << ','
+          << event.chimaera_triplet_recheck.local_p_value << ','
+          << event.chimaera_triplet_recheck.within_triplet_p_value << ','
+          << event.chimaera_triplet_recheck.correction_tests << ','
+          << event.chimaera_triplet_recheck.corrected_p_value << ',';
+    } else {
+      out << ",,,,,,,,,,";
+    }
+    out << (event.chimaera_triplet_recheck.source_recheck_hit ? "yes" : "no") << ','
+        << geneconv_recheck_status(event.geneconv_triplet_recheck) << ','
+        << event.geneconv_triplet_recheck.polymorphic_sites << ','
+        << event.geneconv_triplet_recheck.tracks_screened << ',';
+    if (event.geneconv_triplet_recheck.best_track >= 0) {
+      out << static_cast<int>(event.geneconv_triplet_recheck.best_track) << ','
+          << static_cast<int>(event.geneconv_triplet_recheck.recombinant_local) << ','
+          << event.geneconv_triplet_recheck.beginning << ','
+          << event.geneconv_triplet_recheck.ending << ','
+          << (event.geneconv_triplet_recheck.wraps_origin ? "yes" : "no") << ','
+          << event.geneconv_triplet_recheck.fragment_score << ','
+          << event.geneconv_triplet_recheck.critical_score << ','
+          << event.geneconv_triplet_recheck.raw_p_value << ','
+          << event.geneconv_triplet_recheck.correction_tests << ','
+          << event.geneconv_triplet_recheck.corrected_p_value << ',';
+    } else {
+      out << ",,,,,,,,,,";
+    }
+    out << (event.geneconv_triplet_recheck.source_recheck_hit ? "yes" : "no") << ','
+        << threeseq_recheck_status(event.threeseq_triplet_recheck) << ','
+        << event.threeseq_triplet_recheck.target_profiles_scanned << ','
+        << event.threeseq_triplet_recheck.qualifying_orientations << ','
+        << event.threeseq_triplet_recheck.source_list_entries << ',';
+    if (event.threeseq_triplet_recheck.best_target >= 0) {
+      out << static_cast<int>(event.threeseq_triplet_recheck.best_target) << ','
+          << (event.threeseq_triplet_recheck.best_direction ==
+                      ThreeSeqWalkDirection::ascent
+                  ? "ascent"
+                  : "descent")
+          << ',' << event.threeseq_triplet_recheck.information_rich_sites << ','
+          << event.threeseq_triplet_recheck.parent_one_matches << ','
+          << event.threeseq_triplet_recheck.parent_two_matches << ','
+          << event.threeseq_triplet_recheck.probability_excursion << ','
+          << event.threeseq_triplet_recheck.maximum_excursion << ','
+          << event.threeseq_triplet_recheck.beginning << ','
+          << event.threeseq_triplet_recheck.ending << ','
+          << (event.threeseq_triplet_recheck.wraps_origin ? "yes" : "no") << ','
+          << event.threeseq_triplet_recheck.raw_p_value << ','
+          << event.threeseq_triplet_recheck.correction_tests << ','
+          << event.threeseq_triplet_recheck.corrected_p_value << ','
+          << (event.threeseq_triplet_recheck.exact_probability ? "yes" : "no") << ','
+          << (event.threeseq_triplet_recheck.siegmund_fallback ? "yes" : "no") << ','
+          << (event.threeseq_triplet_recheck.missing_data_split_applied
+                  ? "yes"
+                  : "no")
+          << ',';
+    } else {
+      for (std::size_t column = 0; column < 16; ++column) out << ',';
+    }
+    out << (event.threeseq_triplet_recheck.source_recheck_hit ? "yes" : "no") << ','
         << csv_cell(support.str()) << ','
         << csv_cell(detectable.str()) << ',' << csv_cell(correlated.str()) << ','
         << csv_cell(duplicate_filtered.str()) << ',' << csv_cell(phylogenetic.str()) << ','
@@ -7980,7 +10150,7 @@ std::string RdpScanner::csv() const {
 
 bool RdpScanner::final_alignment_ready(std::string& error) const {
   if (!done_) {
-    error = "Finish the cyclic RDP scan before exporting a final alignment.";
+    error = "Finish the cyclic recombination scan before exporting a final alignment.";
     return false;
   }
   if (reconciliation_required_after_ >= 0) {
@@ -8137,7 +10307,26 @@ std::string RdpScanner::fragmented_fasta() const {
 std::string signal_plot_json(const SignalPlot& plot) {
   std::ostringstream out;
   out << "{\"signalId\":" << plot.signal_id << ",\"windowSites\":" << plot.window_sites
-      << ",\"points\":[";
+      << ",\"method\":\"" << signal_method_name(plot.method) << "\""
+      << ",\"metric\":\""
+      << (plot.method == SignalMethod::rdp
+              ? "pair-identity"
+              : plot.method == SignalMethod::geneconv
+                  ? "negative-log10-p-value"
+                  : plot.method == SignalMethod::threeseq
+                      ? "random-walk-height"
+                      : "chi-square")
+      << "\",\"profileContext\":\""
+      << (plot.detection_profile_exact
+              ? "detection-alignment"
+              : "original-alignment-reconstruction")
+      << "\",\"detectionProfileExact\":"
+      << (plot.detection_profile_exact ? "true" : "false")
+      << ",\"minimumValue\":";
+  json::number(out, plot.minimum_value);
+  out << ",\"maximumValue\":";
+  json::number(out, plot.maximum_value);
+  out << ",\"points\":[";
   for (std::size_t index = 0; index < plot.points.size(); ++index) {
     if (index) out << ',';
     const auto& point = plot.points[index];

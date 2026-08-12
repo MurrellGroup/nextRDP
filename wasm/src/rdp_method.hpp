@@ -1,8 +1,12 @@
 #pragma once
 
 #include "alignment.hpp"
+#include "bootscan.hpp"
 #include "burt_confidence.hpp"
+#include "chimaera.hpp"
+#include "geneconv.hpp"
 #include "maxchi.hpp"
+#include "threeseq.hpp"
 
 #include <array>
 #include <atomic>
@@ -19,20 +23,52 @@ enum class CorrectionMode : std::uint8_t {
   none = 1,
 };
 
+enum class AnalysisMode : std::uint8_t {
+  exploratory = 0,
+  query_reference = 1,
+};
+
 enum class ReviewState : std::uint8_t {
   unreviewed = 0,
   accepted = 1,
   rejected = 2,
 };
 
+enum class SignalMethod : std::uint8_t {
+  rdp = 0,
+  maxchi = 1,
+  chimaera = 2,
+  geneconv = 3,
+  threeseq = 4,
+};
+
 struct ScanOptions {
+  AnalysisMode analysis_mode = AnalysisMode::exploratory;
   bool circular = true;
   CorrectionMode correction = CorrectionMode::bonferroni;
   double p_value_cutoff = 0.05;
   std::size_t window_sites = 30;
+  bool maxchi_enabled = true;
+  std::size_t maxchi_window_sites = 70;
+  bool chimaera_enabled = true;
+  std::size_t chimaera_window_sites = 60;
+  bool geneconv_enabled = true;
+  std::size_t geneconv_mismatch_scale = 1;
+  std::size_t geneconv_max_overlaps = 1;
+  bool threeseq_enabled = true;
+  bool bootscan_secondary_enabled = false;
+  std::size_t bootscan_window_sites = 200;
+  std::size_t bootscan_step_sites = 20;
+  std::size_t bootscan_bootstrap_replicates = 100;
+  double bootscan_support_cutoff = 0.70;
+  std::uint32_t bootscan_random_seed = 3;
   bool polish_breakpoints = true;
   std::vector<std::uint8_t> mask;
   std::vector<std::uint8_t> disabled;
+  // Zero denotes a query; positive values identify reference groups. The
+  // vector is indexed by original alignment sequence, so cyclic fragments
+  // inherit their origin's query/reference identity without another copy.
+  std::vector<std::uint32_t> reference_groups;
 };
 
 [[nodiscard]] std::string curated_sequences_fasta(
@@ -43,6 +79,7 @@ struct ScanOptions {
 
 struct Signal {
   std::uint32_t id = 0;
+  SignalMethod method = SignalMethod::rdp;
   std::array<std::uint32_t, 3> triplet{};
   std::uint32_t recombinant = 0;
   std::uint32_t major_parent = 0;
@@ -58,6 +95,10 @@ struct Signal {
   std::array<double, 3> pair_similarity{};
   std::size_t informative_sites = 0;
   std::uint8_t candidate_pair = 0;
+  MaxChiDiscoveryCandidate maxchi_discovery;
+  ChimaeraDiscoveryCandidate chimaera_discovery;
+  GeneconvDiscoveryCandidate geneconv_discovery;
+  ThreeSeqDiscoveryCandidate threeseq_discovery;
   bool fragment_assisted = false;
   std::array<std::int32_t, 3> fragment_event_context{-1, -1, -1};
   ReviewState review_state = ReviewState::unreviewed;
@@ -184,6 +225,10 @@ struct DistanceCorrelationEvidence {
   ConsensusScoreEvidence consensus_score;
   PostGroupRdpRecheckEvidence post_group_rdp_recheck;
   MaxChiRecheckEvidence post_group_maxchi_recheck;
+  ChimaeraRecheckEvidence post_group_chimaera_recheck;
+  GeneconvRecheckEvidence post_group_geneconv_recheck;
+  ThreeSeqRecheckEvidence post_group_threeseq_recheck;
+  BootscanRecheckEvidence post_group_bootscan_recheck;
 };
 
 struct PhylogeneticCorrelationEvidence {
@@ -324,6 +369,10 @@ struct UniqueEvent {
   std::array<BreakpointUncertaintyEvidence, 2> breakpoint_uncertainty;
   BreakpointConfidenceEvidence breakpoint_confidence;
   MaxChiRecheckEvidence maxchi_triplet_recheck;
+  ChimaeraRecheckEvidence chimaera_triplet_recheck;
+  GeneconvRecheckEvidence geneconv_triplet_recheck;
+  ThreeSeqRecheckEvidence threeseq_triplet_recheck;
+  BootscanRecheckEvidence bootscan_triplet_recheck;
 };
 
 struct PlotPoint {
@@ -334,6 +383,10 @@ struct PlotPoint {
 struct SignalPlot {
   std::uint32_t signal_id = 0;
   std::size_t window_sites = 0;
+  SignalMethod method = SignalMethod::rdp;
+  double minimum_value = 0.0;
+  double maximum_value = 1.0;
+  bool detection_profile_exact = false;
   std::vector<PlotPoint> points;
 };
 
@@ -388,6 +441,26 @@ class RdpScanner {
       ScanOptions options,
       std::vector<Signal> signals,
       std::uint64_t correction_tests,
+      std::uint64_t cumulative_triplets,
+      std::size_t scan_rounds,
+      std::uint64_t maxchi_profiles_scanned,
+      std::uint64_t maxchi_peak_attempts,
+      std::uint64_t maxchi_candidates_found,
+      std::uint64_t maxchi_peak_limit_triplets,
+      std::uint64_t chimaera_profiles_scanned,
+      std::uint64_t chimaera_peak_attempts,
+      std::uint64_t chimaera_candidates_found,
+      std::uint64_t chimaera_peak_limit_targets,
+      std::uint64_t geneconv_fragments_scored,
+      std::uint64_t geneconv_qualified_fragments,
+      std::uint64_t geneconv_candidates_found,
+      std::uint64_t geneconv_overlap_rejections,
+      std::uint64_t geneconv_numerical_fallback_tracks,
+      std::uint64_t threeseq_profiles_scanned,
+      std::uint64_t threeseq_exact_evaluations,
+      std::uint64_t threeseq_approximate_evaluations,
+      std::uint64_t threeseq_candidates_found,
+      std::string cycle_termination,
       std::string& error);
   bool restore_event_state(
       std::uint32_t event_id,
@@ -437,12 +510,23 @@ class RdpScanner {
   std::vector<std::int32_t> working_fragment_events_;
   ScanOptions options_;
   std::vector<std::uint32_t> active_sequences_;
+  std::vector<std::uint32_t> query_sequences_;
+  std::vector<std::uint32_t> reference_sequences_;
+  std::size_t active_reference_group_count_ = 0;
   std::vector<Signal> signals_;
   std::vector<UniqueEvent> events_;
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> round_signal_index_;
   TripletProfile profile_scratch_;
   MaxChiWorkspace maxchi_workspace_;
+  MaxChiWorkspace chimaera_workspace_;
+  GeneconvWorkspace geneconv_workspace_;
+  ThreeSeqWorkspace threeseq_workspace_;
+  BootscanWorkspace bootscan_workspace_;
   std::vector<Signal> signal_candidates_scratch_;
+  std::vector<MaxChiDiscoveryCandidate> maxchi_candidates_scratch_;
+  std::vector<ChimaeraDiscoveryCandidate> chimaera_candidates_scratch_;
+  std::vector<GeneconvDiscoveryCandidate> geneconv_candidates_scratch_;
+  std::vector<ThreeSeqDiscoveryCandidate> threeseq_candidates_scratch_;
   std::array<std::vector<std::uint8_t>, 3> breakpoint_erasure_scratch_;
   std::vector<std::uint8_t> breakpoint_input_missing_scratch_;
   std::vector<std::uint8_t> breakpoint_polish_missing_scratch_;
@@ -453,10 +537,30 @@ class RdpScanner {
   std::size_t cursor_a_ = 0;
   std::size_t cursor_b_ = 1;
   std::size_t cursor_c_ = 2;
+  std::size_t query_cursor_ = 0;
+  std::size_t reference_first_cursor_ = 0;
+  std::size_t reference_second_cursor_ = 1;
   std::uint64_t processed_triplets_ = 0;
   std::uint64_t cumulative_triplets_ = 0;
   std::uint64_t total_triplets_ = 0;
   std::uint64_t correction_tests_ = 0;
+  std::uint64_t maxchi_profiles_scanned_ = 0;
+  std::uint64_t maxchi_peak_attempts_ = 0;
+  std::uint64_t maxchi_candidates_found_ = 0;
+  std::uint64_t maxchi_peak_limit_triplets_ = 0;
+  std::uint64_t chimaera_profiles_scanned_ = 0;
+  std::uint64_t chimaera_peak_attempts_ = 0;
+  std::uint64_t chimaera_candidates_found_ = 0;
+  std::uint64_t chimaera_peak_limit_targets_ = 0;
+  std::uint64_t geneconv_fragments_scored_ = 0;
+  std::uint64_t geneconv_qualified_fragments_ = 0;
+  std::uint64_t geneconv_candidates_found_ = 0;
+  std::uint64_t geneconv_overlap_rejections_ = 0;
+  std::uint64_t geneconv_numerical_fallback_tracks_ = 0;
+  std::uint64_t threeseq_profiles_scanned_ = 0;
+  std::uint64_t threeseq_exact_evaluations_ = 0;
+  std::uint64_t threeseq_approximate_evaluations_ = 0;
+  std::uint64_t threeseq_candidates_found_ = 0;
   bool running_ = false;
   bool primary_done_ = false;
   bool done_ = false;
@@ -464,19 +568,22 @@ class RdpScanner {
   std::size_t round_signal_begin_ = 0;
   std::size_t fixed_event_count_ = 0;
   bool fragment_reentry_capped_ = false;
+  bool cumulative_triplets_authoritative_ = false;
   std::string cycle_termination_ = "not-started";
   std::int32_t reconciliation_required_after_ = -1;
   std::atomic_bool cancelled_{false};
 
   [[nodiscard]] bool build_profile(
       const std::array<std::uint32_t, 3>& triplet,
-      TripletProfile& profile) const;
+      TripletProfile& profile,
+      MaxChiWorkspace* maxchi_workspace = nullptr) const;
   [[nodiscard]] bool sequence_masked(std::uint32_t sequence) const;
   [[nodiscard]] bool sequence_disabled(std::uint32_t sequence) const;
   [[nodiscard]] bool build_profile_on(
       const Alignment& alignment,
       const std::array<std::uint32_t, 3>& triplet,
-      TripletProfile& profile) const;
+      TripletProfile& profile,
+      MaxChiWorkspace* maxchi_workspace = nullptr) const;
   void scan_triplet(const std::array<std::uint32_t, 3>& triplet);
   void compute_rolling_counts(TripletProfile& profile) const;
   [[nodiscard]] std::array<std::uint8_t, 3> ranked_pairs(const TripletProfile& profile) const;
@@ -504,12 +611,27 @@ class RdpScanner {
   void refresh_role_hypotheses(UniqueEvent& event);
   [[nodiscard]] MaxChiRecheckEvidence maxchi_triplet_recheck(
       const std::array<std::uint32_t, 3>& triplet);
+  void fast_method_triplet_rechecks(
+      const std::array<std::uint32_t, 3>& triplet,
+      std::size_t event_beginning,
+      std::size_t event_ending,
+      MaxChiRecheckEvidence& maxchi,
+      ChimaeraRecheckEvidence& chimaera,
+      GeneconvRecheckEvidence& geneconv,
+      ThreeSeqRecheckEvidence& threeseq,
+      BootscanRecheckEvidence& bootscan);
+  void prepare_maxchi_missing_data(
+      const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool finish_detection_round(std::string& error);
   [[nodiscard]] ErasureResult erase_event_tract(const UniqueEvent& event);
   void refresh_active_sequences();
   [[nodiscard]] std::uint64_t valid_triplet_count() const;
   [[nodiscard]] bool working_triplet_is_valid(
       const std::array<std::uint32_t, 3>& triplet) const;
+  [[nodiscard]] bool current_triplet(
+      std::array<std::uint32_t, 3>& triplet) const;
+  [[nodiscard]] bool reference_pair_is_valid() const;
+  [[nodiscard]] bool advance_reference_pair();
   void map_signal_to_original(Signal& signal) const;
   void reset_round_cursor();
   void reset_working_alignment();

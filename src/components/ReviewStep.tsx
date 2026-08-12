@@ -384,8 +384,25 @@ export function ReviewStep({
     return (
       <section className="step-page empty-results">
         <div className="empty-icon"><GitCompareArrows size={28} /></div>
-        <h1>No significant RDP events</h1>
-        <p>No primary signal passed the current window, threshold, and correction settings.</p>
+        <h1>No significant recombination events</h1>
+        <p>
+          No {results.discoveryMethods.join(", ")} signal passed the current window, threshold, and correction settings
+          {results.analysisMode === "query-reference" ? " in the constrained query-vs-reference triplets" : ""}.
+        </p>
+        {results.maxChiPeakLimitTriplets > 0 ? (
+          <p>
+            MaxChi reached its supplied 100-peak retry bound for {results.maxChiPeakLimitTriplets.toLocaleString()}
+            triplet{results.maxChiPeakLimitTriplets === 1 ? "" : "s"}; additional raw peaks in those
+            profiles were not explored.
+          </p>
+        ) : null}
+        {results.chimaeraPeakLimitTargets > 0 ? (
+          <p>
+            CHIMAERA reached its supplied 100-peak retry bound for {results.chimaeraPeakLimitTargets.toLocaleString()}
+            target profile{results.chimaeraPeakLimitTargets === 1 ? "" : "s"}; additional raw peaks
+            in those profiles were not explored.
+          </p>
+        ) : null}
         <div>
           <button className="button button-quiet" type="button" onClick={onBack}>Change scan settings</button>
           <button className="button button-primary" type="button" onClick={onExport}>Export the null result</button>
@@ -468,6 +485,28 @@ export function ReviewStep({
   const currentHypothesis = selected.roleHypotheses[0];
   const breakpointConfidence = selected.breakpointConfidence;
   const maxChiRecheck = selected.maxChiTripletRecheck;
+  const chimaeraRecheck = selected.chimaeraTripletRecheck;
+  const geneconvRecheck = selected.geneconvTripletRecheck;
+  const threeSeqRecheck = selected.threeSeqTripletRecheck;
+  const geneconvRecheckRecombinantName = geneconvRecheck.recombinantLocal === null
+    ? null
+    : [selected.recombinantName, selected.majorParentName, selected.minorParentName][geneconvRecheck.recombinantLocal];
+  const chimaeraRecheckTargetName = chimaeraRecheck.bestTarget === null
+    ? null
+    : [selected.recombinantName, selected.majorParentName, selected.minorParentName][chimaeraRecheck.bestTarget];
+  const threeSeqRecheckTargetName = threeSeqRecheck.bestTarget === null
+    ? null
+    : [selected.recombinantName, selected.majorParentName, selected.minorParentName][threeSeqRecheck.bestTarget];
+  const maxChiDiscovery = anchor?.maxChiDiscovery ?? null;
+  const chimaeraDiscovery = anchor?.chimaeraDiscovery ?? null;
+  const geneconvDiscovery = anchor?.geneconvDiscovery ?? null;
+  const threeSeqDiscovery = anchor?.threeSeqDiscovery ?? null;
+  const chimaeraParentOneLocal = chimaeraDiscovery
+    ? ([1, 2, 0] as const)[chimaeraDiscovery.targetLocal]
+    : null;
+  const selectedRecombinantReferenceGroup = selected.queryReferenceInputRole === "reference"
+    ? selected.referenceGroup ?? 0
+    : 0;
   const beginningBreakpointUncertain =
     selected.breakpointContext.beginning.nativeCheckEndsWarning;
   const endingBreakpointUncertain =
@@ -493,6 +532,18 @@ export function ReviewStep({
     if (pair === 1) return `${selected.recombinantName} / ${selected.minorParentName}`;
     if (pair === 2) return `${selected.majorParentName} / ${selected.minorParentName}`;
     return "No screened peak";
+  };
+  const maxChiDiscoveryPairLabel = (pair: number | null) => {
+    if (!anchor || pair === null) return "No screened peak";
+    if (pair === 0) return `${anchor.tripletNames[0]} / ${anchor.tripletNames[1]}`;
+    if (pair === 1) return `${anchor.tripletNames[0]} / ${anchor.tripletNames[2]}`;
+    if (pair === 2) return `${anchor.tripletNames[1]} / ${anchor.tripletNames[2]}`;
+    return "No screened peak";
+  };
+  const inputRoleLabel = (sequence: number) => {
+    if (results.analysisMode !== "query-reference") return null;
+    const group = results.referenceGroupIndices[sequence] ?? 0;
+    return group > 0 ? `Reference group ${group}` : "Query input";
   };
   const applyRecommendation = async () => {
     setEditError("");
@@ -543,11 +594,20 @@ export function ReviewStep({
         </div>
       </header>
 
+      {results.analysisMode === "query-reference" ? (
+        <div className="notice notice-blue">
+          <Layers3 size={18} />
+          <p>
+            This analysis used the manual’s automated query-vs-reference scheme: {results.queryReference.querySequenceCount.toLocaleString()} enabled queries were screened with {results.queryReference.referenceSequenceCount.toLocaleString()} references across {results.queryReference.referenceGroupCount.toLocaleString()} groups. Every primary triplet contained one query and two differently grouped references; role inference was not forced to call the query recombinant. The final round recorded {results.correctionTests.toLocaleString()} group-pair × query opportunities{results.correction === "bonferroni" ? " for Bonferroni correction" : ", although correction was disabled"}; every signal retains its own detection-round factor.
+          </p>
+        </div>
+      ) : null}
+
       <div className="notice notice-blue">
         <AlertTriangle size={18} />
         <p>
-          Events were found in strongest-first cyclic passes, with each inferred co-group tract erased
-          and re-entered as a gap-padded fragment before the next full screen. Three evidence sets are
+          {results.discoveryMethods.join(", ")} signals were ranked together in strongest-first cyclic passes, with each inferred co-group tract erased
+          and re-entered as a gap-padded fragment before the next full {results.analysisMode === "query-reference" ? "constrained" : "exploratory"} screen. Three evidence sets are
           evaluated for every role; native PhPr, leave-one-out, displacement, collapsed-tree, and
           TrpScore decision contributions are auditable below.
         </p>
@@ -559,6 +619,40 @@ export function ReviewStep({
           <p>
             The {results.fragmentSequenceCap}-fragment browser safety cap was reached. Review later
             events cautiously because additional native fragment copies were not retained for re-screening.
+          </p>
+        </div>
+      ) : null}
+
+      {results.maxChiPeakLimitTriplets > 0 ? (
+        <div className="notice notice-amber">
+          <AlertTriangle size={18} />
+          <p>
+            MaxChi reached the supplied 100-peak retry bound for {results.maxChiPeakLimitTriplets.toLocaleString()}
+            triplet{results.maxChiPeakLimitTriplets === 1 ? "" : "s"} while positive raw peaks
+            remained. Calls are retained, but those profiles may contain additional unexplored peaks.
+          </p>
+        </div>
+      ) : null}
+
+      {results.chimaeraPeakLimitTargets > 0 ? (
+        <div className="notice notice-amber">
+          <AlertTriangle size={18} />
+          <p>
+            CHIMAERA reached the supplied 100-peak retry bound for {results.chimaeraPeakLimitTargets.toLocaleString()}
+            target profile{results.chimaeraPeakLimitTargets === 1 ? "" : "s"} while positive raw
+            peaks remained. Calls are retained, but those profiles may contain additional unexplored peaks.
+          </p>
+        </div>
+      ) : null}
+
+      {results.threeSeqApproximateEvaluations > 0 ? (
+        <div className="notice notice-blue">
+          <AlertTriangle size={18} />
+          <p>
+            {results.threeSeqApproximateEvaluations.toLocaleString()} 3SEQ orientation
+            {results.threeSeqApproximateEvaluations === 1 ? " used" : "s used"} the supplied
+            Siegmund discrete approximation because the exact hypergeometric state space exceeded
+            the browser bound. Each anchor records which probability route produced it.
           </p>
         </div>
       ) : null}
@@ -597,7 +691,7 @@ export function ReviewStep({
       ) : null}
 
       <div className="review-workspace">
-        <aside className="event-list" aria-label="Reconciled RDP events">
+        <aside className="event-list" aria-label="Reconciled recombination events">
           <div className="event-list-heading">
             <span className="eyebrow">Analysis order</span>
             <strong>{results.events.length} events</strong>
@@ -605,24 +699,29 @@ export function ReviewStep({
           <div className="event-list-scroll">
             {results.events.map((event) => {
               const stale = pendingEvent !== null && event.id > pendingEvent;
+              const recombinantReferenceGroup = event.queryReferenceInputRole === "reference"
+                ? event.referenceGroup ?? 0
+                : 0;
               return (
                 <button
                   type="button"
                   key={event.id}
-                  className={`event-list-item${selected.id === event.id ? " is-selected" : ""}${stale ? " is-stale" : ""}`}
+                  className={`event-list-item${selected.id === event.id ? " is-selected" : ""}${stale ? " is-stale" : ""}${recombinantReferenceGroup > 0 ? " is-reference-recombinant" : ""}`}
                   onClick={() => setSelectedId(event.id)}
                 >
                   <span className={`event-status status-${event.reviewState}`} />
                   <span>
                     <strong>Event {event.id + 1}</strong>
-                    <small title={event.recombinantName}>{event.recombinantName}</small>
+                    <small title={event.recombinantName}>
+                      {event.recombinantName}{recombinantReferenceGroup > 0 ? ` · ref ${recombinantReferenceGroup}` : ""}
+                    </small>
                   </span>
                   <span>
                     <strong>{stale ? "stale" : pValue(event.bestCorrectedPValue)}</strong>
                     <small>
                       {stale
                         ? "awaiting rebuild"
-                        : `${event.supportSignalIds.length} signal${event.supportSignalIds.length === 1 ? "" : "s"}`}
+                        : `${event.detectionMethods.join(" + ")} · ${event.supportSignalIds.length} signal${event.supportSignalIds.length === 1 ? "" : "s"}`}
                     </small>
                   </span>
                 </button>
@@ -634,8 +733,13 @@ export function ReviewStep({
         <div className="event-detail">
           <div className="event-toolbar">
             <div>
-              <span className="eyebrow">Event {selected.id + 1} of {results.events.length}</span>
+              <span className="eyebrow">Event {selected.id + 1} of {results.events.length} · {selected.detectionMethods.join(" + ")}</span>
               <h2>{selected.recombinantName}</h2>
+              {selectedRecombinantReferenceGroup > 0 ? (
+                <span className="reference-recombinant-badge">
+                  Reference recombinant · group {selectedRecombinantReferenceGroup}
+                </span>
+              ) : null}
             </div>
             <div className="event-navigation">
               <button type="button" onClick={() => move(-1)} aria-label="Previous event"><ChevronLeft /></button>
@@ -644,6 +748,28 @@ export function ReviewStep({
           </div>
 
           <EventSchematic event={selected} alignmentLength={alignmentLength} />
+
+          {selectedRecombinantReferenceGroup > 0 ? (
+            <div className="event-reference-warning">
+              <AlertTriangle size={16} />
+              <p>
+                This event currently identifies a reference sequence as recombinant. That is an
+                allowed and explicitly documented query-vs-reference outcome; inspect its parents
+                and co-recombinant group rather than forcing the query into the recombinant role.
+              </p>
+            </div>
+          ) : null}
+
+          {selected.maxChiChimaeraOnlySupport ? (
+            <div className="event-breakpoint-warning">
+              <AlertTriangle size={16} />
+              <p>
+                This event is supported by MaxChi and CHIMAERA only. The RDP5 manual treats them as
+                closely related methods, not independent confirmation; inspect the breakpoint,
+                role, alignment, and tree evidence before accepting the call.
+              </p>
+            </div>
+          ) : null}
 
           {beginningBreakpointUncertain || endingBreakpointUncertain ? (
             <div className="event-breakpoint-warning">
@@ -730,15 +856,449 @@ export function ReviewStep({
               <p className="breakpoint-confidence-empty">
                 {breakpointConfidence.unavailableReason === "disabled"
                   ? "BURT polishing was disabled in the scan settings; the detected or manually edited coordinates were preserved."
-                  : `BURT was attempted for this representative triplet but did not produce a matched interval (${breakpointConfidence.unavailableReason?.replaceAll("-", " ") ?? "unknown reason"}). The primary RDP coordinates remain available for manual review.`}
+                  : `BURT was attempted for this representative triplet but did not produce a matched interval (${breakpointConfidence.unavailableReason?.replaceAll("-", " ") ?? "unknown reason"}). The detected coordinates remain available for manual review.`}
               </p>
             )}
+          </section>
+
+          {maxChiDiscovery ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>MaxChi peak-to-tract construction</h3>
+                </div>
+                <span className="maxchi-status is-hit">Corrected discovery hit</span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Raw peak</span>
+                  <strong>{roleScore(maxChiDiscovery.maximumChiSquare)}</strong>
+                  <small>{maxChiDiscoveryPairLabel(maxChiDiscovery.peakPair)}</small>
+                </div>
+                <div>
+                  <span>Peak attempt</span>
+                  <strong>{maxChiDiscovery.peakAttempt}</strong>
+                  <small>Raw-χ² strongest-first heap order</small>
+                </div>
+                <div>
+                  <span>Grown window</span>
+                  <strong>{maxChiDiscovery.grownHalfWindow}</strong>
+                  <small>Initial half-window {maxChiDiscovery.initialHalfWindow}</small>
+                </div>
+                <div>
+                  <span>Selected tract</span>
+                  <strong>{maxChiDiscovery.tractSide === "left" ? "Left" : "Right"}</strong>
+                  <small>
+                    flank χ² {roleScore(maxChiDiscovery.leftFlankChiSquare)} / {roleScore(maxChiDiscovery.rightFlankChiSquare)}
+                  </small>
+                </div>
+                <div>
+                  <span>Raw tail</span>
+                  <strong>{pValue(maxChiDiscovery.rawPValue)}</strong>
+                  <small>Before positional correction</small>
+                </div>
+                <div>
+                  <span>Within triplet</span>
+                  <strong>{pValue(maxChiDiscovery.withinTripletPValue)}</strong>
+                  <small>{maxChiDiscovery.variableSites.toLocaleString()} positions × three profiles</small>
+                </div>
+                <div>
+                  <span>Project corrected</span>
+                  <strong>{pValue(maxChiDiscovery.correctedPValue)}</strong>
+                  <small>Discovery threshold passed</small>
+                </div>
+                <div>
+                  <span>Peak position</span>
+                  <strong>{maxChiDiscovery.peakAlignmentPosition.toLocaleString()}</strong>
+                  <small>Critical difference {maxChiDiscovery.criticalDifference}</small>
+                </div>
+              </div>
+              <footer>
+                <span>MCXoverF multi-peak discovery · source 12-term/11-divisor smoothing used for basin destruction only</span>
+                <span>
+                  {maxChiDiscovery.missingDataWindowFilterApplied ? "MissingData/erasure filter applied" : "No MissingData window bans"}
+                  {maxChiDiscovery.linearEdgeWindowFilterApplied ? " · linear-edge filter applied" : ""}
+                </span>
+              </footer>
+              <p className="maxchi-scope-note">
+                This trace authored the anchor signal before ordinary event reconciliation. Final
+                sequence roles and BURT coordinates may differ after consensus and polishing.
+              </p>
+            </section>
+          ) : null}
+
+          {chimaeraDiscovery && anchor && chimaeraParentOneLocal !== null ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>CHIMAERA target profile and tract construction</h3>
+                </div>
+                <span className="maxchi-status is-hit">Corrected discovery hit</span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Candidate recombinant</span>
+                  <strong>{anchor.tripletNames[chimaeraDiscovery.targetLocal]}</strong>
+                  <small>Triplet member {chimaeraDiscovery.targetLocal + 1} of 3 rotations</small>
+                </div>
+                <div>
+                  <span>Raw peak</span>
+                  <strong>{roleScore(chimaeraDiscovery.maximumChiSquare)}</strong>
+                  <small>
+                    target / parent-one: {anchor.tripletNames[chimaeraDiscovery.targetLocal]} / {anchor.tripletNames[chimaeraParentOneLocal]}
+                  </small>
+                </div>
+                <div>
+                  <span>Peak attempt</span>
+                  <strong>{chimaeraDiscovery.peakAttempt}</strong>
+                  <small>Raw-χ² strongest-first order for this target</small>
+                </div>
+                <div>
+                  <span>Grown window</span>
+                  <strong>{chimaeraDiscovery.grownHalfWindow}</strong>
+                  <small>Initial half-window {chimaeraDiscovery.initialHalfWindow}</small>
+                </div>
+                <div>
+                  <span>Selected tract</span>
+                  <strong>{chimaeraDiscovery.tractSide === "left" ? "Left" : "Right"}</strong>
+                  <small>
+                    flank χ² {roleScore(chimaeraDiscovery.leftFlankChiSquare)} / {roleScore(chimaeraDiscovery.rightFlankChiSquare)}
+                  </small>
+                </div>
+                <div>
+                  <span>Raw tail</span>
+                  <strong>{pValue(chimaeraDiscovery.rawPValue)}</strong>
+                  <small>Before positional correction</small>
+                </div>
+                <div>
+                  <span>Within triplet</span>
+                  <strong>{pValue(chimaeraDiscovery.withinTripletPValue)}</strong>
+                  <small>{chimaeraDiscovery.informationRichSites.toLocaleString()} target positions × three rotations</small>
+                </div>
+                <div>
+                  <span>Project corrected</span>
+                  <strong>{pValue(chimaeraDiscovery.correctedPValue)}</strong>
+                  <small>Discovery threshold passed</small>
+                </div>
+                <div>
+                  <span>Peak position</span>
+                  <strong>{chimaeraDiscovery.peakAlignmentPosition.toLocaleString()}</strong>
+                  <small>Critical difference {chimaeraDiscovery.criticalDifference}</small>
+                </div>
+                <div>
+                  <span>Parent-one contrast</span>
+                  <strong>
+                    {roleScore(chimaeraDiscovery.insideParentOneMatchRate)} / {roleScore(chimaeraDiscovery.outsideParentOneMatchRate)}
+                  </strong>
+                  <small>Inside / outside tract match rate</small>
+                </div>
+              </div>
+              <footer>
+                <span>AlistChi → FastRecCheckChim → CXoverA · source smoothing is used only for peak-basin destruction</span>
+                <span>
+                  {chimaeraDiscovery.missingDataWindowFilterApplied ? "MissingData/erasure filter applied" : "No MissingData window bans"}
+                  {chimaeraDiscovery.linearEdgeWindowFilterApplied ? " · linear-edge filter applied" : ""}
+                </span>
+              </footer>
+              <p className="maxchi-scope-note">
+                This target-specific binary profile authored the anchor before shared role consensus.
+                The retained target is provisional; final parent order and BURT coordinates may differ.
+              </p>
+            </section>
+          ) : null}
+
+          {geneconvDiscovery && anchor ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>GENECONV six-track fragment score</h3>
+                </div>
+                <span className="maxchi-status is-hit">Corrected KA hit</span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Fragment track</span>
+                  <strong>{geneconvDiscovery.track}</strong>
+                  <small>
+                    {geneconvDiscovery.track < 3 ? "Inner pair-match run" : "Outer discordant-sequence run"}
+                  </small>
+                </div>
+                <div>
+                  <span>Provisional roles</span>
+                  <strong>{anchor.recombinantName}</strong>
+                  <small>{anchor.minorParentName} minor · {anchor.majorParentName} major</small>
+                </div>
+                <div>
+                  <span>Fragment score</span>
+                  <strong>{geneconvDiscovery.fragmentScore.toLocaleString()}</strong>
+                  <small>Strict critical score {geneconvDiscovery.criticalScore.toLocaleString()}</small>
+                </div>
+                <div>
+                  <span>Signed evidence</span>
+                  <strong>{geneconvDiscovery.positiveSites.toLocaleString()} / {geneconvDiscovery.discordantSites.toLocaleString()}</strong>
+                  <small>Positive / discordant sites · penalty {geneconvDiscovery.mismatchPenalty}</small>
+                </div>
+                <div>
+                  <span>Raw KA P</span>
+                  <strong>{pValue(geneconvDiscovery.rawPValue)}</strong>
+                  <small>Before active project-wide correction</small>
+                </div>
+                <div>
+                  <span>Project corrected</span>
+                  <strong>{pValue(geneconvDiscovery.correctedPValue)}</strong>
+                  <small>Discovery threshold passed</small>
+                </div>
+                <div>
+                  <span>Lambda</span>
+                  <strong>{roleScore(geneconvDiscovery.lambda)}</strong>
+                  <small>Bounded supplied Newton path</small>
+                </div>
+                <div>
+                  <span>Karlin–Altschul K</span>
+                  <strong>{roleScore(geneconvDiscovery.karlinAltschulK)}</strong>
+                  <small>{geneconvDiscovery.polymorphicSites.toLocaleString()} non-monomorphic sites</small>
+                </div>
+              </div>
+              <footer>
+                <span>FindSubSeqGCAP6 → GetFragsP → GetMaxFragScoreP → CalcKMaxP → GCCalcPValP2 → GCXoverD</span>
+                <span>Ignored indels · stable lowest-P ordering · overlap limit {results.geneconvMaxOverlaps}</span>
+              </footer>
+              <p className="maxchi-scope-note">
+                The automated supplied path leaves the minimum fragment-length, polymorphism, and
+                pair-score controls inactive. This KA fragment authored the anchor before shared
+                role consensus and BURT breakpoint polishing.
+              </p>
+            </section>
+          ) : null}
+
+          {threeSeqDiscovery && anchor ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>3SEQ hypergeometric random-walk excursion</h3>
+                </div>
+                <span className="maxchi-status is-hit">
+                  {results.correction === "bonferroni" ? "Corrected 3SEQ hit" : "Uncorrected 3SEQ hit"}
+                </span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Candidate recombinant</span>
+                  <strong>{anchor.tripletNames[threeSeqDiscovery.targetLocal]}</strong>
+                  <small>Triplet member {threeSeqDiscovery.targetLocal + 1} of 3 rotations</small>
+                </div>
+                <div>
+                  <span>Selected walk</span>
+                  <strong>{threeSeqDiscovery.walkDirection === "ascent" ? "Ascent" : "Descent"}</strong>
+                  <small>Strict lower-P orientation; equal tails retain descent</small>
+                </div>
+                <div>
+                  <span>Boundary excursion</span>
+                  <strong>{threeSeqDiscovery.maximumExcursion.toLocaleString()}</strong>
+                  <small>After source CheckwrapC tract extension</small>
+                </div>
+                <div>
+                  <span>Probability excursion</span>
+                  <strong>{threeSeqDiscovery.probabilityExcursion.toLocaleString()}</strong>
+                  <small>
+                    {threeSeqDiscovery.missingDataSplitApplied
+                      ? "CheckSplit3Seq sub-tract nK used by GetTSPVal"
+                      : "Pre-wrap nK used by Seq3PVals/GetTSPVal"}
+                  </small>
+                </div>
+                <div>
+                  <span>Parent-match balance</span>
+                  <strong>
+                    {threeSeqDiscovery.parentOneMatches.toLocaleString()} / {threeSeqDiscovery.parentTwoMatches.toLocaleString()}
+                  </strong>
+                  <small>Selected parent one / parent two</small>
+                </div>
+                <div>
+                  <span>Raw hypergeometric P</span>
+                  <strong>{pValue(threeSeqDiscovery.rawPValue)}</strong>
+                  <small>Before the project opportunity factor</small>
+                </div>
+                <div>
+                  <span>{results.correction === "bonferroni" ? "Dunn–Šidák corrected" : "Threshold P"}</span>
+                  <strong>{pValue(threeSeqDiscovery.correctedPValue)}</strong>
+                  <small>
+                    {results.correction === "bonferroni"
+                      ? `${anchor.correctionTests.toLocaleString()} project opportunities`
+                      : "Project multiple-comparison correction disabled"}
+                  </small>
+                </div>
+                <div>
+                  <span>Probability route</span>
+                  <strong>{threeSeqDiscovery.exactProbability ? "Exact" : "Siegmund"}</strong>
+                  <small>
+                    {threeSeqDiscovery.siegmundFallback
+                      ? "Supplied large-profile fallback"
+                      : "Finite hypergeometric walk distribution"}
+                  </small>
+                </div>
+                <div>
+                  <span>Information-rich sites</span>
+                  <strong>{threeSeqDiscovery.informationRichSites.toLocaleString()}</strong>
+                  <small>Parents differ; target matches exactly one</small>
+                </div>
+              </div>
+              <footer>
+                <span>FindSubSeqTS → Seq3PVals/GetTSPVal → CheckwrapC → TSXOver</span>
+                <span>
+                  {threeSeqDiscovery.missingDataSplitApplied
+                    ? "Post-erasure CheckSplit3Seq trim and re-probability applied"
+                    : "No prior-erasure missing run changed this tract"}
+                </span>
+              </footer>
+              <p className="maxchi-scope-note">
+                This target-specific walk authored the anchor before shared role consensus and
+                BURT polishing. The bounded exact evaluator replaces the supplied desktop lookup
+                table without rescanning alignment bytes; native saved-output validation is still
+                required.
+              </p>
+            </section>
+          ) : null}
+
+          <section className={`maxchi-recheck-card${geneconvRecheck.profileAvailable ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Six signed tracks · secondary corroboration</span>
+                <h3>GENECONV recheck</h3>
+              </div>
+              <span className={`maxchi-status${geneconvRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
+                {geneconvRecheck.profileAvailable
+                  ? geneconvRecheck.bestTrack === null
+                    ? "No qualifying fragment"
+                    : geneconvRecheck.sourceRecheckHit ? "Corrected hit" : "No corrected hit"
+                  : "Profile unavailable"}
+              </span>
+            </header>
+            {geneconvRecheck.profileAvailable ? (
+              <>
+                <div className="maxchi-recheck-grid">
+                  <div>
+                    <span>Best track</span>
+                    <strong>{geneconvRecheck.bestTrack ?? "—"}</strong>
+                    <small>{geneconvRecheck.bestTrack === null ? "No surviving fragment" : geneconvRecheck.bestTrack < 3 ? "Inner pair-match" : "Outer discordant-sequence"}</small>
+                  </div>
+                  <div>
+                    <span>Provisional recombinant</span>
+                    <strong>{geneconvRecheckRecombinantName ?? "—"}</strong>
+                    <small>Representative-triplet role only</small>
+                  </div>
+                  <div>
+                    <span>Raw KA P</span>
+                    <strong>{geneconvRecheck.rawPValue === null ? "—" : pValue(geneconvRecheck.rawPValue)}</strong>
+                    <small>Before active project-wide correction</small>
+                  </div>
+                  <div>
+                    <span>Project corrected</span>
+                    <strong>{geneconvRecheck.correctedPValue === null ? "—" : pValue(geneconvRecheck.correctedPValue)}</strong>
+                    <small>{geneconvRecheck.bonferroniApplied ? `${geneconvRecheck.correctionTests.toLocaleString()} event-round triplet opportunities` : "Correction disabled"}</small>
+                  </div>
+                  <div>
+                    <span>Fragment score</span>
+                    <strong>{geneconvRecheck.fragmentScore ?? "—"}</strong>
+                    <small>Strict critical score {geneconvRecheck.criticalScore ?? "—"}</small>
+                  </div>
+                  <div>
+                    <span>Candidate tract</span>
+                    <strong>{geneconvRecheck.beginning === null || geneconvRecheck.ending === null ? "—" : `${geneconvRecheck.beginning}–${geneconvRecheck.ending}`}</strong>
+                    <small>{geneconvRecheck.wrapsOrigin ? "Origin-wrapping" : "Linear coordinates"}</small>
+                  </div>
+                </div>
+                <footer>
+                  <span>
+                    {geneconvRecheck.polymorphicSites.toLocaleString()} polymorphic sites · {geneconvRecheck.tracksScreened} tracks · {geneconvRecheck.fragmentsScored.toLocaleString()} positive starts
+                  </span>
+                  <span>
+                    {geneconvRecheck.qualifiedFragments.toLocaleString()} above critical · {geneconvRecheck.overlapRejectedFragments.toLocaleString()} overlap rejection{geneconvRecheck.overlapRejectedFragments === 1 ? "" : "s"}
+                    {geneconvRecheck.numericalFallbackTracks ? ` · ${geneconvRecheck.numericalFallbackTracks} bounded numerical fallback(s)` : ""}
+                  </span>
+                </footer>
+              </>
+            ) : (
+              <p>
+                The representative triplet did not retain a usable ordinary ignored-indel
+                GENECONV profile after gaps, prior erasures, all-one-pair, and source skew gates.
+              </p>
+            )}
+            <p className="maxchi-scope-note">
+              This reuses the supplied GCXoverD six-track KA kernel as a non-coordinate-changing
+              representative check. It is separate from event discovery; permutation, manual-pair,
+              alternative-indel, and full native late event-reconstruction modes remain pending.
+            </p>
+          </section>
+
+          <section className={`maxchi-recheck-card${threeSeqRecheck.profileAvailable ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Two orientations · inverse interval copies · secondary corroboration</span>
+                <h3>3SEQ Findall recheck</h3>
+              </div>
+              <span className={`maxchi-status${threeSeqRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
+                {threeSeqRecheck.profileAvailable
+                  ? threeSeqRecheck.sourceRecheckHit ? "Corrected hit" : "No corrected hit"
+                  : "Profile unavailable"}
+              </span>
+            </header>
+            {threeSeqRecheck.profileAvailable ? (
+              <>
+                <div className="maxchi-recheck-grid">
+                  <div>
+                    <span>Best target</span>
+                    <strong>{threeSeqRecheckTargetName ?? "—"}</strong>
+                    <small>{threeSeqRecheck.bestDirection ?? "No qualifying orientation"}</small>
+                  </div>
+                  <div>
+                    <span>Raw hypergeometric P</span>
+                    <strong>{threeSeqRecheck.rawPValue === null ? "—" : pValue(threeSeqRecheck.rawPValue)}</strong>
+                    <small>{threeSeqRecheck.exactProbability ? "Exact Single-state DP" : threeSeqRecheck.siegmundFallback ? "Siegmund fallback" : "No qualifying call"}</small>
+                  </div>
+                  <div>
+                    <span>Project corrected</span>
+                    <strong>{threeSeqRecheck.correctedPValue === null ? "—" : pValue(threeSeqRecheck.correctedPValue)}</strong>
+                    <small>{threeSeqRecheck.correctionApplied ? `${threeSeqRecheck.correctionTests.toLocaleString()} event-round opportunities` : "Correction disabled"}</small>
+                  </div>
+                  <div>
+                    <span>Candidate tract</span>
+                    <strong>{threeSeqRecheck.beginning === null || threeSeqRecheck.ending === null ? "—" : `${threeSeqRecheck.beginning}–${threeSeqRecheck.ending}`}</strong>
+                    <small>{threeSeqRecheck.wrapsOrigin ? "Origin-wrapping" : "Linear coordinates"}</small>
+                  </div>
+                  <div>
+                    <span>Walk evidence</span>
+                    <strong>{threeSeqRecheck.parentOneMatches} / {threeSeqRecheck.parentTwoMatches}</strong>
+                    <small>{threeSeqRecheck.informationRichSites.toLocaleString()} information-rich sites</small>
+                  </div>
+                  <div>
+                    <span>Findall output</span>
+                    <strong>{threeSeqRecheck.qualifyingOrientations} / {threeSeqRecheck.sourceListEntries}</strong>
+                    <small>Qualifying orientations / source list entries</small>
+                  </div>
+                </div>
+                <footer>
+                  <span>{threeSeqRecheck.targetProfilesScanned} target profiles · {threeSeqRecheck.exactProbabilityEvaluations} exact evaluations · {threeSeqRecheck.approximateProbabilityEvaluations} fallback evaluations</span>
+                  <span>{threeSeqRecheck.missingDataSplitApplied ? "CheckSplit3Seq/SubPVal changed the selected evidence" : "No selected split evidence"}</span>
+                </footer>
+              </>
+            ) : (
+              <p>No target rotation retained the supplied four information-rich sites after gaps and prior erasures.</p>
+            )}
+            <p className="maxchi-scope-note">
+              This is the supplied TSXOver(1) two-orientation Findall shape, including the
+              inverse-interval list copy for each qualifying call. It corroborates the representative
+              triplet without moving reconciled coordinates and remains native-golden unvalidated.
+            </p>
           </section>
 
           <section className={`maxchi-recheck-card${maxChiRecheck.profileAvailable ? "" : " is-unavailable"}`}>
             <header>
               <div>
-                <span className="eyebrow">Independent triplet corroboration</span>
+                <span className="eyebrow">Secondary triplet corroboration</span>
                 <h3>MaxChi recheck</h3>
               </div>
               <span className={`maxchi-status${maxChiRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
@@ -793,7 +1353,71 @@ export function ReviewStep({
             )}
             <p className="maxchi-scope-note">
               This is the source-shaped FastRecCheckMC2 strongest-peak statistic. It corroborates
-              the triplet but does not discover an event or replace the primary RDP coordinates.
+              the finalized event hypothesis without moving its coordinates; it is distinct from
+              the active MCXoverF MaxChi discovery path shown above when MaxChi supplied the anchor.
+            </p>
+          </section>
+
+          <section className={`maxchi-recheck-card${chimaeraRecheck.profileAvailable ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Three target rotations · secondary corroboration</span>
+                <h3>CHIMAERA recheck</h3>
+              </div>
+              <span className={`maxchi-status${chimaeraRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
+                {chimaeraRecheck.profileAvailable
+                  ? chimaeraRecheck.bestTarget === null
+                    ? "No qualifying peak"
+                    : chimaeraRecheck.sourceRecheckHit ? "Corrected hit" : "No corrected hit"
+                  : "Profile unavailable"}
+              </span>
+            </header>
+            {chimaeraRecheck.profileAvailable ? (
+              <>
+                <div className="maxchi-recheck-grid">
+                  <div>
+                    <span>Maximum χ²</span>
+                    <strong>{chimaeraRecheck.maximumChiSquare === null ? "—" : roleScore(chimaeraRecheck.maximumChiSquare)}</strong>
+                    <small>{chimaeraRecheckTargetName ? `Target ${chimaeraRecheckTargetName}` : "No screened target peak"}</small>
+                  </div>
+                  <div>
+                    <span>Raw χ² tail</span>
+                    <strong>{chimaeraRecheck.localPValue === null ? "—" : pValue(chimaeraRecheck.localPValue)}</strong>
+                    <small>Before position or triplet correction</small>
+                  </div>
+                  <div>
+                    <span>Within triplet</span>
+                    <strong>{chimaeraRecheck.withinTripletPValue === null ? "—" : pValue(chimaeraRecheck.withinTripletPValue)}</strong>
+                    <small>Target positions × three rotations</small>
+                  </div>
+                  <div>
+                    <span>Project corrected</span>
+                    <strong>{chimaeraRecheck.correctedPValue === null ? "—" : pValue(chimaeraRecheck.correctedPValue)}</strong>
+                    <small>{chimaeraRecheck.bonferroniApplied ? `${chimaeraRecheck.correctionTests.toLocaleString()} event-round triplet opportunities` : "Correction disabled"}</small>
+                  </div>
+                </div>
+                <footer>
+                  <span>
+                    {chimaeraRecheck.targetProfilesScanned} target profile{chimaeraRecheck.targetProfilesScanned === 1 ? "" : "s"} · {chimaeraRecheck.informationRichSites.toLocaleString()} selected-target information-rich sites · initial half-window {chimaeraRecheck.halfWindow} · grown {chimaeraRecheck.bestTarget === null ? "—" : chimaeraRecheck.grownHalfWindow}
+                  </span>
+                  <span>
+                    Peak at alignment position {chimaeraRecheck.peakAlignmentPosition ?? "—"} · critical match difference {chimaeraRecheck.criticalDifference}
+                    {chimaeraRecheck.missingDataWindowFilterApplied ? " · MissingData/erasure filter applied" : ""}
+                    {chimaeraRecheck.linearEdgeWindowFilterApplied ? " · linear-edge filter applied" : ""}
+                  </span>
+                </footer>
+              </>
+            ) : (
+              <p>
+                None of the three target rotations retained enough information-rich positions for
+                the supplied CHIMAERA window and critical-difference screen.
+              </p>
+            )}
+            <p className="maxchi-scope-note">
+              This is the source-shaped FastRecCheckChim three-target strongest-peak statistic. It
+              corroborates the finalized event hypothesis without moving its coordinates and is
+              separate from exploratory CXoverA event discovery. The manual treats CHIMAERA and
+              MaxChi as closely related methods, not independent confirmation.
             </p>
           </section>
 
@@ -801,14 +1425,17 @@ export function ReviewStep({
             <div className="role-recombinant">
               <span>Current recombinant</span>
               <strong>{selected.recombinantName}</strong>
+              {inputRoleLabel(selected.recombinant) ? <small>{inputRoleLabel(selected.recombinant)}</small> : null}
             </div>
             <div className="role-major">
               <span>Major-parent-like</span>
               <strong>{selected.majorParentName}</strong>
+              {inputRoleLabel(selected.majorParent) ? <small>{inputRoleLabel(selected.majorParent)}</small> : null}
             </div>
             <div className="role-minor">
               <span>Minor-parent-like</span>
               <strong>{selected.minorParentName}</strong>
+              {inputRoleLabel(selected.minorParent) ? <small>{inputRoleLabel(selected.minorParent)}</small> : null}
             </div>
             <div>
               <span>Best corrected p-value</span>
@@ -821,7 +1448,7 @@ export function ReviewStep({
             <span><strong>{selected.erasedNucleotideSites.toLocaleString()}</strong> sites erased</span>
             <span><strong>{selected.fragmentSequencesAdded}</strong> fragments re-entered</span>
             {selected.fragmentAssistedDetection ? <span className="manual-badge">Fragment-assisted</span> : null}
-            <span><Layers3 size={14} /><strong>{selected.supportSignalIds.length}</strong> primary signals</span>
+            <span><Layers3 size={14} /><strong>{selected.supportSignalIds.length}</strong> discovery signals</span>
             <span><strong>{currentHypothesis.detectableSignalSetIndices.length}</strong> detectable</span>
             <span><strong>{currentHypothesis.distanceCorrelationSetIndices.length}</strong> distance-correlated</span>
             <span><strong>{currentHypothesis.phylogeneticCorrelationSetIndices.length}</strong> tree-correlated</span>
@@ -836,6 +1463,18 @@ export function ReviewStep({
                 ? maxChiRecheck.bestPair === null
                   ? "no qualifying peak"
                   : maxChiRecheck.sourceRecheckHit ? "corrected hit" : "no corrected hit"
+                : "unavailable"}
+            </span>
+            <span className={chimaeraRecheck.sourceRecheckHit ? "maxchi-hit-badge" : undefined}>
+              <strong>CHIMAERA</strong> {chimaeraRecheck.profileAvailable
+                ? chimaeraRecheck.bestTarget === null
+                  ? "no qualifying peak"
+                  : chimaeraRecheck.sourceRecheckHit ? "corrected hit" : "no corrected hit"
+                : "unavailable"}
+            </span>
+            <span className={threeSeqRecheck.sourceRecheckHit ? "maxchi-hit-badge" : undefined}>
+              <strong>3SEQ</strong> {threeSeqRecheck.profileAvailable
+                ? threeSeqRecheck.sourceRecheckHit ? "corrected hit" : "no corrected hit"
                 : "unavailable"}
             </span>
             {beginningBreakpointUncertain ? (
@@ -917,7 +1556,9 @@ export function ReviewStep({
                       onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))}
                     >
                       {roleChoices.map((sequence) => (
-                        <option value={sequence.index} key={sequence.index}>{sequence.name}</option>
+                        <option value={sequence.index} key={sequence.index}>
+                          {sequence.name}{inputRoleLabel(sequence.index) ? ` — ${inputRoleLabel(sequence.index)}` : ""}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -963,10 +1604,32 @@ export function ReviewStep({
           <div className="plot-card">
             <div className="card-heading split-heading">
               <div>
-                <span className="eyebrow">Strongest supporting RDP profile</span>
-                <h3>Information-rich sliding window</h3>
+                <span className="eyebrow">
+                  Strongest supporting {plottedSignal?.method ?? selected.anchorMethod} profile
+                </span>
+                <h3>
+                  {plottedSignal?.method === "MAXCHI"
+                    ? "Raw chi-square pair profiles"
+                    : plottedSignal?.method === "CHIMAERA"
+                      ? "Target-specific CHIMAERA chi-square profile"
+                      : plottedSignal?.method === "GENECONV"
+                        ? "GENECONV Karlin–Altschul fragment envelope"
+                        : plottedSignal?.method === "3SEQ"
+                          ? "Target-specific hypergeometric random walks"
+                          : "Information-rich sliding window"}
+                </h3>
               </div>
-              <span className="fidelity-badge">{results.windowSites} variable sites</span>
+              <span className="fidelity-badge">
+                {plottedSignal?.method === "MAXCHI"
+                  ? `${results.maxChiWindowSites} target variable sites`
+                  : plottedSignal?.method === "CHIMAERA"
+                    ? `${results.chimaeraWindowSites} target information-rich sites`
+                    : plottedSignal?.method === "GENECONV"
+                      ? `G${results.geneconvMismatchScale} · overlap ${results.geneconvMaxOverlaps}`
+                      : plottedSignal?.method === "3SEQ"
+                        ? `${plottedSignal.threeSeqDiscovery?.informationRichSites ?? plottedSignal.informativeSites} information-rich sites`
+                        : `${results.windowSites} information-rich sites`}
+              </span>
             </div>
             {plottedSignal ? (
               <SignalPlot plot={plot} signal={plottedSignal} loading={plotLoading} />
@@ -1314,7 +1977,7 @@ export function ReviewStep({
                 <span className="eyebrow">Late native consensus · active primary-RDP recheck</span>
                 <h3>FinalTrim and ConsensusOK membership</h3>
               </div>
-              <span className="fidelity-badge">OKSeq 0–18 · RDP + MaxChi rechecks</span>
+              <span className="fidelity-badge">OKSeq 0–18 · five late rechecks</span>
             </div>
             <p className="evidence-method-note">
               The supplied list-build and selected-role paths now drive grouping: duplicate cleanup and the
@@ -1330,8 +1993,14 @@ export function ReviewStep({
               emitted, event-overlapping, and ordinarily significant results remain distinct. The
               same finalized list also receives a missing-data-aware FastRecCheckMC2 strongest-peak
               MaxChi recheck, retaining raw, within-triplet, and project-corrected probabilities as
-              separate values. MaxChi evidence does not change RDP event coordinates. Rechecks for
-              the remaining method families are still outside this slice.
+              separate values, a fused FastRecCheckChim pass across all three target rotations, and
+              the ordinary six-track GENECONV KA fragment pass with its active overlap rule. The
+              supplied TSXOver(1) 3SEQ Findall pass evaluates both walk orientations and retains
+              its inverse-interval list copies.
+              These late rechecks do not change reconciled event coordinates; they are separate from
+              the active discovery scheduler. The MaxChi and CHIMAERA results remain
+              visibly related-method evidence rather than two independent confirmations. The
+              source-shaped 3SEQ recheck is also auditable here but remains golden-unvalidated.
             </p>
             <div className="late-matrix-scroll" tabIndex={0}>
               <div className="late-matrix-heading" aria-hidden="true">
@@ -1350,6 +2019,9 @@ export function ReviewStep({
                 <span>Final list</span>
                 <span>RDP recheck</span>
                 <span>MaxChi</span>
+                <span>CHIMAERA</span>
+                <span>GENECONV</span>
+                <span>3SEQ</span>
               </div>
               <div className="late-matrix-list">
                 {currentHypothesis.distanceCorrelationEvidence
@@ -1361,6 +2033,9 @@ export function ReviewStep({
                     const consensusScore = evidence.consensusScore;
                     const rdpRecheck = evidence.postGroupRdpRecheck;
                     const maxChi = evidence.postGroupMaxChiRecheck;
+                    const chimaera = evidence.postGroupChimaeraRecheck;
+                    const geneconv = evidence.postGroupGeneconvRecheck;
+                    const threeSeq = evidence.postGroupThreeSeqRecheck;
                     const checkpointSummary = match.status === "complete-active-rff0"
                       ? `Beginning L/C/R ${roleScore(match.checkpointMatches[0])} / ${roleScore(match.checkpointMatches[4])} / ${roleScore(match.checkpointMatches[1])}; ending L/C/R ${roleScore(match.checkpointMatches[2])} / ${roleScore(match.checkpointMatches[5])} / ${roleScore(match.checkpointMatches[3])}; raw class ${match.rawBreakpointMatchClass}; ${match.topologyFiltered ? "rejected by the ConsensusOK topology check" : "topology-consistent"}${match.topologyDistanceFallback ? " with bounded JC fallback" : ""}; smoothing half-window ${match.smoothingHalfWindow}`
                       : "CalcMatchY unavailable: insufficient variable sites or the supplied three-alignment-length fragment bound was reached";
@@ -1400,18 +2075,66 @@ export function ReviewStep({
                         : rdpRecheck.status === "representative-skipped"
                           ? "The supplied loop skips the role representative itself."
                           : "This sequence was not in the finalized distance list, so the supplied post-group loop does not recheck it.";
-                    const maxChiLabel = maxChi.status === "not-in-final-distance-list"
-                      ? "—"
+                    const maxChiLabel = maxChi.status === "representative-skipped"
+                      ? "rep"
+                      : maxChi.status === "not-in-final-distance-list" ? "—"
                       : maxChi.status === "profile-unavailable"
                         ? "n/a"
                         : maxChi.sourceRecheckHit ? "hit" : "none";
                     const maxChiSummary = maxChi.status === "complete-active-unvalidated"
                       ? maxChi.bestPair === null
                         ? `The MaxChi profile retained ${maxChi.variableSites} variable sites and a ${maxChi.halfWindow}-site half-window, but no peak passed the source critical match-difference screen.`
-                        : `FastRecCheckMC2 strongest-peak recheck: ${maxChi.variableSites} variable sites; half-window ${maxChi.halfWindow}, grown to ${maxChi.grownHalfWindow}; pair ${maxChi.bestPair}; peak alignment position ${maxChi.peakAlignmentPosition}; χ² ${roleScore(maxChi.maximumChiSquare ?? 0)}; raw tail ${maxChi.localPValue?.toExponential(3)}; within-triplet P ${maxChi.withinTripletPValue?.toExponential(3)}; corrected P ${maxChi.correctedPValue?.toExponential(3)}${maxChi.bonferroniApplied ? ` across ${maxChi.correctionTests.toLocaleString()} event-round triplet opportunities` : " with project correction disabled"} (${maxChi.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"})${maxChi.missingDataWindowFilterApplied ? "; MissingData/prior-erasure windows filtered" : ""}${maxChi.linearEdgeWindowFilterApplied ? "; linear-edge windows filtered" : ""}. This is triplet corroboration, not MaxChi event discovery.`
+                        : `FastRecCheckMC2 strongest-peak recheck: ${maxChi.variableSites} variable sites; half-window ${maxChi.halfWindow}, grown to ${maxChi.grownHalfWindow}; pair ${maxChi.bestPair}; peak alignment position ${maxChi.peakAlignmentPosition}; χ² ${roleScore(maxChi.maximumChiSquare ?? 0)}; raw tail ${maxChi.localPValue?.toExponential(3)}; within-triplet P ${maxChi.withinTripletPValue?.toExponential(3)}; corrected P ${maxChi.correctedPValue?.toExponential(3)}${maxChi.bonferroniApplied ? ` across ${maxChi.correctionTests.toLocaleString()} event-round triplet opportunities` : " with project correction disabled"} (${maxChi.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"})${maxChi.missingDataWindowFilterApplied ? "; MissingData/prior-erasure windows filtered" : ""}${maxChi.linearEdgeWindowFilterApplied ? "; linear-edge windows filtered" : ""}. This late-list corroboration is separate from MaxChi event discovery.`
                       : maxChi.status === "profile-unavailable"
                         ? `The MaxChi recheck was requested, but only ${maxChi.variableSites} usable variable sites remained after gaps, missing data, and earlier erasures.`
+                        : maxChi.status === "representative-skipped"
+                          ? "The supplied loop skips the role representative itself."
                         : "This sequence was not in the finalized distance list, so no late MaxChi recheck was requested.";
+                    const chimaeraLabel = chimaera.status === "representative-skipped"
+                      ? "rep"
+                      : chimaera.status === "not-in-final-distance-list" ? "—"
+                      : chimaera.status === "profile-unavailable"
+                        ? "n/a"
+                        : chimaera.sourceRecheckHit ? "hit" : "none";
+                    const chimaeraSummary = chimaera.status === "complete-active-unvalidated"
+                      ? chimaera.bestTarget === null
+                        ? `FastRecCheckChim screened ${chimaera.targetProfilesScanned} usable target profile(s), but no peak passed the source critical match-difference screen.`
+                        : `FastRecCheckChim three-target strongest-peak recheck: target ${chimaera.bestTarget}; ${chimaera.informationRichSites} information-rich sites; half-window ${chimaera.halfWindow}, grown to ${chimaera.grownHalfWindow}; peak alignment position ${chimaera.peakAlignmentPosition}; χ² ${roleScore(chimaera.maximumChiSquare ?? 0)}; raw tail ${chimaera.localPValue?.toExponential(3)}; within-triplet P ${chimaera.withinTripletPValue?.toExponential(3)}; corrected P ${chimaera.correctedPValue?.toExponential(3)}${chimaera.bonferroniApplied ? ` across ${chimaera.correctionTests.toLocaleString()} event-round triplet opportunities` : " with project correction disabled"} (${chimaera.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"})${chimaera.missingDataWindowFilterApplied ? "; MissingData/prior-erasure windows filtered" : ""}${chimaera.linearEdgeWindowFilterApplied ? "; linear-edge windows filtered" : ""}. This is related-method evidence beside MaxChi, not independent confirmation.`
+                      : chimaera.status === "profile-unavailable"
+                        ? "The CHIMAERA recheck was requested, but none of the target rotations retained a usable information-rich profile."
+                        : chimaera.status === "representative-skipped"
+                          ? "The supplied loop skips the role representative itself."
+                          : "This sequence was not in the finalized distance list, so no late CHIMAERA recheck was requested.";
+                    const geneconvLabel = geneconv.status === "representative-skipped"
+                      ? "rep"
+                      : geneconv.status === "not-in-final-distance-list" ? "—"
+                      : geneconv.status === "profile-unavailable"
+                        ? "n/a"
+                        : geneconv.sourceRecheckHit ? "hit" : "none";
+                    const geneconvSummary = geneconv.status === "complete-active-unvalidated"
+                      ? geneconv.bestTrack === null
+                        ? `The ordinary GENECONV profile screened ${geneconv.tracksScreened} track(s) and ${geneconv.fragmentsScored} positive start(s), but no fragment survived the critical, probability, and overlap gates.`
+                        : `GCXoverD six-track ordinary-kernel recheck: track ${geneconv.bestTrack}; provisional recombinant local role ${geneconv.recombinantLocal}; tract ${geneconv.beginning}–${geneconv.ending}${geneconv.wrapsOrigin ? " (origin-wrapping)" : ""}; fragment score ${geneconv.fragmentScore} above strict critical ${geneconv.criticalScore}; raw KA P ${geneconv.rawPValue?.toExponential(3)}; corrected P ${geneconv.correctedPValue?.toExponential(3)}${geneconv.bonferroniApplied ? ` across ${geneconv.correctionTests.toLocaleString()} event-round triplet opportunities` : " with project correction disabled"} (${geneconv.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"}); ${geneconv.polymorphicSites} polymorphic sites, ${geneconv.qualifiedFragments} above-critical fragments, ${geneconv.overlapRejectedFragments} overlap rejection(s)${geneconv.numericalFallbackTracks ? `, ${geneconv.numericalFallbackTracks} bounded numerical fallback(s)` : ""}. This corroboration does not move event coordinates.`
+                      : geneconv.status === "profile-unavailable"
+                        ? `The GENECONV recheck was requested, but no usable six-track profile remained${geneconv.sourceSkewFilterRejected ? " after the supplied skew gate" : " after gaps and prior erasures"}.`
+                        : geneconv.status === "representative-skipped"
+                          ? "The supplied loop skips the role representative itself."
+                          : "This sequence was not in the finalized distance list, so no late GENECONV recheck was requested.";
+                    const threeSeqLabel = threeSeq.status === "representative-skipped"
+                      ? "rep"
+                      : threeSeq.status === "not-in-final-distance-list" ? "—"
+                      : threeSeq.status === "profile-unavailable"
+                        ? "n/a"
+                        : threeSeq.sourceRecheckHit ? "hit" : "none";
+                    const threeSeqSummary = threeSeq.status === "complete-active-unvalidated"
+                      ? threeSeq.bestTarget === null
+                        ? `TSXOver(1) screened ${threeSeq.targetProfilesScanned} usable target profile(s), but neither Findall orientation cleared the corrected source gate.`
+                        : `TSXOver(1) Findall recheck: target ${threeSeq.bestTarget}, ${threeSeq.bestDirection} walk; tract ${threeSeq.beginning}–${threeSeq.ending}${threeSeq.wrapsOrigin ? " (origin-wrapping)" : ""}; ${threeSeq.informationRichSites} information-rich sites; parent matches ${threeSeq.parentOneMatches}/${threeSeq.parentTwoMatches}; probability/boundary excursions ${threeSeq.probabilityExcursion}/${threeSeq.maximumExcursion}; raw P ${threeSeq.rawPValue?.toExponential(3)}; corrected P ${threeSeq.correctedPValue?.toExponential(3)}${threeSeq.correctionApplied ? ` across ${threeSeq.correctionTests.toLocaleString()} event-round opportunities` : " with project correction disabled"}; ${threeSeq.qualifyingOrientations} qualifying orientation(s), ${threeSeq.sourceListEntries} source list entries${threeSeq.missingDataSplitApplied ? "; CheckSplit3Seq/SubPVal applied" : ""}; ${threeSeq.exactProbability ? "exact Single-state DP" : "Siegmund fallback"}. This corroboration does not move event coordinates.`
+                      : threeSeq.status === "profile-unavailable"
+                        ? "The 3SEQ Findall recheck was requested, but no target retained four information-rich sites."
+                        : threeSeq.status === "representative-skipped"
+                          ? "The supplied loop skips the role representative itself."
+                          : "This sequence was not in the finalized distance list, so no late 3SEQ recheck was requested.";
                     return (
                       <div key={evidence.sequenceIndex}>
                         <span title={evidence.sequenceName}>
@@ -1479,6 +2202,24 @@ export function ReviewStep({
                           title={maxChiSummary}
                         >
                           {maxChiLabel}
+                        </strong>
+                        <strong
+                          className={chimaera.sourceRecheckHit ? "membership-yes" : chimaera.profileAvailable ? "membership-no" : "is-unavailable"}
+                          title={chimaeraSummary}
+                        >
+                          {chimaeraLabel}
+                        </strong>
+                        <strong
+                          className={geneconv.sourceRecheckHit ? "membership-yes" : geneconv.profileAvailable ? "membership-no" : "is-unavailable"}
+                          title={geneconvSummary}
+                        >
+                          {geneconvLabel}
+                        </strong>
+                        <strong
+                          className={threeSeq.sourceRecheckHit ? "membership-yes" : threeSeq.profileAvailable ? "membership-no" : "is-unavailable"}
+                          title={threeSeqSummary}
+                        >
+                          {threeSeqLabel}
                         </strong>
                       </div>
                     );
