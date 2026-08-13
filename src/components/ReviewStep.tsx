@@ -501,6 +501,7 @@ export function ReviewStep({
   const chimaeraDiscovery = anchor?.chimaeraDiscovery ?? null;
   const geneconvDiscovery = anchor?.geneconvDiscovery ?? null;
   const threeSeqDiscovery = anchor?.threeSeqDiscovery ?? null;
+  const bootscanDiscovery = anchor?.bootscanDiscovery ?? null;
   const chimaeraParentOneLocal = chimaeraDiscovery
     ? ([1, 2, 0] as const)[chimaeraDiscovery.targetLocal]
     : null;
@@ -1081,6 +1082,68 @@ export function ReviewStep({
             </section>
           ) : null}
 
+          {bootscanDiscovery && anchor ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>BootScan closest-pair bootstrap support</h3>
+                </div>
+                <span className="maxchi-status is-hit">Corrected binomial hit</span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Supported pair</span>
+                  <strong>{maxChiDiscoveryPairLabel(bootscanDiscovery.supportedPair)}</strong>
+                  <small>Strict unique closest-pair votes only</small>
+                </div>
+                <div>
+                  <span>Provisional roles</span>
+                  <strong>{anchor.recombinantName}</strong>
+                  <small>{anchor.minorParentName} minor · {anchor.majorParentName} major</small>
+                </div>
+                <div>
+                  <span>Peak / mean support</span>
+                  <strong>{(bootscanDiscovery.maximumPairSupport * 100).toFixed(1)}% / {(bootscanDiscovery.meanPairSupport * 100).toFixed(1)}%</strong>
+                  <small>{bootscanDiscovery.usableWindows} usable of {bootscanDiscovery.windowsScored} tract windows</small>
+                </div>
+                <div>
+                  <span>Bootstrap trace P</span>
+                  <strong>{pValue(bootscanDiscovery.bootstrapPValue)}</strong>
+                  <small>1 − mean supported-pair fraction</small>
+                </div>
+                <div>
+                  <span>Raw binomial P</span>
+                  <strong>{pValue(bootscanDiscovery.rawPValue)}</strong>
+                  <small>{bootscanDiscovery.tractPairMatches} matches in {bootscanDiscovery.tractInformativeSites} tract sites</small>
+                </div>
+                <div>
+                  <span>Project corrected</span>
+                  <strong>{pValue(bootscanDiscovery.correctedPValue)}</strong>
+                  <small>
+                    {results.correction === "bonferroni"
+                      ? `MakeScoresBS equivalent · × ${anchor.correctionTests.toLocaleString()}`
+                      : "MakeScoresBS equivalent · correction disabled"}
+                  </small>
+                </div>
+              </div>
+              <footer>
+                <span>BSXoverR → SEQBOOT2 → FastBootDist → GetPltVal → ScanBSPlots → MakeBSEvent</span>
+                <span>
+                  JC distance mode · {results.bootscanWindowSites}/{results.bootscanStepSites} sites · {results.bootscanBootstrapReplicates} replicates
+                </span>
+              </footer>
+              <p className="maxchi-scope-note">
+                This is the supplied automated distance/binomial path. Tree, alternative
+                substitution-model, and permutation modes are not represented by this trace.
+                The binomial P is fixed from the detected pre-BURT bounds and is not recalculated
+                after polishing. Its log-domain tail avoids factorial underflow, so an extremely
+                small positive value can survive where desktop arithmetic becomes zero. Final roles
+                and coordinates may differ after shared consensus and BURT polishing.
+              </p>
+            </section>
+          ) : null}
+
           {threeSeqDiscovery && anchor ? (
             <section className="maxchi-recheck-card">
               <header>
@@ -1621,8 +1684,10 @@ export function ReviewStep({
                       ? "Target-specific CHIMAERA chi-square profile"
                       : plottedSignal?.method === "GENECONV"
                         ? "GENECONV Karlin–Altschul fragment envelope"
-                        : plottedSignal?.method === "3SEQ"
+                      : plottedSignal?.method === "3SEQ"
                           ? "Target-specific hypergeometric random walks"
+                          : plottedSignal?.method === "BOOTSCAN"
+                            ? "Strict closest-pair bootstrap support"
                           : "Information-rich sliding window"}
                 </h3>
               </div>
@@ -1635,6 +1700,8 @@ export function ReviewStep({
                       ? `G${results.geneconvMismatchScale} · overlap ${results.geneconvMaxOverlaps}`
                       : plottedSignal?.method === "3SEQ"
                         ? `${plottedSignal.threeSeqDiscovery?.informationRichSites ?? plottedSignal.informativeSites} information-rich sites`
+                        : plottedSignal?.method === "BOOTSCAN"
+                          ? `${results.bootscanWindowSites}/${results.bootscanStepSites} sites · ${results.bootscanBootstrapReplicates} replicates`
                         : `${results.windowSites} information-rich sites`}
               </span>
             </div>

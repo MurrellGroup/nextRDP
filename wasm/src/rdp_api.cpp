@@ -79,8 +79,8 @@ std::uint64_t restored_counter(double value) {
 
 std::string project_json(const Context& context) {
   std::ostringstream out;
-  out << "{\"schema\":\"org.rdp-web.project/v1alpha16\","
-         "\"engineVersion\":\"0.18.0-session-18\",\"dataset\":{";
+  out << "{\"schema\":\"org.rdp-web.project/v1alpha17\","
+         "\"engineVersion\":\"0.19.0-session-19\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -121,7 +121,7 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.18.0-session-18";
+  return "0.19.0-session-19";
 }
 
 RDP_KEEPALIVE int rdp_load_alignment(
@@ -177,6 +177,7 @@ RDP_KEEPALIVE int rdp_scan_begin(
     std::uint32_t geneconv_mismatch_scale,
     std::uint32_t geneconv_max_overlaps,
     int threeseq_enabled,
+    int bootscan_primary_enabled,
     int bootscan_secondary_enabled,
     std::uint32_t bootscan_window_sites,
     std::uint32_t bootscan_step_sites,
@@ -216,6 +217,7 @@ RDP_KEEPALIVE int rdp_scan_begin(
   options.geneconv_mismatch_scale = geneconv_mismatch_scale;
   options.geneconv_max_overlaps = geneconv_max_overlaps;
   options.threeseq_enabled = threeseq_enabled != 0;
+  options.bootscan_primary_enabled = bootscan_primary_enabled != 0;
   options.bootscan_secondary_enabled = bootscan_secondary_enabled != 0;
   options.bootscan_window_sites = bootscan_window_sites;
   options.bootscan_step_sites = bootscan_step_sites;
@@ -451,6 +453,7 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
     std::uint32_t geneconv_mismatch_scale,
     std::uint32_t geneconv_max_overlaps,
     int threeseq_enabled,
+    int bootscan_primary_enabled,
     int bootscan_secondary_enabled,
     std::uint32_t bootscan_window_sites,
     std::uint32_t bootscan_step_sites,
@@ -492,6 +495,8 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
   context->restore_options.geneconv_mismatch_scale = geneconv_mismatch_scale;
   context->restore_options.geneconv_max_overlaps = geneconv_max_overlaps;
   context->restore_options.threeseq_enabled = threeseq_enabled != 0;
+  context->restore_options.bootscan_primary_enabled =
+      bootscan_primary_enabled != 0;
   context->restore_options.bootscan_secondary_enabled =
       bootscan_secondary_enabled != 0;
   context->restore_options.bootscan_window_sites = bootscan_window_sites;
@@ -554,6 +559,8 @@ RDP_KEEPALIVE int rdp_restore_signal(
               ? rdp::SignalMethod::geneconv
               : method == 4
                   ? rdp::SignalMethod::threeseq
+                  : method == 5
+                      ? rdp::SignalMethod::bootscan
                   : rdp::SignalMethod::rdp;
   signal.triplet = {triplet_0, triplet_1, triplet_2};
   signal.recombinant = recombinant;
@@ -859,6 +866,81 @@ RDP_KEEPALIVE int rdp_restore_threeseq_discovery(
       : 0;
 }
 
+RDP_KEEPALIVE int rdp_restore_bootscan_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    std::uint32_t supported_pair,
+    std::uint32_t windows_scored,
+    std::uint32_t usable_windows,
+    std::uint32_t informative_sites,
+    std::uint32_t tract_informative_sites,
+    std::uint32_t tract_pair_matches,
+    std::uint32_t outside_pair_matches,
+    double maximum_pair_support,
+    double mean_pair_support,
+    double bootstrap_p_value,
+    double raw_p_value,
+    int erased_window_filter_applied) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size() || supported_pair > 2 ||
+      windows_scored == 0 || usable_windows > windows_scored ||
+      tract_informative_sites > informative_sites ||
+      tract_pair_matches > tract_informative_sites ||
+      outside_pair_matches > informative_sites - tract_informative_sites ||
+      !std::isfinite(maximum_pair_support) || maximum_pair_support < 0.0 ||
+      maximum_pair_support > 1.0 || !std::isfinite(mean_pair_support) ||
+      mean_pair_support < 0.0 || mean_pair_support > maximum_pair_support ||
+      !std::isfinite(bootstrap_p_value) || bootstrap_p_value <= 0.0 ||
+      bootstrap_p_value > 1.0 || !std::isfinite(raw_p_value) ||
+      raw_p_value <= 0.0 || raw_p_value > 1.0 ||
+      (erased_window_filter_applied != 0 &&
+       erased_window_filter_applied != 1)) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::bootscan ||
+      signal.informative_sites != informative_sites ||
+      signal.candidate_pair != supported_pair || signal.local_p_value != raw_p_value) {
+    return 0;
+  }
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(3);
+  };
+  auto& discovery = signal.bootscan_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  discovery.supported_pair = static_cast<std::uint8_t>(supported_pair);
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.candidate_pair = signal.candidate_pair;
+  discovery.windows_scored = windows_scored;
+  discovery.usable_windows = usable_windows;
+  discovery.informative_sites = informative_sites;
+  discovery.tract_informative_sites = tract_informative_sites;
+  discovery.tract_pair_matches = tract_pair_matches;
+  discovery.outside_pair_matches = outside_pair_matches;
+  discovery.maximum_pair_support = maximum_pair_support;
+  discovery.mean_pair_support = mean_pair_support;
+  discovery.bootstrap_p_value = bootstrap_p_value;
+  discovery.raw_p_value = raw_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.pair_similarity = signal.pair_similarity;
+  discovery.erased_window_filter_applied = erased_window_filter_applied != 0;
+  return discovery.recombinant_local < 3 &&
+          discovery.major_parent_local < 3 &&
+          discovery.minor_parent_local < 3
+      ? 1
+      : 0;
+}
+
 RDP_KEEPALIVE int rdp_restore_scan_finish(
     std::uint32_t handle,
     std::uint32_t correction_tests,
@@ -881,6 +963,14 @@ RDP_KEEPALIVE int rdp_restore_scan_finish(
     double threeseq_exact_evaluations,
     double threeseq_approximate_evaluations,
     double threeseq_candidates_found,
+    double bootscan_profiles_scanned,
+    double bootscan_candidate_regions_scored,
+    double bootscan_candidates_found,
+    double bootscan_pair_profiles_requested,
+    double bootscan_pair_profile_cache_hits,
+    double bootscan_pair_profile_cache_misses,
+    double bootscan_pair_profile_cache_evictions,
+    double bootscan_pair_profile_cache_peak_bytes,
     const std::uint8_t* cycle_termination,
     std::size_t cycle_termination_length) {
   Context* context = context_for(handle);
@@ -913,6 +1003,14 @@ RDP_KEEPALIVE int rdp_restore_scan_finish(
       restored_counter(threeseq_exact_evaluations),
       restored_counter(threeseq_approximate_evaluations),
       restored_counter(threeseq_candidates_found),
+      restored_counter(bootscan_profiles_scanned),
+      restored_counter(bootscan_candidate_regions_scored),
+      restored_counter(bootscan_candidates_found),
+      restored_counter(bootscan_pair_profiles_requested),
+      restored_counter(bootscan_pair_profile_cache_hits),
+      restored_counter(bootscan_pair_profile_cache_misses),
+      restored_counter(bootscan_pair_profile_cache_evictions),
+      restored_counter(bootscan_pair_profile_cache_peak_bytes),
       bytes_to_string(cycle_termination, cycle_termination_length),
       context->error);
   context->restoring_scan = false;

@@ -4,7 +4,7 @@ export type CorrectionMode = "bonferroni" | "none";
 export type AnalysisMode = "exploratory" | "query-reference";
 export type QueryReferenceInputRole = "query" | "reference" | "not-applied";
 export type SequenceAnalysisState = "enabled" | "masked" | "disabled";
-export type DiscoveryMethod = "RDP" | "MAXCHI" | "CHIMAERA" | "GENECONV" | "3SEQ";
+export type DiscoveryMethod = "RDP" | "MAXCHI" | "CHIMAERA" | "GENECONV" | "3SEQ" | "BOOTSCAN";
 
 export interface SequenceSummary {
   index: number;
@@ -45,6 +45,7 @@ export interface ScanOptions {
   geneconvMismatchScale: number;
   geneconvMaxOverlaps: number;
   threeSeqEnabled: boolean;
+  bootscanPrimaryEnabled: boolean;
   bootscanSecondaryEnabled: boolean;
   bootscanWindowSites: number;
   bootscanStepSites: number;
@@ -93,6 +94,15 @@ export interface ScanProgress {
   threeSeqExactEvaluations: number;
   threeSeqApproximateEvaluations: number;
   threeSeqCandidatesFound: number;
+  bootscanProfilesScanned: number;
+  bootscanCandidateRegionsScored: number;
+  bootscanCandidatesFound: number;
+  bootscanPairProfilesRequested: number;
+  bootscanPairProfileCacheHits: number;
+  bootscanPairProfileCacheMisses: number;
+  bootscanPairProfileCacheEvictions: number;
+  bootscanPairProfileCacheBytes: number;
+  bootscanPairProfileCachePeakBytes: number;
   cycleTermination: string;
   fraction: number;
 }
@@ -191,6 +201,27 @@ export interface ThreeSeqDiscoveryEvidence {
   missingDataSplitApplied: boolean;
 }
 
+export interface BootscanDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "BSXoverR-SEQBOOT2-FastBootDist-GetPltVal-ScanBSPlots-MakeBSEvent";
+  mode: "jukes-cantor-distance";
+  probabilityModel: "MakeScoresBS-binomial";
+  strictClosestPairVoting: true;
+  supportedPair: 0 | 1 | 2;
+  windowsScored: number;
+  usableWindows: number;
+  informativeSites: number;
+  tractInformativeSites: number;
+  tractPairMatches: number;
+  outsidePairMatches: number;
+  maximumPairSupport: number;
+  meanPairSupport: number;
+  bootstrapPValue: number;
+  rawPValue: number;
+  correctedPValue: number;
+  erasedWindowFilterApplied: boolean;
+}
+
 export interface RdpSignal {
   id: number;
   method: DiscoveryMethod;
@@ -219,6 +250,7 @@ export interface RdpSignal {
   chimaeraDiscovery: ChimaeraDiscoveryEvidence | null;
   geneconvDiscovery: GeneconvDiscoveryEvidence | null;
   threeSeqDiscovery: ThreeSeqDiscoveryEvidence | null;
+  bootscanDiscovery: BootscanDiscoveryEvidence | null;
   fragmentAssisted: boolean;
   fragmentEventContext: [number | null, number | null, number | null];
   eventId: number | null;
@@ -808,7 +840,7 @@ export interface SignalPlot {
   signalId: number;
   windowSites: number;
   method: DiscoveryMethod;
-  metric: "pair-identity" | "chi-square" | "negative-log10-p-value" | "random-walk-height";
+  metric: "pair-identity" | "chi-square" | "negative-log10-p-value" | "random-walk-height" | "bootstrap-support";
   profileContext: "detection-alignment" | "original-alignment-reconstruction";
   detectionProfileExact: boolean;
   minimumValue: number;
@@ -936,7 +968,7 @@ export interface EventTreeView {
 }
 
 export interface LateConsensusStatus {
-  status: "active-rdp-maxchi-chimaera-geneconv-threeseq-plus-optional-bootscan-post-group-recheck";
+  status: "active-rdp-geneconv-bootscan-maxchi-chimaera-threeseq-plus-optional-bootscan-post-group-recheck";
   groupPruningApplied: true;
   nativeGroupMembershipComplete: true;
   primaryRdpPostGroupRecheckApplied: true;
@@ -964,6 +996,10 @@ export interface LateConsensusStatus {
   threeSeqTripletRecheckApplied: true;
   threeSeqPostGroupRecheckApplied: true;
   threeSeqRecheckKernelStatus: "source-shaped-findall-two-orientation-unvalidated";
+  bootscanPrimaryEnabled: boolean;
+  bootscanEventDiscoveryApplied: boolean;
+  bootscanDiscoveryFeedsCyclicScheduler: boolean;
+  bootscanDiscoveryKernelStatus: "source-shaped-bsxoverr-distance-bootstrap-binomial-unvalidated";
   bootscanSecondaryEnabled: boolean;
   bootscanTripletRecheckApplied: boolean;
   bootscanPostGroupRecheckApplied: boolean;
@@ -1065,6 +1101,14 @@ export interface ScanResults {
   threeSeqExactEvaluations: number;
   threeSeqApproximateEvaluations: number;
   threeSeqCandidatesFound: number;
+  bootscanProfilesScanned: number;
+  bootscanCandidateRegionsScored: number;
+  bootscanCandidatesFound: number;
+  bootscanPairProfilesRequested: number;
+  bootscanPairProfileCacheHits: number;
+  bootscanPairProfileCacheMisses: number;
+  bootscanPairProfileCacheEvictions: number;
+  bootscanPairProfileCachePeakBytes: number;
   cycleTermination: string;
   correction: CorrectionMode;
   correctionTests: number;
@@ -1083,6 +1127,7 @@ export interface ScanResults {
   geneconvMismatchScale: number;
   geneconvMaxOverlaps: number;
   threeSeqEnabled: boolean;
+  bootscanPrimaryEnabled: boolean;
   bootscanSecondaryEnabled: boolean;
   bootscanWindowSites: number;
   bootscanStepSites: number;

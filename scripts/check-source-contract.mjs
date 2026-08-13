@@ -11,6 +11,8 @@ const [
   implementation,
   method,
   burt,
+  bootscanHeader,
+  bootscan,
   maxchi,
   chimaeraHeader,
   geneconvHeader,
@@ -33,9 +35,13 @@ const [
   pagesWorkflow,
   viteConfig,
   pagesVerifier,
+  bootscanCoreVerifier,
+  bootscanCoreScript,
   sessionHandoff,
   session17Handoff,
   session18Handoff,
+  session19Handoff,
+  bootscanTrace,
   chimaeraTrace,
   geneconvTrace,
   threeSeqTrace,
@@ -51,6 +57,8 @@ const [
   read("wasm/src/rdp_api.cpp"),
   read("wasm/src/rdp_method.cpp"),
   read("wasm/src/burt_confidence.cpp"),
+  read("wasm/src/bootscan.hpp"),
+  read("wasm/src/bootscan.cpp"),
   read("wasm/src/maxchi.cpp"),
   read("wasm/src/chimaera.hpp"),
   read("wasm/src/geneconv.hpp"),
@@ -73,9 +81,13 @@ const [
   read(".github/workflows/deploy-pages.yml"),
   read("vite.config.ts"),
   read("scripts/verify-pages-output.mjs"),
+  read("scripts/verify-bootscan-core.cpp"),
+  read("scripts/check-bootscan-core.sh"),
   read("docs/session-15-handoff.md"),
   read("docs/session-17-handoff.md"),
   read("docs/session-18-handoff.md"),
+  read("docs/session-19-handoff.md"),
+  read("docs/native-bootscan-discovery-trace.md"),
   read("docs/native-chimaera-discovery-trace.md"),
   read("docs/native-geneconv-discovery-trace.md"),
   read("docs/native-threeseq-discovery-trace.md"),
@@ -202,11 +214,11 @@ if (!method.includes(`\\\"engineVersion\\\":\\\"${version}\\\"`)) {
   fail("rdp_method.cpp result version differs from package.json");
 }
 
-const schema = "org.rdp-web.project/v1alpha16";
+const schema = "org.rdp-web.project/v1alpha17";
 if (!implementation.includes(schema) || !worker.includes(schema)) {
   fail(`emitted/imported project schema ${schema} is not aligned`);
 }
-for (let generation = 1; generation <= 16; generation += 1) {
+for (let generation = 1; generation <= 17; generation += 1) {
   if (!worker.includes(`schema !== "org.rdp-web.project/v1alpha${generation}"`)) {
     fail(`v1alpha${generation} project import is missing`);
   }
@@ -234,6 +246,13 @@ if (!worker.includes("supportsThreeSeqSplit") ||
     !worker.includes('schema === "org.rdp-web.project/v1alpha16"') ||
     !worker.includes("claims post-erasure split evidence in a pre-v15 project")) {
   fail("pre-v15 project imports do not reject unsupported 3SEQ split evidence");
+}
+if (!worker.includes("supportsBootscanSecondary") ||
+    !worker.includes('schema === "org.rdp-web.project/v1alpha16" ||') ||
+    !worker.includes("supportsBootscanPrimary") ||
+    !worker.includes('schema === "org.rdp-web.project/v1alpha17"') ||
+    !worker.includes("analysis.bootscanPrimaryEnabled === true")) {
+  fail("pre-v17 imports do not preserve their pre-primary-BootScan semantics");
 }
 if (!worker.includes("assetVersion") || !worker.includes("loadedVersion !== assetVersion")) {
   fail("worker asset/engine version guard is missing");
@@ -290,7 +309,7 @@ for (const artifactContract of [
 }
 
 const activeLateConsensusStatus =
-  "active-rdp-maxchi-chimaera-geneconv-threeseq-plus-optional-bootscan-post-group-recheck";
+  "active-rdp-geneconv-bootscan-maxchi-chimaera-threeseq-plus-optional-bootscan-post-group-recheck";
 if (!method.includes(activeLateConsensusStatus) || !types.includes(activeLateConsensusStatus)) {
   fail("active late-consensus status differs between core and web contract");
 }
@@ -316,6 +335,10 @@ for (const statusContract of [
   }
 }
 for (const statusContract of [
+  "bootscanPrimaryEnabled",
+  "bootscanEventDiscoveryApplied",
+  "bootscanDiscoveryFeedsCyclicScheduler",
+  "source-shaped-bsxoverr-distance-bootstrap-binomial-unvalidated",
   "bootscanSecondaryEnabled",
   "bootscanTripletRecheckApplied",
   "bootscanPostGroupRecheckApplied",
@@ -544,7 +567,7 @@ for (const sourceContract of [
     fail(`MaxChi source contract is missing ${sourceContract}`);
   }
 }
-if (!method.includes("kScanGeneconv | kScanMaxchi | kScanChimaera") ||
+if (!method.includes("kScanGeneconv | kScanBootscan | kScanMaxchi | kScanChimaera") ||
     !method.includes("kScanThreeseq") ||
     !method.includes("maxchi_discover_prepared(")) {
   fail("combined discovery scan does not reuse its one-pass prepared profile");
@@ -593,10 +616,127 @@ if (!method.includes("twelve-term-eleven-divisor-source-basin-destruction-only")
     !types.includes("twelve-term-eleven-divisor-source-basin-destruction-only")) {
   fail("MaxChi supplied smoothing quirk differs between core and web contract");
 }
-if (!settings.includes("RDP + GENECONV + MaxChi + CHIMAERA + 3SEQ discovery") ||
+if (!settings.includes("RDP + GENECONV + BootScan + MaxChi + CHIMAERA + 3SEQ discovery") ||
     !settings.includes("Discover events with MaxChi") ||
     !settings.includes("Included in event discovery")) {
   fail("method settings do not expose combined RDP/MaxChi discovery");
+}
+for (const sourceContract of [
+  "BootscanDiscoveryOptions",
+  "BootscanDiscoveryCandidate",
+  "BootscanDiscoverySummary",
+  "BootscanPlotProfile",
+  "BootscanPairDistanceProfile",
+  "BootscanWorkspace",
+  "bootscan_reset_discovery_cache",
+  "bootscan_discover",
+  "bootscan_plot_profile",
+]) {
+  if (!bootscanHeader.includes(sourceContract)) {
+    fail(`BootScan discovery header contract is missing ${sourceContract}`);
+  }
+}
+for (const sourceContract of [
+  "class MicrosoftCRand",
+  "source_seqboot2",
+  "unused final replicate",
+  "source_jukes_cantor_distance",
+  "pair_distance_profile",
+  "pair_profile_cache_limit_bytes",
+  "std::shared_ptr<BootscanPairDistanceProfile>",
+  "pair_profile_cache_evictions",
+  "first < second && first < third",
+  "MakeScoresBS works on XPosDiff indices",
+  "source_vb_round_nonnegative",
+  "binomial_tail",
+  "probability_length >= 170",
+  "final retained centered window",
+  "bootscan_discover(",
+]) {
+  if (!bootscan.includes(sourceContract)) {
+    fail(`BootScan discovery source contract is missing ${sourceContract}`);
+  }
+}
+if (!method.includes("SignalMethod::bootscan") ||
+    !method.includes("bootscan_discover(") ||
+    !method.includes("kScanBootscan") ||
+    !method.includes("bootscan_reset_discovery_cache(bootscan_workspace_)") ||
+    !method.includes("bootscanPairProfileCacheHits") ||
+    !implementation.includes("rdp_restore_bootscan_discovery") ||
+    !cmake.includes("_rdp_restore_bootscan_discovery")) {
+  fail("BootScan discovery does not enter the cyclic core/API/export path");
+}
+for (const evidenceContract of [
+  "bootscanDiscovery",
+  "BSXoverR-SEQBOOT2-FastBootDist-GetPltVal-ScanBSPlots-MakeBSEvent",
+  "jukes-cantor-distance",
+  "MakeScoresBS-binomial",
+  "strictClosestPairVoting",
+  "supportedPair",
+  "windowsScored",
+  "usableWindows",
+  "tractInformativeSites",
+  "maximumPairSupport",
+  "meanPairSupport",
+  "bootstrapPValue",
+  "rawPValue",
+  "correctedPValue",
+  "erasedWindowFilterApplied",
+]) {
+  if (!method.includes(`\\\"${evidenceContract}\\\"`) || !types.includes(evidenceContract)) {
+    fail(`BootScan discovery evidence differs between core and web for ${evidenceContract}`);
+  }
+}
+for (const workerContract of [
+  "bootscanPrimaryEnabled: number",
+  "_rdp_restore_bootscan_discovery",
+  'savedMethod === "BOOTSCAN"',
+  "analysis.bootscanPairProfilesRequested",
+  "analysis.bootscanPairProfileCacheHits",
+  "analysis.bootscanPairProfileCacheMisses",
+  "analysis.bootscanPairProfileCacheEvictions",
+  "analysis.bootscanPairProfileCachePeakBytes",
+]) {
+  if (!worker.includes(workerContract)) {
+    fail(`BootScan worker/restore contract is missing ${workerContract}`);
+  }
+}
+for (const uiContract of [
+  "Discover events with BootScan",
+  "Pair/window bootstrap distances are reused across triplets in a bounded cache",
+  "Replicate zero is the unresampled window, matching SEQBOOT2",
+]) {
+  if (!settings.includes(uiContract)) {
+    fail(`BootScan settings contract is missing ${uiContract}`);
+  }
+}
+if (!scan.includes("pair-profile cache hits") ||
+    !review.includes("BootScan closest-pair bootstrap support") ||
+    !review.includes("BURT polishing") ||
+    !review.includes("is not recalculated") ||
+    !review.includes("log-domain tail avoids factorial underflow") ||
+    !signalPlot.includes("BootScan strict closest-pair bootstrap support")) {
+  fail("BootScan progress/review/plot workflow is incomplete");
+}
+for (const runtimeContract of [
+  "two mosaic regions",
+  "shared-pair cache hit",
+  "round invalidation",
+  "reconciled public-API evidence",
+  "support plot",
+]) {
+  if (!bootscanCoreVerifier.includes(runtimeContract)) {
+    fail(`BootScan native core regression is missing ${runtimeContract}`);
+  }
+}
+if (!bootscanCoreScript.includes('mktemp "${PWD}/wasm/.rdp-bootscan-core-check') ||
+    !packageSource.includes('"check:bootscan-core"') ||
+    !pagesWorkflow.includes("npm run check:bootscan-core") ||
+    !pagesVerifier.includes("primary-BootScan/cache") ||
+    !pagesVerifier.includes("bootscanPairProfileCacheHits") ||
+    !pagesVerifier.includes('signal.method === "BOOTSCAN"') ||
+    !pagesVerifier.includes('bootscanPlot.metric !== "bootstrap-support"')) {
+  fail("BootScan native/production-WASM regression wiring is incomplete");
 }
 for (const sourceContract of [
   "ChimaeraDiscoveryOptions",
@@ -851,9 +991,10 @@ for (const tieContract of [
   "source_scan_method_priority",
   "case SignalMethod::rdp: return 0",
   "case SignalMethod::geneconv: return 1",
-  "case SignalMethod::maxchi: return 2",
-  "case SignalMethod::chimaera: return 3",
-  "case SignalMethod::threeseq: return 4",
+  "case SignalMethod::bootscan: return 2",
+  "case SignalMethod::maxchi: return 3",
+  "case SignalMethod::chimaera: return 4",
+  "case SignalMethod::threeseq: return 5",
 ]) {
   if (!method.includes(tieContract)) {
     fail(`Source method-major tie ordering is missing ${tieContract}`);
@@ -1012,13 +1153,15 @@ if (!method.includes("threeseq_discover_prepared(") ||
     !method.includes("profile.similarities")) {
   fail("3SEQ does not reuse fused triplet preparation or enter the cyclic signal path");
 }
-const geneconvDispatch = method.indexOf("if (options_.geneconv_enabled)", method.indexOf("void RdpScanner::scan_triplet"));
-const maxChiDispatch = method.indexOf("if (options_.maxchi_enabled)", method.indexOf("void RdpScanner::scan_triplet"));
-const chimaeraDispatch = method.indexOf("if (options_.chimaera_enabled)", method.indexOf("void RdpScanner::scan_triplet"));
-const threeSeqDispatch = method.indexOf("if (options_.threeseq_enabled)", method.indexOf("void RdpScanner::scan_triplet"));
-if (!(geneconvDispatch >= 0 && geneconvDispatch < maxChiDispatch &&
+const geneconvDispatch = method.indexOf("if (options_.geneconv_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+const bootscanDispatch = method.indexOf("if (options_.bootscan_primary_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+const maxChiDispatch = method.indexOf("if (options_.maxchi_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+const chimaeraDispatch = method.indexOf("if (options_.chimaera_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+const threeSeqDispatch = method.indexOf("if (options_.threeseq_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+if (!(geneconvDispatch >= 0 && geneconvDispatch < bootscanDispatch &&
+      bootscanDispatch < maxChiDispatch &&
       maxChiDispatch < chimaeraDispatch && chimaeraDispatch < threeSeqDispatch)) {
-  fail("combined scan does not retain the supplied GENECONV/MaxChi/CHIMAERA/3SEQ dispatch order");
+  fail("combined scan does not retain the supplied GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ dispatch order");
 }
 for (const evidenceContract of [
   "threeSeqDiscovery",
@@ -1401,21 +1544,66 @@ for (const handoffContract of [
     fail(`Session 18 handoff is missing ${handoffContract}`);
   }
 }
-if (!readme.includes("Session 18 source checkpoint") ||
-    !readme.includes("v1alpha16") ||
+for (const handoffContract of [
+  "0.19.0-session-19",
+  "org.rdp-web.project/v1alpha17",
+  "RDP → GENECONV → BootScan → MaxChi → CHIMAERA → 3SEQ",
+  "64 MiB FIFO pair-profile cache",
+  "XOverList/XOverDefine",
+  "MakeScoresBS",
+  "BURT/BenHMM",
+  "primary-BootScan/cache regression",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session19Handoff.includes(handoffContract)) {
+    fail(`Session 19 handoff is missing ${handoffContract}`);
+  }
+}
+for (const traceContract of [
+  "BSXoverR",
+  "SEQBOOT2",
+  "FastBootDist",
+  "GetPltVal",
+  "ScanBSPlots",
+  "MakeBSEvent",
+  "FindBeginBS",
+  "FindEndBS",
+  "BSSubSeq",
+  "MakeScoresBS",
+  "ProbCalc",
+  "XPosDiff",
+  "bounded 64 MiB",
+  "XOverList/XOverDefine",
+  "BestXOList",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!bootscanTrace.includes(traceContract)) {
+    fail(`BootScan supplied-source trace is missing ${traceContract}`);
+  }
+}
+if (!readme.includes("Session 19 source checkpoint") ||
+    !readme.includes("v1alpha17") ||
     !readme.includes("cyclic-shortlist trace") ||
-    !readme.includes("session-18-handoff") ||
-    !status.includes("Port status — session 18") ||
+    !readme.includes("native-bootscan-discovery-trace") ||
+    !readme.includes("session-19-handoff") ||
+    !status.includes("Port status — session 19") ||
+    !status.includes("Primary BootScan distance screen") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 18 README/status documentation is stale");
+  fail("Session 19 README/status documentation is stale");
 }
-if (!exportStep.includes("Session 18 snapshot") ||
+if (!app.includes("Win95 edition · session 19") ||
+    !app.includes("RDP Web 0.19")) {
+  fail("Session 19 application chrome is stale");
+}
+if (!exportStep.includes("Session 19 snapshot") ||
+    !exportStep.includes("primary BootScan") ||
+    !exportStep.includes("bounded pair-profile reuse") ||
     !exportStep.includes("target-rotated 3SEQ") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)")) {
-  fail("Session 18 export fidelity boundary is stale");
+  fail("Session 19 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",
@@ -1490,6 +1678,14 @@ for (const restoreCounterContract of [
   "double threeseq_exact_evaluations",
   "double threeseq_approximate_evaluations",
   "double threeseq_candidates_found",
+  "double bootscan_profiles_scanned",
+  "double bootscan_candidate_regions_scored",
+  "double bootscan_candidates_found",
+  "double bootscan_pair_profiles_requested",
+  "double bootscan_pair_profile_cache_hits",
+  "double bootscan_pair_profile_cache_misses",
+  "double bootscan_pair_profile_cache_evictions",
+  "double bootscan_pair_profile_cache_peak_bytes",
 ]) {
   if (!header.includes(restoreCounterContract) || !implementation.includes(restoreCounterContract)) {
     fail(`completed-project scan counter restore is missing ${restoreCounterContract}`);

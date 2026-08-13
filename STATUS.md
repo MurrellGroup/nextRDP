@@ -1,8 +1,9 @@
-# Port status — session 18
+# Port status — session 19
 
 This status is deliberately conservative. “Implemented” means source exists; it does not mean
-native-parity validated. The production build and synthetic browser regressions listed below pass,
-but authorized desktop golden comparison remains separate.
+native-parity validated. The Session 19 host-linked core regression, source contracts, TypeScript,
+and production web build pass locally. The real Emscripten/Pages verifier is wired into Actions but
+was not run in this checkpoint's toolchain; authorized desktop golden comparison remains separate.
 
 | Area | State | Notes |
 | --- | --- | --- |
@@ -10,10 +11,11 @@ but authorized desktop golden comparison remains separate.
 | Local alignment loading | Implemented | FASTA, GDE, CLUSTAL/MUSCLE, sequential/interleaved PHYLIP, NEXUS, and MEGA |
 | Dataset diagnostics and sequence curation | Implemented, unvalidated | Diversity, missing data, variable/informative sites, warnings, supplied closest-pair auto-mask, separate enabled/masked/disabled states, and auto-mask/enable-all/mask-all/disable-all controls that operate beyond the 500-row rendering cap; masked rows re-enter secondary evidence and all rows remain tree context |
 | Primary RDP triplet screen | Implemented, unvalidated | C++20/WASM source; information-rich windows, tract boundaries, probabilities, and correction cap |
+| Primary BootScan distance screen | Implemented, active, unvalidated | Supplied `BSXoverR` → `SEQBOOT2` → `FastBootDist` → `GetPltVal` → `ScanBSPlots`/`MakeBSEvent` shape; strict closest-pair bootstrap votes, circular support regions, provisional roles, separate support/raw-binomial/project-corrected probabilities, plots, persistence, UI, and CSV. A bounded 64 MiB pair-profile cache reuses shared pair/window/bootstrap work inside a round and is invalidated after erasure. Tree/similarity/permutation/manual modes remain open. |
 | Automated query-vs-reference screen | Implemented, active, unvalidated | Manual §4.2/`MakeAnalysisListQvR` one-query plus two-cross-group-reference constraint, explicit/detected reference groups, filter-aware bulk assignment and first-appearance compaction, unconstrained recombinant inference with amber reference-call review, lazy `O(N)` scheduler, exact workload, initial source group-pair × query correction fixed across cyclic rounds, fragment provenance, hardened restore, and full project/UI/export coverage |
 | Non-blocking scan control | Implemented, regression-tested | Dedicated worker, 512-combination batches, round-aware workload/correction/working-role progress, and separate scheduled/kernel/reused/skipped counters. A stop discards only the unfinished round, preserves completed events, reconciles normally, and opens Review with `user-stopped` results. |
 | Windows 95 visual skin | Implemented | Cosmetic-only teal desktop, active title/menu/status bars, gray bevel system, recessed tables/plots, segmented progress, and responsive workflow drawer; no analytical code or external asset dependency |
-| Cyclic event discovery | Implemented, source-shaped shortcut active, unvalidated | Enabled RDP/GENECONV/MaxChi/CHIMAERA/3SEQ methods share the supplied strongest-first order. Exact working-triplet signal summaries survive through an XOverList/BestXOList-style shortlist; unchanged triplets replay summaries and skip stable method kernels, while erased rows/new fragments rescan. 3SEQ refreshes once on entering post-erasure split mode. The lightweight schedule is still enumerated. |
+| Cyclic event discovery | Implemented, source-shaped shortcut active, unvalidated | Enabled RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ methods share the supplied strongest-first order. Exact working-triplet signal summaries survive through an XOverList/BestXOList-style shortlist; unchanged triplets replay summaries and skip stable method kernels, while erased rows/new fragments rescan. BootScan also reuses pair profiles inside each round; 3SEQ refreshes once on entering post-erasure split mode. The lightweight schedule is still enumerated. |
 | Source-shaped fragment re-entry | Implemented, bounded | Gap-padded working fragments retain original/event provenance; same-origin triplets are forbidden; 100,000-site source cutoff and 256-fragment browser cap are explicit |
 | Detectable-signal reconciliation | Implemented, unvalidated | Two shared original sequences, strict >30% symmetric tract overlap, and iterative three-role closure |
 | Masked-sequence trace checks | Implemented, unvalidated | Relaxed follow-up RDP profiles; corrected significance is retained separately |
@@ -41,42 +43,47 @@ but authorized desktop golden comparison remains separate.
 | BURT/BenHMM statistical breakpoint confidence | Implemented, active, unvalidated | Default-enabled `PolishBP(20)` setting → supplied three-state/three-symbol 21-start seeded Viterbi training → forward/reverse posterior → strict 99%/95% source ranges → signed matching, repositioning, missing-data repair, and revert guards; disabled runs preserve coordinates and results stay distinct from manual parent-state brackets |
 | Graphical tree review | Implemented, unvalidated | Lazy side-by-side SVG review of all three paired regional comparisons; exact saved NJ edge lengths, bootstrap labels/collapse state, current roles/groups, and retained-fragment provenance are exposed without rebuilding trees |
 | Downstream re-identification | Implemented, unvalidated | Corrected accepted events are re-erased; rejected tracts are restored; fixed earlier calls remain auditable while all later calls are rediscovered |
-| Project/CSV export | Implemented | Reloadable project schema `v1alpha16`; analysis scheme/reference assignments, method-specific MaxChi/CHIMAERA peak traces, GENECONV fragment/KA traces, and 3SEQ walk/probability/split/Findall traces, related-method-only support caution, active RDP/GENECONV/MaxChi/CHIMAERA/3SEQ rechecks, final-trim/rebuild stages, exact per-method workload/termination counters, fragment provenance, evidence sets, roles, traces, and decisions are retained |
-| Project import/resume | Implemented, unvalidated | Schemas `v1alpha1`–`v1alpha16` restore primary state; completed reload preserves authoritative cumulative work and terminal state without replay inflation; pre-v11 projects restore exploratory scheduling, projects through v9 keep MaxChi disabled, v10/v11 keep CHIMAERA disabled, all pre-v13 projects keep GENECONV disabled, all pre-v14 projects keep 3SEQ disabled, and v14 rejects unsupported split claims; unknown method labels are rejected, and pending repairs retain/remap only the valid signal/event prefix before downstream discovery resumes |
+| Project/CSV export | Implemented | Reloadable project schema `v1alpha17`; analysis scheme/reference assignments, method-specific BootScan support/cache/binomial traces, MaxChi/CHIMAERA peak traces, GENECONV fragment/KA traces, and 3SEQ walk/probability/split/Findall traces, related-method-only support caution, active method rechecks, final-trim/rebuild stages, exact per-method workload/termination counters, fragment provenance, evidence sets, roles, traces, and decisions are retained |
+| Project import/resume | Implemented, unvalidated | Schemas `v1alpha1`–`v1alpha17` restore primary state; completed reload preserves authoritative cumulative work and terminal state without replay inflation. Pre-v17 projects keep primary BootScan discovery disabled while retaining the older optional BootScan recheck setting; earlier method/schema gates remain enforced, unknown method labels are rejected, and pending repairs retain/remap only the valid signal/event prefix before downstream discovery resumes. |
 | Checkpoint-loss protection | Implemented, unvalidated | Completed/edited analyses visibly become dirty; tab exit and destructive dataset/settings replacement warn until project JSON is downloaded |
 | Sequence-curation FASTA | Implemented, unvalidated | Full, enabled-only, and masked-or-disabled-only downloads work immediately after alignment loading, preserve complete aligned rows, use the current disjoint UI state, and report an empty complementary selection explicitly |
 | Recombinant-sequence removal FASTA | Implemented, unvalidated | Omits every sequence in an accepted current co-recombinant group; core and UI reject incomplete review, stale reconciliation, and an empty result |
 | Recombinant-column removal FASTA | Implemented, unvalidated | Deletes the inclusive union of every accepted event tract from all rows in linear time; core and UI reject incomplete review, stale reconciliation, and an empty result |
 | Recombination-free FASTA | Implemented, unvalidated | Accepted tracts are replaced by gaps for current complete co-recombinant groups; core and UI reject incomplete-review export |
 | Mosaic-fragment FASTA | Implemented, unvalidated | Event-ordered tract-masked originals plus aligned fragment-only records; core and UI reject incomplete-review export |
-| GitHub Pages deployment | Configured, locally build-validated | Default-branch/manual Actions workflow uses current official Node-24-generation actions, a Node 20 project build, locked npm dependencies, Emscripten 5.0.1, ABI/version/schema and TypeScript checks, single-worker WASM/Vite build, hidden-file-aware artifact verification, instantiated-WASM FASTA upload plus two-event cyclic-shortlist and mid-round graceful-stop smoke tests, and official Pages deployment |
-| Exact late native consensus | Combined RDP/MaxChi/CHIMAERA/GENECONV/3SEQ discovery plus active five-family late corroboration, unvalidated | `OKSeq` 0–18, expansions, selected-role pruning, complete CScore/rebuild/fallback, shared selected-role tree cleanup, finalized-list RDP signal rechecks, bounded MaxChi/CHIMAERA strongest-peak rechecks, ordinary-kernel six-track GENECONV rechecks, and two-orientation `TSXOver(1)` 3SEQ Findall rechecks are active; full method-stack event-catalogue reconstruction and other families remain |
+| GitHub Pages deployment | Configured; Session 19 verifier awaits Actions | Default-branch/manual Actions workflow uses current official Node-24-generation actions, a Node 20 project build, locked npm dependencies, Emscripten 5.0.1, ABI/version/schema and TypeScript checks, a host-linked BootScan regression, single-worker WASM/Vite build, hidden-file-aware artifact verification, instantiated-WASM FASTA upload plus primary-BootScan/cache, two-event cyclic-shortlist, and mid-round graceful-stop smoke tests, and official Pages deployment. The web half builds locally; this environment does not contain Emscripten. |
+| Exact late native consensus | Combined RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ discovery plus active six-family late corroboration, unvalidated | `OKSeq` 0–18, expansions, selected-role pruning, complete CScore/rebuild/fallback, shared selected-role tree cleanup, finalized-list RDP signal rechecks, bounded BootScan/MaxChi/CHIMAERA rechecks, ordinary-kernel six-track GENECONV rechecks, and two-orientation `TSXOver(1)` 3SEQ Findall rechecks are active; full method-stack event-catalogue reconstruction and other families remain |
 | Additional 3SEQ/GENECONV modes and other methods | Partial | Ordinary automated, post-erasure-split, and late Findall 3SEQ plus ignored-indel GENECONV discovery/recheck are active; 3SEQ manual envelopes/full late event-catalogue reconstruction and GENECONV permutation/manual/alternative-indel/minimum-filter/full-late paths remain separate open work |
-| Compilation and runtime testing | Production build passed locally | Node 20 / Emscripten 5.0.1 source, type, WASM, Vite, Pages artifact, three-sequence FASTA upload, fixed-correction two-event shortlist, and all-five-method synthetic cyclic runs passed; native-vs-WASM golden parity remains separate |
+| Compilation and runtime testing | Host-linked Session 19 gate passes; WASM gate runs in Actions | Every ported C++ translation unit links under strict C++20 and the public-API BootScan fixture passes two-region discovery, probability, cache hit/invalidation, reconciliation, and plot checks. Source contracts, TypeScript, script syntax, and the production Vite build pass. Actions must still run the real Emscripten module plus Pages artifact, FASTA upload, primary-BootScan/cache, fixed-correction shortlist, and graceful-stop smoke tests; native-vs-WASM golden parity remains separate. |
 | Native-vs-WASM golden parity suite | Designed only | See `docs/validation-plan.md` |
 
 ## Recommended next checkpoint
 
-1. Add focused authorized native fixtures for ordinary 3SEQ: all target rotations and orientations,
+1. Add focused authorized native fixtures for primary BootScan: strict-pair ties, circular/linear
+   edges, invariant-site boundaries, long-tract 169 scaling, provisional roles, probability scopes,
+   and combined event order.
+2. Complete the remaining literal `FindBeginBS`/`FindEndBS` warning/catalogue behavior, then add
+   supplied tree/similarity/permutation/manual BootScan modes without weakening cache invalidation.
+3. Add focused authorized native fixtures for ordinary 3SEQ: all target rotations and orientations,
    four-site/low-information gates, exact/Siegmund/scaled probability boundaries, float rounding,
    circular/linear coordinates, distinct probability/boundary excursions, missing states,
    Dunn–Šidák underflow, and combined event order.
-2. Validate the active `FindSubSeqTS2` inclusive coordinate map and `CheckSplit3Seq`/`SubPVal`
+4. Validate the active `FindSubSeqTS2` inclusive coordinate map and `CheckSplit3Seq`/`SubPVal`
    left/right trimming, orientation retry, and corrected-P re-gate with authorized saved output.
-3. Add focused authorized native fixtures for ordinary GENECONV: all six tracks, linear/circular
+5. Add focused authorized native fixtures for ordinary GENECONV: all six tracks, linear/circular
    first/last fragments, ambiguity and missing data, equal score/P ties, overlap counts, float
    thresholds, KA/Newton edge branches, coordinate aliases, role maps, and combined event order.
-4. Add focused native golden fixtures for `MakeAnalysisListQvR`: exact reference-pair/query order,
+6. Add focused native golden fixtures for `MakeAnalysisListQvR`: exact reference-pair/query order,
    grouped and ungrouped naming, masks, fragment re-entry, correction factors, reference-as-
    recombinant calls, empty groups, project replay, and exploratory/constrained event-order changes.
-5. Add focused native golden fixtures for MaxChi/CHIMAERA discovery, MaxChi confirmation, and active `PolishBP`/BURT,
+7. Add focused native golden fixtures for MaxChi/CHIMAERA discovery, MaxChi confirmation, and active `PolishBP`/BURT,
    especially the smoothing off-by-one, equal raw-peak ties, destruction basins, accepted-interval
    inclusion, missing-data boundary windows, linear ends, `MaxX = 0`, the three/100 retry stops,
    Microsoft-CRT random starts, signed wrapped ranges, and missing-data relocation.
-6. Trace and port the supplied 3SEQ manual permutation envelope/full late event-catalogue and GENECONV permutation/manual/alternative-indel/full late-event paths,
+8. Trace and port the supplied 3SEQ manual permutation envelope/full late event-catalogue and GENECONV permutation/manual/alternative-indel/full late-event paths,
    MaxChi permutation/manual-doublet path, and CHIMAERA permutation/full late-event-reconstruction
    modes without conflating them with active ordinary or strongest-peak triplet scans.
-7. Add the remaining recombinant-identification method families and their post-group rechecks
+9. Add the remaining recombinant-identification method families and their post-group rechecks
    without hiding the current per-method scores or native full/half contributions.
-8. Establish small authorized golden primary/secondary results against the supplied desktop
+10. Establish small authorized golden primary/secondary results against the supplied desktop
    application before calling the port parity validated.

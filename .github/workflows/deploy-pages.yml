@@ -44,6 +44,9 @@ jobs:
       - name: Check TypeScript contracts
         run: npm run check:types
 
+      - name: Check primary BootScan core and cache
+        run: npm run check:bootscan-core
+
       - name: Build WASM and web application
         run: npm run build
 

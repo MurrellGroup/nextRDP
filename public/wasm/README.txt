@@ -1,6 +1,7 @@
 The generated Emscripten module is written here by scripts/build-wasm.sh.
 
-Session 13 intentionally did not compile the supplied or ported source.
+Session 19 adds primary automated distance-mode BootScan discovery and keeps the
+supplied native projects read-only.
 The source exports lazy breakpoint-alignment and six-region event-tree review endpoints.
 The primary-RDP late-consensus source now actively maps OKSeq 0-18, FinalTrim,
 ConsensusOK, shared selected-tree cleanup, and finalized-list RDP rechecks.
@@ -16,11 +17,16 @@ Karlin-Altschul probabilities, stable lowest-P overlap selection, restore, revie
 plot, and export coverage. It reuses that same cached equality pass; prefix/range
 queries replace quadratic fragment extension and a bounded numerical fallback
 prevents the supplied Newton start from hanging a worker.
+Source-shaped primary BootScan discovery is active with seeded SEQBOOT2 weights,
+strict closest-pair votes, MakeScoresBS binomial probabilities, and a bounded
+64 MiB shared pair/window/bootstrap profile cache. The cache avoids recalculating
+pair work across triplets in one round and is invalidated after cyclic erasure.
 Fully exploratory and automated one-query/two-cross-group-reference schedules are
 active; the latter uses a lazy catalogue and preserves the supplied group-pair x
 query correction separately from exact record-triplet progress.
-The separate MaxChi and three-target CHIMAERA strongest-peak plus ordinary
-six-track GENECONV event/list corroboration paths remain active and share one
+The separate BootScan, MaxChi, three-target CHIMAERA, ordinary six-track GENECONV,
+and two-orientation 3SEQ event/list corroboration paths remain active and share one
 prepared triplet pass without changing reconciled coordinates.
 CheckEnds uncertainty and BURT/BenHMM statistical confidence are active in source.
-Native/runtime validation remains pending.
+The linked host regression covers primary BootScan discovery, cache reuse,
+cyclic reconciliation, and plot output. Authorized native golden validation remains pending.

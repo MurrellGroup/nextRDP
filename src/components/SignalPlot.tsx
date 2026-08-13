@@ -19,13 +19,14 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
   const randomWalk = plot.metric === "random-walk-height";
+  const unitInterval = plot.metric === "pair-identity" || plot.metric === "bootstrap-support";
   const rawMinimum = randomWalk ? Math.min(0, plot.minimumValue) : 0;
-  const rawMaximum = plot.metric !== "pair-identity" ? Math.max(0, plot.maximumValue) : 1;
+  const rawMaximum = !unitInterval ? Math.max(0, plot.maximumValue) : 1;
   const rawSpan = Math.max(1, rawMaximum - rawMinimum);
   const yMinimum = randomWalk ? rawMinimum - rawSpan * 0.05 : 0;
   const yMaximum = randomWalk
     ? rawMaximum + rawSpan * 0.05
-    : plot.metric !== "pair-identity" ? Math.max(1, rawMaximum * 1.05) : 1;
+    : !unitInterval ? Math.max(1, rawMaximum * 1.05) : 1;
   const ySpan = Math.max(1, yMaximum - yMinimum);
   const x = (value: number) =>
     margin.left + ((value - xMin) / Math.max(1, xMax - xMin)) * innerWidth;
@@ -68,6 +69,8 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
               ? "GENECONV negative log10 KA P fragment envelope"
               : signal.method === "3SEQ"
                 ? "3SEQ target-specific hypergeometric random walks"
+                : signal.method === "BOOTSCAN"
+                  ? "BootScan strict closest-pair bootstrap support"
                 : plot.metric === "chi-square" ? "MaxChi χ² profile" : "Sliding-window pairwise identity"} for signal {signal.id + 1}
         </title>
         <desc>
@@ -77,6 +80,8 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
               ? "Three colour-matched inner and outer GENECONV fragment envelopes, measured as negative log10 raw Karlin-Altschul probability. The highlighted region is the selected fragment."
               : signal.method === "3SEQ"
                 ? "Three target-specific plus-one/minus-one walks across information-rich sites. Each trace treats one triplet member as the candidate recombinant; the highlighted region is the selected maximum excursion."
+                : signal.method === "BOOTSCAN"
+                  ? "Three seeded sliding-window bootstrap-support curves. Each replicate votes only for its unique closest pair; the highlighted region is the significant supported-pair tract."
                 : plot.metric === "chi-square"
                   ? "Three pairwise maximum chi-square traces across variable sites. The highlighted region is the matched recombinant tract."
                   : "Pairwise identity across information-rich sites for the three sequences used to detect this signal. The highlighted region is bounded by the inferred breakpoints."}
@@ -91,7 +96,7 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
               className="plot-grid"
             />
             <text x={margin.left - 10} y={y(yMinimum + tick * ySpan) + 4} textAnchor="end" className="plot-label">
-              {plot.metric !== "pair-identity"
+              {!unitInterval
                 ? (yMinimum + tick * ySpan).toFixed(ySpan >= 100 ? 0 : 1)
                 : tick.toFixed(2)}
             </text>

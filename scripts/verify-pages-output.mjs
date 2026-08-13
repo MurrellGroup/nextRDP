@@ -187,7 +187,7 @@ try {
     0, 60, // CHIMAERA
     0, 1, 1, // GENECONV
     0, // 3SEQ
-    0, 200, 20, 100, 0.7, 3, // secondary BootScan
+    0, 0, 200, 20, 100, 0.7, 3, // primary/secondary BootScan
     0, // preserve detected breakpoints
     0, // exploratory mode
     referenceGroupsPointer,
@@ -265,6 +265,109 @@ try {
     fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
   }
 
+  // Exercise primary distance-mode BootScan through the public WASM ABI. The
+  // ten-record fixture contains two mosaics and 45 unique sequence pairs, so
+  // a complete opening round must discover support regions while reusing the
+  // same pair/window/bootstrap summaries across different triplets.
+  const bootscanContext = engine._rdp_create();
+  if (!bootscanContext) fail("the WASM engine could not create the primary-BootScan context");
+  try {
+    if (engine._rdp_load_alignment(
+      bootscanContext,
+      syntheticPointer,
+      syntheticFasta.byteLength,
+    ) !== 1) {
+      fail(`primary-BootScan alignment load failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(bootscanContext),
+      )}`);
+    }
+    const bootscanStarted = engine._rdp_scan_begin(
+      bootscanContext,
+      1, 1, 0.05, 30,
+      0, 70,
+      0, 60,
+      0, 1, 1,
+      0,
+      1, 0, 100, 20, 30, 0.7, 3,
+      0,
+      0,
+      referenceGroupsPointer,
+      syntheticSequences.length,
+      zeroFlagsPointer,
+      syntheticSequences.length,
+      zeroFlagsPointer,
+      syntheticSequences.length,
+    );
+    if (bootscanStarted !== 1) {
+      fail(`primary-BootScan scan could not start: ${engine.UTF8ToString(
+        engine._rdp_get_error(bootscanContext),
+      )}`);
+    }
+    let bootscanStatus = 0;
+    for (let batch = 0;
+      batch < 10000 && bootscanStatus !== 4 && bootscanStatus !== 3;
+      ++batch) {
+      bootscanStatus = engine._rdp_scan_batch(bootscanContext, 10000);
+      if (bootscanStatus < 0) {
+        fail(`primary-BootScan opening round failed: ${engine.UTF8ToString(
+          engine._rdp_get_error(bootscanContext),
+        )}`);
+      }
+    }
+    const bootscanProgress = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_progress_json(bootscanContext),
+    ));
+    if (bootscanStatus !== 4 || bootscanProgress.eventCount < 1) {
+      fail("primary-BootScan fixture did not commit an opening-round event");
+    }
+    if (!(bootscanProgress.bootscanProfilesScanned > 0) ||
+        !(bootscanProgress.bootscanCandidateRegionsScored > 0) ||
+        !(bootscanProgress.bootscanCandidatesFound > 0) ||
+        !(bootscanProgress.bootscanPairProfilesRequested > 0) ||
+        !(bootscanProgress.bootscanPairProfileCacheHits > 0) ||
+        !(bootscanProgress.bootscanPairProfileCacheMisses > 0) ||
+        bootscanProgress.bootscanPairProfileCacheHits +
+          bootscanProgress.bootscanPairProfileCacheMisses !==
+          bootscanProgress.bootscanPairProfilesRequested ||
+        !(bootscanProgress.bootscanPairProfileCachePeakBytes > 0) ||
+        bootscanProgress.bootscanPairProfileCachePeakBytes > 64 * 1024 * 1024) {
+      fail("primary-BootScan discovery/cache telemetry is inconsistent");
+    }
+
+    // Stop at the new round boundary so the test retains the completed event
+    // but avoids spending CI time rediscovering the second mosaic.
+    engine._rdp_cancel(bootscanContext);
+    bootscanStatus = engine._rdp_scan_batch(bootscanContext, 1);
+    if (bootscanStatus !== 3 || engine._rdp_reconcile(bootscanContext) !== 1) {
+      fail(`primary-BootScan result finalization failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(bootscanContext),
+      )}`);
+    }
+    const bootscanResults = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_results_json(bootscanContext),
+    ));
+    const bootscanSignal = bootscanResults.signals.find(
+      (signal) => signal.method === "BOOTSCAN" && signal.bootscanDiscovery,
+    );
+    if (!bootscanResults.bootscanPrimaryEnabled || !bootscanSignal ||
+        bootscanSignal.bootscanDiscovery.strictClosestPairVoting !== true ||
+        bootscanSignal.bootscanDiscovery.probabilityModel !== "MakeScoresBS-binomial" ||
+        !(bootscanSignal.bootscanDiscovery.rawPValue > 0) ||
+        !(bootscanSignal.bootscanDiscovery.correctedPValue > 0)) {
+      fail("primary-BootScan evidence did not survive event reconciliation");
+    }
+    const bootscanPlot = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_signal_plot_json(bootscanContext, bootscanSignal.id),
+    ));
+    if (bootscanPlot.method !== "BOOTSCAN" ||
+        bootscanPlot.metric !== "bootstrap-support" ||
+        !Array.isArray(bootscanPlot.points) || bootscanPlot.points.length < 2) {
+      fail("primary-BootScan review plot was not reconstructed");
+    }
+  } finally {
+    engine._rdp_destroy(bootscanContext);
+  }
+
   // A user stop during a later cyclic pass is a graceful workflow boundary:
   // discard the unfinished pass, preserve its already committed event prefix,
   // and continue through reconciliation so Review receives usable results.
@@ -287,7 +390,7 @@ try {
       0, 60,
       0, 1, 1,
       0,
-      0, 200, 20, 100, 0.7, 3,
+      0, 0, 200, 20, 100, 0.7, 3,
       0,
       0,
       referenceGroupsPointer,
@@ -356,5 +459,5 @@ try {
 
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, cyclic-shortlist, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, primary-BootScan/cache, cyclic-shortlist, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );

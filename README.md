@@ -4,10 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 18 source checkpoint — Windows 95 skin and graceful cyclic stop verified.** This
-> archive contains source only. Its Node 20 / Emscripten 5.0.1 production build,
-> TypeScript/source contracts, Pages artifact, real WASM FASTA-upload test, and deterministic
-> cyclic-shortlist/graceful-stop tests passed before packaging.
+> **Session 19 source checkpoint — primary distance-mode BootScan and pair-profile reuse.** This
+> archive contains source only. Primary BootScan now participates in strongest-first cyclic event
+> discovery, with bounded shared-pair caching and explicit probability scopes. The Windows 95 skin
+> and graceful cyclic stop remain intact.
 
 ## What this checkpoint contains
 
@@ -64,6 +64,12 @@ core runs in WebAssembly.
   larger origin-extended boundary excursion, matching the supplied call order. 3SEQ applies the
   source's `p > 10^-15` Dunn–Šidák / smaller-tail product branch and adds no alignment-byte pass
   because it reuses the MaxChi/CHIMAERA equality profile.
+- A sixth independently labelled discovery stream for the supplied automated distance-mode
+  BootScan workflow. It preserves seeded `SEQBOOT2` weights, replicate-zero unresampled windows,
+  `FastBootDist` Jukes–Cantor saturation, strict `GetPltVal` closest-pair votes, source-shaped
+  circular support-region discovery, and separate bootstrap-support, raw `MakeScoresBS` binomial,
+  and project-corrected probabilities. Its bounded 64 MiB pair-profile cache reuses shared
+  pair/window/bootstrap distances across triplets and is invalidated after every cyclic erasure.
 - Bounded 512-triplet worker batches, reusable scan buffers, and method-aware plot
   downsampling that forces both breakpoints, the selected method peak, and applicable profile maxima
   into the browser payload. CHIMAERA displays only its selected target/parent-one trace; GENECONV
@@ -74,7 +80,7 @@ core runs in WebAssembly.
   transient signals are discarded, previously completed events are retained, ordinary evidence
   finalization runs, and Review receives a normal result marked `user-stopped`.
 - Combined strongest-first cyclic detection: scan all eligible triplets in the supplied
-  RDP/GENECONV/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
+  RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
   tract, then retain XOverList-style summaries for unchanged exact working triplets. Triplets that
   touch erased rows or new fragments run fresh kernels; unchanged triplets replay signals and skip
   stable method work. 3SEQ refreshes once when its post-erasure split mode first activates.
@@ -167,7 +173,7 @@ core runs in WebAssembly.
 - A batched erase/fragment/re-scan cycle that re-identifies later events after a correction or
   rejection. Core/API guards enforce review order; mid-repair project reload drops the stale tail,
   remaps retained signal anchors, and resumes at the changed event.
-- Reloadable project JSON (`v1alpha16`, accepting `v1alpha1`–`v1alpha16`), expanded event-level CSV,
+- Reloadable project JSON (`v1alpha17`, accepting `v1alpha1`–`v1alpha17`), expanded event-level CSV,
   full, enabled-only, and masked/disabled-only curation FASTA directly from the loaded dataset,
   accepted-group sequence removal,
   accepted-tract column removal, tract-masking FASTA, and event-ordered mosaic-fragment FASTA.
@@ -183,7 +189,7 @@ core runs in WebAssembly.
 - A responsive, accessible React interface that requires no application server.
 
 This is **not yet a parity-validated RDP5 replacement**. The fully exploratory and automated
-query-vs-reference RDP/MaxChi/CHIMAERA/GENECONV/3SEQ workflows now reach
+query-vs-reference RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ workflows now reach
 an end-to-end reviewed-event result and alignment variants, including the active late list-build and
 selected-role cleanup paths. MaxChi and CHIMAERA exploratory discovery are active in source, but
 their indexing, smoothing/destruction basins, preliminary role assignment, and cross-method event
@@ -191,7 +197,9 @@ order still require native golden comparison before either can be called parity 
 MaxChi manual-doublet/permutation, CHIMAERA permutation/full late-event-reconstruction, and
 GENECONV permutation/manual-pair/alternative-indel/full late-event-reconstruction modes are not yet
 represented. The ordinary ignored-indel KA GENECONV path is source-shaped active but unvalidated.
-The ordinary 3SEQ exact/random-walk path is likewise source-shaped active but unvalidated. Later
+The ordinary 3SEQ exact/random-walk and primary BootScan distance-mode paths are likewise
+source-shaped active but unvalidated. BootScan tree/similarity/permutation/manual modes and literal
+full edge-warning/catalogue behavior remain open. Later
 cyclic rounds now retain the supplied `FindSubSeqTS2` inclusive position map and
 `CheckSplit3Seq`/`SubPVal` missing-run trim, reverse-orientation retry, and corrected-P re-gate.
 The supplied two-orientation `TSXOver(1)` representative/finalized-list recheck is also active;
@@ -216,7 +224,8 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [GENECONV discovery trace](docs/native-geneconv-discovery-trace.md), the
 [3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), the
 [cyclic-shortlist trace](docs/native-cyclic-shortlist-trace.md), and the
-[Session 18 handoff](docs/session-18-handoff.md) before interpreting results or starting the next phase.
+[BootScan discovery trace](docs/native-bootscan-discovery-trace.md), and the
+[Session 19 handoff](docs/session-19-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 
@@ -254,7 +263,7 @@ off the UI thread in the dedicated analysis worker.
 5. Download the `.rdpweb.json` checkpoint to preserve all assignments and review decisions. The
    CSV is a readable event summary, not a substitute for that complete project state.
 
-## Build later (not run for this checkpoint)
+## Build and run locally
 
 Prerequisites:
 
@@ -295,7 +304,7 @@ The generated files belong in `public/wasm/`:
 | `.github/workflows/` | Locked GitHub Pages build, artifact validation, and deployment |
 | `src/` | React workflow, worker client, review plots, and exports |
 | `src/workers/` | Isolated WASM bridge and bounded scan scheduler |
-| `wasm/src/` | Alignment readers, RDP/MaxChi/CHIMAERA/GENECONV/3SEQ discovery and active rechecks, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
+| `wasm/src/` | Alignment readers, RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ discovery and active rechecks, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
 | `wasm/include/` | Stable C ABI consumed by the worker |
 | `scripts/` | Explicit WASM build entry point and Pages artifact verifier |
 | `docs/` | Workflow, fidelity, architecture, and validation handoff |

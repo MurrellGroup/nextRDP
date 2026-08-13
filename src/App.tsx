@@ -37,6 +37,7 @@ const initialOptions: ScanOptions = {
   geneconvMismatchScale: 1,
   geneconvMaxOverlaps: 1,
   threeSeqEnabled: true,
+  bootscanPrimaryEnabled: false,
   bootscanSecondaryEnabled: false,
   bootscanWindowSites: 200,
   bootscanStepSites: 20,
@@ -85,6 +86,15 @@ const initialProgress: ScanProgress = {
   threeSeqExactEvaluations: 0,
   threeSeqApproximateEvaluations: 0,
   threeSeqCandidatesFound: 0,
+  bootscanProfilesScanned: 0,
+  bootscanCandidateRegionsScored: 0,
+  bootscanCandidatesFound: 0,
+  bootscanPairProfilesRequested: 0,
+  bootscanPairProfileCacheHits: 0,
+  bootscanPairProfileCacheMisses: 0,
+  bootscanPairProfileCacheEvictions: 0,
+  bootscanPairProfileCacheBytes: 0,
+  bootscanPairProfileCachePeakBytes: 0,
   cycleTermination: "not-started",
   fraction: 0,
 };
@@ -383,6 +393,8 @@ export function App() {
                 geneconvMismatchScale: restored.results.geneconvMismatchScale ?? 1,
                 geneconvMaxOverlaps: restored.results.geneconvMaxOverlaps ?? 1,
                 threeSeqEnabled: restored.results.threeSeqEnabled ?? false,
+                bootscanPrimaryEnabled:
+                  restored.results.bootscanPrimaryEnabled ?? false,
                 bootscanSecondaryEnabled:
                   restored.results.bootscanSecondaryEnabled ?? false,
                 bootscanWindowSites: restored.results.bootscanWindowSites ?? 200,
@@ -450,6 +462,21 @@ export function App() {
                 threeSeqApproximateEvaluations:
                   restored.results.threeSeqApproximateEvaluations ?? 0,
                 threeSeqCandidatesFound: restored.results.threeSeqCandidatesFound ?? 0,
+                bootscanProfilesScanned: restored.results.bootscanProfilesScanned ?? 0,
+                bootscanCandidateRegionsScored:
+                  restored.results.bootscanCandidateRegionsScored ?? 0,
+                bootscanCandidatesFound: restored.results.bootscanCandidatesFound ?? 0,
+                bootscanPairProfilesRequested:
+                  restored.results.bootscanPairProfilesRequested ?? 0,
+                bootscanPairProfileCacheHits:
+                  restored.results.bootscanPairProfileCacheHits ?? 0,
+                bootscanPairProfileCacheMisses:
+                  restored.results.bootscanPairProfileCacheMisses ?? 0,
+                bootscanPairProfileCacheEvictions:
+                  restored.results.bootscanPairProfileCacheEvictions ?? 0,
+                bootscanPairProfileCacheBytes: 0,
+                bootscanPairProfileCachePeakBytes:
+                  restored.results.bootscanPairProfileCachePeakBytes ?? 0,
                 cycleTermination: restored.results.cycleTermination,
                 fraction: 1,
               }
@@ -980,7 +1007,7 @@ export function App() {
                     : "Checkpoint current"}
               </span>
             ) : null}
-            <span className="session-pill">Win95 edition · session 18</span>
+            <span className="session-pill">Win95 edition · session 19</span>
           </div>
         </div>
       </header>
@@ -1118,7 +1145,7 @@ export function App() {
       <footer className="app-statusbar" aria-live="polite">
         <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
         <span>{filename || "No alignment loaded"}</span>
-        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.18"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.19"}</span>
       </footer>
     </div>
   );

@@ -40,6 +40,7 @@ enum class SignalMethod : std::uint8_t {
   chimaera = 2,
   geneconv = 3,
   threeseq = 4,
+  bootscan = 5,
 };
 
 struct ScanOptions {
@@ -56,6 +57,7 @@ struct ScanOptions {
   std::size_t geneconv_mismatch_scale = 1;
   std::size_t geneconv_max_overlaps = 1;
   bool threeseq_enabled = true;
+  bool bootscan_primary_enabled = false;
   bool bootscan_secondary_enabled = false;
   std::size_t bootscan_window_sites = 200;
   std::size_t bootscan_step_sites = 20;
@@ -99,6 +101,7 @@ struct Signal {
   ChimaeraDiscoveryCandidate chimaera_discovery;
   GeneconvDiscoveryCandidate geneconv_discovery;
   ThreeSeqDiscoveryCandidate threeseq_discovery;
+  BootscanDiscoveryCandidate bootscan_discovery;
   bool fragment_assisted = false;
   std::array<std::int32_t, 3> fragment_event_context{-1, -1, -1};
   // Transient XOverList-style provenance. Detection and project JSON use the
@@ -465,6 +468,14 @@ class RdpScanner {
       std::uint64_t threeseq_exact_evaluations,
       std::uint64_t threeseq_approximate_evaluations,
       std::uint64_t threeseq_candidates_found,
+      std::uint64_t bootscan_profiles_scanned,
+      std::uint64_t bootscan_candidate_regions_scored,
+      std::uint64_t bootscan_candidates_found,
+      std::uint64_t bootscan_pair_profiles_requested,
+      std::uint64_t bootscan_pair_profile_cache_hits,
+      std::uint64_t bootscan_pair_profile_cache_misses,
+      std::uint64_t bootscan_pair_profile_cache_evictions,
+      std::uint64_t bootscan_pair_profile_cache_peak_bytes,
       std::string cycle_termination,
       std::string& error);
   bool restore_event_state(
@@ -528,9 +539,10 @@ class RdpScanner {
 
   static constexpr std::uint8_t kScanRdp = 1U << 0U;
   static constexpr std::uint8_t kScanGeneconv = 1U << 1U;
-  static constexpr std::uint8_t kScanMaxchi = 1U << 2U;
-  static constexpr std::uint8_t kScanChimaera = 1U << 3U;
-  static constexpr std::uint8_t kScanThreeseq = 1U << 4U;
+  static constexpr std::uint8_t kScanBootscan = 1U << 2U;
+  static constexpr std::uint8_t kScanMaxchi = 1U << 3U;
+  static constexpr std::uint8_t kScanChimaera = 1U << 4U;
+  static constexpr std::uint8_t kScanThreeseq = 1U << 5U;
 
   const Alignment& alignment_;
   Alignment working_alignment_;
@@ -559,6 +571,7 @@ class RdpScanner {
   std::vector<ChimaeraDiscoveryCandidate> chimaera_candidates_scratch_;
   std::vector<GeneconvDiscoveryCandidate> geneconv_candidates_scratch_;
   std::vector<ThreeSeqDiscoveryCandidate> threeseq_candidates_scratch_;
+  std::vector<BootscanDiscoveryCandidate> bootscan_candidates_scratch_;
   std::array<std::vector<std::uint8_t>, 3> breakpoint_erasure_scratch_;
   std::vector<std::uint8_t> breakpoint_input_missing_scratch_;
   std::vector<std::uint8_t> breakpoint_polish_missing_scratch_;
@@ -597,6 +610,10 @@ class RdpScanner {
   std::uint64_t threeseq_exact_evaluations_ = 0;
   std::uint64_t threeseq_approximate_evaluations_ = 0;
   std::uint64_t threeseq_candidates_found_ = 0;
+  std::uint64_t bootscan_profiles_scanned_ = 0;
+  std::uint64_t bootscan_candidate_regions_scored_ = 0;
+  std::uint64_t bootscan_candidates_found_ = 0;
+  std::uint64_t bootscan_pair_profiles_requested_ = 0;
   bool running_ = false;
   bool primary_done_ = false;
   bool done_ = false;

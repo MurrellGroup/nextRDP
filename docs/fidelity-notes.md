@@ -233,15 +233,15 @@ The full desktop method battery is not present, so JSON deliberately keeps
 19. CHIMAERA discovery is source-shaped but unvalidated. Target-map indexing, `FindSubSeqDP3/6`
     position aliases, window fallback, missing-boundary mapping, equal raw peaks, growth and tract
     side, boundary optimization, destruction basins, inside/outside parent-one role ordering, and
-    combined RDP/GENECONV/MaxChi/CHIMAERA/3SEQ event order require native golden comparison. The three-target
+    combined RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ event order require native golden comparison. The three-target
     strongest-peak representative/finalized-list recheck is active and auditable but unvalidated;
     CHIMAERA permutation and full late event-reconstruction modes remain unported.
 20. GENECONV ordinary triplet discovery is source-shaped but unvalidated. Compressed-table
     ambiguity behavior, circular first/last runs, equal score/P ordering, float narrowing, Newton
     edge cases, coordinate aliases, the supplied sibling-path ten-visit repeated-P escape and
     terminal-sentinel endpoint behavior, the overlap-array indexing quirk, six-way role mapping,
-    and combined five-method event order require authorized native fixtures. Exact P-value ties use
-    the source's RDP → GENECONV → MaxChi → CHIMAERA → 3SEQ method-major priority. The port interprets
+    and combined six-method event order require authorized native fixtures. Exact P-value ties use
+    the source's RDP → GENECONV → BootScan → MaxChi → CHIMAERA → 3SEQ method-major priority. The port interprets
     overlap coverage over polymorphic positions and bounds an otherwise unbounded Newton loop;
     both adaptations remain explicit. The same ordinary kernel now supplies auditable,
     non-coordinate-changing representative/final-list corroboration. Permutation probabilities,
@@ -259,7 +259,17 @@ The full desktop method battery is not present, so JSON deliberately keeps
     `TSXOver(1)` Findall path is active with both split orientations and inverse list copies, but its
     list-cap/event-catalogue interaction still needs golden comparison. Permutation display
     envelopes and full late event reconstruction remain unported.
+22. Primary distance-mode BootScan is source-shaped but unvalidated. `SEQBOOT2`'s two warm-up
+    draws, generated-but-discarded tail replicate, strict closest-pair ties, padded circular
+    windows, `FindBeginBS`/`FindEndBS` gap and edge aliases, provisional `FindDaughter` roles,
+    `XPosDiff` invariant-boundary indexing, VB6 rounding, 169-site scaling, and `ProbCalc`
+    accumulation require authorized native fixtures. The browser's log-domain binomial summation
+    is a deliberate numerical-stability improvement over factorial products and may preserve a
+    positive tail after the desktop arithmetic underflows. The 64 MiB pair-profile cache changes
+    reuse and storage, not the intended pair/window values; it is invalidated after every erasure.
+    Tree/similarity/permutation/manual BootScan modes and full late catalogue reconstruction remain
+    unported.
 
 Until those cases are validated, the project provides a complete review/export path for combined
-ordinary-triplet RDP, GENECONV, MaxChi, CHIMAERA, and 3SEQ discovery plus the five active late
+ordinary-triplet RDP, GENECONV, BootScan, MaxChi, CHIMAERA, and 3SEQ discovery plus the six active late
 corroboration routes, but does not claim native result parity.

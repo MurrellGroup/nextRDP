@@ -28,6 +28,7 @@ int rdp_scan_begin(
     uint32_t geneconv_mismatch_scale,
     uint32_t geneconv_max_overlaps,
     int threeseq_enabled,
+    int bootscan_primary_enabled,
     int bootscan_secondary_enabled,
     uint32_t bootscan_window_sites,
     uint32_t bootscan_step_sites,
@@ -99,6 +100,7 @@ int rdp_restore_scan_begin(
     uint32_t geneconv_mismatch_scale,
     uint32_t geneconv_max_overlaps,
     int threeseq_enabled,
+    int bootscan_primary_enabled,
     int bootscan_secondary_enabled,
     uint32_t bootscan_window_sites,
     uint32_t bootscan_step_sites,
@@ -206,6 +208,21 @@ int rdp_restore_threeseq_discovery(
     int exact_probability,
     int siegmund_fallback,
     int missing_data_split_applied);
+int rdp_restore_bootscan_discovery(
+    uint32_t handle,
+    uint32_t signal_id,
+    uint32_t supported_pair,
+    uint32_t windows_scored,
+    uint32_t usable_windows,
+    uint32_t informative_sites,
+    uint32_t tract_informative_sites,
+    uint32_t tract_pair_matches,
+    uint32_t outside_pair_matches,
+    double maximum_pair_support,
+    double mean_pair_support,
+    double bootstrap_p_value,
+    double raw_p_value,
+    int erased_window_filter_applied);
 int rdp_restore_scan_finish(
     uint32_t handle,
     uint32_t correction_tests,
@@ -228,6 +245,14 @@ int rdp_restore_scan_finish(
     double threeseq_exact_evaluations,
     double threeseq_approximate_evaluations,
     double threeseq_candidates_found,
+    double bootscan_profiles_scanned,
+    double bootscan_candidate_regions_scored,
+    double bootscan_candidates_found,
+    double bootscan_pair_profiles_requested,
+    double bootscan_pair_profile_cache_hits,
+    double bootscan_pair_profile_cache_misses,
+    double bootscan_pair_profile_cache_evictions,
+    double bootscan_pair_profile_cache_peak_bytes,
     const uint8_t* cycle_termination,
     size_t cycle_termination_length);
 int rdp_restore_event_state(

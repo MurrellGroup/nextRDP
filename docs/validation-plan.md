@@ -427,6 +427,31 @@ implementation as an oracle.
 - Keep manual 100-permutation envelopes and full late event-catalogue reconstruction out of parity
   claims until those separately supplied paths are implemented.
 
+## Primary BootScan discovery and cache
+
+- Compare `SEQBOOT2` weights under seed 3 and several nondefault seeds, including replicate zero,
+  both warm-up calls, and the unused final generated replicate that advances the next site's random
+  stream. Compare `FastBootDist` float JC values and the saturated sentinel with gaps/ambiguities.
+- Exercise strict `GetPltVal` ties; all three whole-sequence distance orderings; 40%, 50%, 70%, and
+  exact-cutoff support; `OverlapNum` VB6 rounding; linear edges; circular padded windows; full-origin
+  traversal; and equal beginning/ending rejection through `ScanBSPlots`, `FindBeginBS`, and
+  `FindEndBS`.
+- Compare `FindDaughter` provisional roles and both breakpoints before later `CentreBP` and BURT
+  movement. Include a boundary on an invariant site to verify `XPosDiff`'s preceding-score behavior.
+- Compare raw `MakeScoresBS`/`ProbCalc` probability for tract lengths 3, 169, 170, and longer;
+  round-to-even match scaling; full-information-profile background probability; factorial versus
+  log-domain accumulation; exact zero/underflow; and project correction. Confirm BURT does not
+  recalculate the saved discovery p-value.
+- Scan four or more sequences with repeated pairs and assert cache misses equal unique exact pairs,
+  later triplets hit those profiles, peak bytes stay within 64 MiB, in-flight `shared_ptr` profiles
+  survive FIFO eviction, and every erasure/re-entry round invalidates stale entries. Compare event
+  results with a cache-disabled build.
+- Confirm `v1alpha17` saves/restores method code 5, discovery evidence, all cache/work counters,
+  event support, and review plot; pre-v17 imports must leave primary BootScan disabled. Exercise
+  public-ABI and production-WASM Pages fixtures in both exploratory and query/reference schedules.
+- Keep tree, similarity, alternative substitution-model, permutation, manual, and full late
+  catalogue modes outside parity claims until their supplied paths are separately implemented.
+
 ## Workflow acceptance
 
 - File data never leave the browser.

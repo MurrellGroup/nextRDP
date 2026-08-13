@@ -1,7 +1,7 @@
 {
   "name": "rdp-wasm",
   "private": true,
-  "version": "0.18.0-session-18",
+  "version": "0.19.0-session-19",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -13,6 +13,7 @@
     "build:web": "vite build",
     "check:source": "node scripts/check-source-contract.mjs && node scripts/check-source-balance.mjs",
     "check:types": "tsc --noEmit",
+    "check:bootscan-core": "bash scripts/check-bootscan-core.sh",
     "verify:pages": "node scripts/verify-pages-output.mjs",
     "build": "npm run build:wasm && npm run build:web && npm run verify:pages",
     "preview": "vite preview"

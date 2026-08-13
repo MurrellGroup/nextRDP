@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.19.0-session-19
+
+- Added source-shaped automated distance-mode BootScan as a primary discovery method in the
+  supplied RDP → GENECONV → BootScan → MaxChi → CHIMAERA → 3SEQ cyclic order.
+- Ported the supplied `BSXoverR`, seeded `SEQBOOT2`, `FastBootDist`, strict `GetPltVal`,
+  `ScanBSPlots`/`FindBeginBS`/`FindEndBS`, `MakeBSEvent`, `BSSubSeq`, `MakeScoresBS`, and
+  `ProbCalc` behavior used by that route, including `SEQBOOT2`'s generated-but-discarded tail
+  replicate draw that advances the retained Microsoft-CRT random stream.
+- Added a bounded 64 MiB shared pair/window/bootstrap profile cache. It reuses pair work across
+  triplets within one mutable-alignment round, reports hit/miss/eviction/byte telemetry, uses shared
+  ownership for safe FIFO eviction, and invalidates at every erasure/re-entry boundary.
+- Kept that pair cache distinct from the existing XOverList/BestXOList-style whole-triplet cyclic
+  shortlist, which continues to replay unchanged signal summaries and skip stable method kernels.
+- Corrected BootScan scoring to preserve the supplied `XPosDiff` invariant-boundary indexing,
+  169-site scale/exponent route, and raw/project-corrected p-value separation. BURT/BenHMM still
+  polishes event coordinates later and does not recalculate the detection p-value.
+- Added BootScan discovery evidence, plots, progress/cache diagnostics, settings, review cards,
+  JSON/CSV export, hardened restore, source contracts, and production-WASM smoke-test coverage.
+- Advanced the engine/package version to `0.19.0-session-19` and project schema to
+  `org.rdp-web.project/v1alpha17`; imports remain compatible through `v1alpha1`.
+
 ## 0.18.0-session-18
 
 - Re-skinned the complete application as a Windows 95 workstation without changing analytical

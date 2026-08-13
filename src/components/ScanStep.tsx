@@ -61,6 +61,7 @@ export function ScanStep({
   const discoveryMethods = [
     "RDP",
     ...(options.geneconvEnabled ? ["GENECONV"] : []),
+    ...(options.bootscanPrimaryEnabled ? ["BootScan"] : []),
     ...(options.maxChiEnabled ? ["MaxChi"] : []),
     ...(options.chimaeraEnabled ? ["CHIMAERA"] : []),
     ...(options.threeSeqEnabled ? ["3SEQ"] : []),
@@ -194,6 +195,9 @@ export function ScanStep({
               {options.geneconvEnabled
                 ? ` · GENECONV G${options.geneconvMismatchScale}/overlap ${options.geneconvMaxOverlaps}`
                 : ""}
+              {options.bootscanPrimaryEnabled
+                ? ` · BootScan ${options.bootscanWindowSites}/${options.bootscanStepSites} × ${options.bootscanBootstrapReplicates}`
+                : ""}
               {options.threeSeqEnabled ? " · 3SEQ exact/Siegmund" : ""}
             </span>
           </div>
@@ -240,6 +244,16 @@ export function ScanStep({
               </span>
               <span>
                 {integer.format(progress.threeSeqApproximateEvaluations)} Siegmund fallbacks · {integer.format(progress.threeSeqCandidatesFound)} threshold-passing candidates
+              </span>
+            </div>
+          ) : null}
+          {options.bootscanPrimaryEnabled ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.bootscanProfilesScanned)} BootScan triplet profiles · {integer.format(progress.bootscanCandidateRegionsScored)} support regions scored
+              </span>
+              <span>
+                {integer.format(progress.bootscanCandidatesFound)} corrected candidates · {integer.format(progress.bootscanPairProfileCacheHits)} / {integer.format(progress.bootscanPairProfilesRequested)} pair-profile cache hits
               </span>
             </div>
           ) : null}

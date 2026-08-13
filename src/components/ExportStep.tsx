@@ -80,7 +80,7 @@ export function ExportStep({
             {results.events.length} events across {results.scanRounds} discovery rounds · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
           </span>
         </div>
-        <span className="fidelity-badge">Session 18 snapshot</span>
+        <span className="fidelity-badge">Session 19 snapshot</span>
       </div>
 
       <div className="export-grid">
@@ -266,10 +266,12 @@ export function ExportStep({
           This snapshot completes the manual’s detectable, distance-correlation, and bootstrap-tree
           evidence sets, exposes original-alignment breakpoint windows, and produces the
           sequence-curation subsets plus accepted-event alignment variants. Source-shaped six-track
-          GENECONV, MCXoverF MaxChi, target-rotated CHIMAERA, and target-rotated 3SEQ exploratory
+          GENECONV, primary BootScan, MCXoverF MaxChi, target-rotated CHIMAERA, and target-rotated 3SEQ exploratory
           discovery now run beside RDP in every cyclic triplet screen. GENECONV retains the ordinary supplied ignored-indel
           profile, mismatch penalties, bounded source Newton/KA parameters, raw and project-corrected
-          probabilities, and stable overlap selection. CHIMAERA retains its information-rich binary profile, raw peak, grown window,
+          probabilities, and stable overlap selection. Primary BootScan retains seeded strict
+          closest-pair bootstrap support, bounded pair-profile reuse, and distinct support,
+          raw-binomial, and project-corrected probability scopes. CHIMAERA retains its information-rich binary profile, raw peak, grown window,
           tract side, breakpoint optimization, and probability scopes. 3SEQ retains all three
           information-rich ±1 walks, exact finite hypergeometric tails where bounded, the supplied
           Siegmund fallback, CheckwrapC boundaries, method-specific Dunn–Šidák correction, and

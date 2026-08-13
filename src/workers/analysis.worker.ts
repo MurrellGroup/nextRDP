@@ -33,6 +33,7 @@ interface EmscriptenModule {
     geneconvMismatchScale: number,
     geneconvMaxOverlaps: number,
     threeSeqEnabled: number,
+    bootscanPrimaryEnabled: number,
     bootscanSecondaryEnabled: number,
     bootscanWindowSites: number,
     bootscanStepSites: number,
@@ -104,6 +105,7 @@ interface EmscriptenModule {
     geneconvMismatchScale: number,
     geneconvMaxOverlaps: number,
     threeSeqEnabled: number,
+    bootscanPrimaryEnabled: number,
     bootscanSecondaryEnabled: number,
     bootscanWindowSites: number,
     bootscanStepSites: number,
@@ -217,6 +219,22 @@ interface EmscriptenModule {
     siegmundFallback: number,
     missingDataSplitApplied: number,
   ): number;
+  _rdp_restore_bootscan_discovery(
+    handle: number,
+    signalId: number,
+    supportedPair: number,
+    windowsScored: number,
+    usableWindows: number,
+    informativeSites: number,
+    tractInformativeSites: number,
+    tractPairMatches: number,
+    outsidePairMatches: number,
+    maximumPairSupport: number,
+    meanPairSupport: number,
+    bootstrapPValue: number,
+    rawPValue: number,
+    erasedWindowFilterApplied: number,
+  ): number;
   _rdp_restore_scan_finish(
     handle: number,
     correctionTests: number,
@@ -239,6 +257,14 @@ interface EmscriptenModule {
     threeSeqExactEvaluations: number,
     threeSeqApproximateEvaluations: number,
     threeSeqCandidatesFound: number,
+    bootscanProfilesScanned: number,
+    bootscanCandidateRegionsScored: number,
+    bootscanCandidatesFound: number,
+    bootscanPairProfilesRequested: number,
+    bootscanPairProfileCacheHits: number,
+    bootscanPairProfileCacheMisses: number,
+    bootscanPairProfileCacheEvictions: number,
+    bootscanPairProfileCachePeakBytes: number,
     cycleTermination: number,
     cycleTerminationLength: number,
   ): number;
@@ -515,7 +541,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema !== "org.rdp-web.project/v1alpha13" &&
     schema !== "org.rdp-web.project/v1alpha14" &&
     schema !== "org.rdp-web.project/v1alpha15" &&
-    schema !== "org.rdp-web.project/v1alpha16"
+    schema !== "org.rdp-web.project/v1alpha16" &&
+    schema !== "org.rdp-web.project/v1alpha17"
   ) {
     throw new Error(`Unsupported RDP Web project schema: ${schema}`);
   }
@@ -641,7 +668,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha13" ||
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
-    schema === "org.rdp-web.project/v1alpha16";
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
   const supportsMaxChiDiscovery =
     schema === "org.rdp-web.project/v1alpha10" || supportsReferenceGroups;
   const supportsChimaeraDiscovery =
@@ -649,20 +677,27 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha13" ||
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
-    schema === "org.rdp-web.project/v1alpha16";
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
   const supportsGeneconvDiscovery =
     schema === "org.rdp-web.project/v1alpha13" ||
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
-    schema === "org.rdp-web.project/v1alpha16";
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
   const supportsThreeSeqDiscovery =
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
-    schema === "org.rdp-web.project/v1alpha16";
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
   const supportsThreeSeqSplit =
     schema === "org.rdp-web.project/v1alpha15" ||
-    schema === "org.rdp-web.project/v1alpha16";
-  const supportsBootscanSecondary = schema === "org.rdp-web.project/v1alpha16";
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
+  const supportsBootscanSecondary =
+    schema === "org.rdp-web.project/v1alpha16" ||
+    schema === "org.rdp-web.project/v1alpha17";
+  const supportsBootscanPrimary = schema === "org.rdp-web.project/v1alpha17";
   const referenceGroups = new Array<number>(restoredDataset.sequenceCount).fill(0);
   if (supportsReferenceGroups &&
       Array.isArray(analysis.referenceGroupIndices)) {
@@ -689,6 +724,7 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         integer(analysis.geneconvMismatchScale, 1),
         integer(analysis.geneconvMaxOverlaps, 1),
         supportsThreeSeqDiscovery && analysis.threeSeqEnabled !== false ? 1 : 0,
+        supportsBootscanPrimary && analysis.bootscanPrimaryEnabled === true ? 1 : 0,
         supportsBootscanSecondary && analysis.bootscanSecondaryEnabled === true ? 1 : 0,
         integer(analysis.bootscanWindowSites, 200),
         integer(analysis.bootscanStepSites, 20),
@@ -728,11 +764,14 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
       signal.method,
       `Saved signal ${savedIndex + 1} has no discovery method.`,
     );
-    if (!["RDP", "MAXCHI", "CHIMAERA", "GENECONV", "3SEQ"].includes(savedMethod)) {
+    if (!["RDP", "MAXCHI", "CHIMAERA", "GENECONV", "3SEQ", "BOOTSCAN"].includes(savedMethod)) {
       throw new Error(`Saved signal ${savedIndex + 1} uses an unknown discovery method.`);
     }
     if (savedMethod === "3SEQ" && !supportsThreeSeqDiscovery) {
       throw new Error(`Saved 3SEQ signal ${savedIndex + 1} uses a pre-3SEQ project schema.`);
+    }
+    if (savedMethod === "BOOTSCAN" && !supportsBootscanPrimary) {
+      throw new Error(`Saved BootScan signal ${savedIndex + 1} uses a pre-BootScan project schema.`);
     }
     const triplet = requireArray(
       signal.triplet,
@@ -779,7 +818,9 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
             ? 2
             : savedMethod === "GENECONV"
               ? 3
-              : savedMethod === "3SEQ" ? 4 : 0,
+              : savedMethod === "3SEQ"
+                ? 4
+                : savedMethod === "BOOTSCAN" ? 5 : 0,
       ) !== 1
     ) {
       throw engineError(`Saved signal ${savedIndex + 1} could not be restored.`);
@@ -907,6 +948,32 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         throw engineError(`Saved 3SEQ signal ${savedIndex + 1} could not be restored.`);
       }
     }
+    if (savedMethod === "BOOTSCAN") {
+      const discovery = requireObject(
+        signal.bootscanDiscovery,
+        `Saved BootScan signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      if (
+        module!._rdp_restore_bootscan_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.supportedPair, -1),
+          integer(discovery.windowsScored),
+          integer(discovery.usableWindows),
+          integer(discovery.informativeSites, integer(signal.informativeSites)),
+          integer(discovery.tractInformativeSites),
+          integer(discovery.tractPairMatches),
+          integer(discovery.outsidePairMatches),
+          finiteNumber(discovery.maximumPairSupport),
+          finiteNumber(discovery.meanPairSupport),
+          finiteNumber(discovery.bootstrapPValue, 1),
+          finiteNumber(discovery.rawPValue, finiteNumber(signal.localPValue, 1)),
+          discovery.erasedWindowFilterApplied === true ? 1 : 0,
+        ) !== 1
+      ) {
+        throw engineError(`Saved BootScan signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
   });
   const savedCycleTermination = pending < 0 && typeof analysis.cycleTermination === "string"
     ? analysis.cycleTermination
@@ -943,6 +1010,22 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
           ? finiteNumber(analysis.threeSeqApproximateEvaluations) : 0,
         pending < 0 && supportsThreeSeqDiscovery
           ? finiteNumber(analysis.threeSeqCandidatesFound) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanProfilesScanned) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanCandidateRegionsScored) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanCandidatesFound) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanPairProfilesRequested) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanPairProfileCacheHits) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanPairProfileCacheMisses) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanPairProfileCacheEvictions) : 0,
+        pending < 0 && supportsBootscanPrimary
+          ? finiteNumber(analysis.bootscanPairProfileCachePeakBytes) : 0,
         cycleTerminationPointer,
         cycleTerminationBytes.byteLength,
       ) !== 1
@@ -1059,6 +1142,7 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       request.options.geneconvMismatchScale,
       request.options.geneconvMaxOverlaps,
       request.options.threeSeqEnabled ? 1 : 0,
+      request.options.bootscanPrimaryEnabled ? 1 : 0,
       request.options.bootscanSecondaryEnabled ? 1 : 0,
       request.options.bootscanWindowSites,
       request.options.bootscanStepSites,

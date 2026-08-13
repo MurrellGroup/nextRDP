@@ -193,8 +193,8 @@ or late consensus can identify as recombinant.
 
 Project import does not round-trip the saved alignment through FASTA or another lossy wrapper. The
 worker transfers each saved name/normalized sequence through a record-oriented C ABI, restores
-signals with their discovery method, method-specific MaxChi/CHIMAERA peak trace, GENECONV
-fragment/KA trace, or 3SEQ walk/probability trace, correction factors, and fragment
+signals with their discovery method, method-specific BootScan support/binomial trace,
+MaxChi/CHIMAERA peak trace, GENECONV fragment/KA trace, or 3SEQ walk/probability trace, correction factors, and fragment
 provenance, then replays events in order.
 Every tract/fragment state needed by a later saved anchor is rebuilt before that anchor’s evidence.
 Manual role/breakpoint/group edits, rejected calls, decisions, query/reference assignments and
@@ -204,8 +204,8 @@ schemas taking the supplied enabled default. If a snapshot was saved during a pe
 through the changed call and their supporting signals are restored. Signal IDs are compacted,
 event anchors are remapped, and the stale tail is deliberately left for the next cyclic scan to
 rediscover. This prevents pre-correction evidence from being replayed as current state.
-For a completed snapshot, the saved cumulative triplet count, scan-round count, MaxChi, CHIMAERA,
-GENECONV, and 3SEQ workload
+For a completed snapshot, the saved cumulative triplet count, scan-round count, BootScan/cache,
+MaxChi, CHIMAERA, GENECONV, and 3SEQ workload
 counters, and terminal reason are authoritative. Event replay updates only the current working
 round's processed/total counts; it cannot manufacture extra historical work.
 V11 constrained signals must still contain three distinct originals in the saved one-query/two-
@@ -217,8 +217,9 @@ the event holding a pending rebuild marker) can be changed; revisiting an earlie
 still allowed and creates a new downstream invalidation point. The same boundary rejects final
 alignment variants unless the scan is complete, every event is decided, and no rebuild is pending.
 
-The emitted schema is `org.rdp-web.project/v1alpha15`; the import path accepts `v1alpha1` through
-`v1alpha15`. Pre-v11 projects restore the fully exploratory scheduler. Projects through
+The emitted schema is `org.rdp-web.project/v1alpha17`; the import path accepts `v1alpha1` through
+`v1alpha17`. Pre-v17 projects restore primary BootScan disabled while retaining their older
+optional BootScan corroboration setting. Pre-v11 projects restore the fully exploratory scheduler. Projects through
 `v1alpha9` restore MaxChi disabled, v10/v11 restore CHIMAERA disabled, and every pre-v13 project
 restores GENECONV disabled. Every pre-v14 project restores 3SEQ disabled, and v14 projects reject
 unsupported post-erasure split claims, so loading an older checkpoint cannot silently add or alter

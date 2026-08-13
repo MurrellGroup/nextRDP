@@ -29,14 +29,14 @@ const methods = [
     state: "ready",
   },
   {
-    name: "MAXCHI",
-    description: "Raw χ² peak ordering, tract-side matching, peak destruction/retry, and cyclic discovery.",
+    name: "BOOTSCAN",
+    description: "Seeded sliding-window bootstrap distances, strict closest-pair support, and binomial tract significance.",
     state: "ready",
   },
   {
-    name: "BOOTSCAN",
-    description: "Sliding-window phylogenetic support; secondary by default.",
-    state: "queued",
+    name: "MAXCHI",
+    description: "Raw χ² peak ordering, tract-side matching, peak destruction/retry, and cyclic discovery.",
+    state: "ready",
   },
   {
     name: "CHIMAERA",
@@ -97,6 +97,22 @@ export function SettingsStep({
       Number.isInteger(options.geneconvMaxOverlaps) &&
       options.geneconvMaxOverlaps >= 1 &&
       options.geneconvMaxOverlaps <= 100
+    )) &&
+    (!(options.bootscanPrimaryEnabled || options.bootscanSecondaryEnabled) || (
+      Number.isInteger(options.bootscanWindowSites) &&
+      options.bootscanWindowSites >= 5 &&
+      options.bootscanWindowSites <= 5000 &&
+      Number.isInteger(options.bootscanStepSites) &&
+      options.bootscanStepSites >= 1 &&
+      options.bootscanStepSites <= Math.floor(options.bootscanWindowSites / 2) &&
+      Number.isInteger(options.bootscanBootstrapReplicates) &&
+      options.bootscanBootstrapReplicates >= 10 &&
+      options.bootscanBootstrapReplicates <= 1000 &&
+      Number.isFinite(options.bootscanSupportCutoff) &&
+      options.bootscanSupportCutoff >= 0.5 &&
+      options.bootscanSupportCutoff <= 1 &&
+      Number.isInteger(options.bootscanRandomSeed) &&
+      options.bootscanRandomSeed > 0
     ));
   const set = <Key extends keyof ScanOptions>(key: Key, value: ScanOptions[Key]) => {
     onChange({ ...options, [key]: value });
@@ -211,7 +227,7 @@ export function SettingsStep({
                 <span className="eyebrow">Primary methods</span>
                 <h2>Signal detection panel</h2>
               </div>
-              <span className="fidelity-badge">RDP + GENECONV + MaxChi + CHIMAERA + 3SEQ discovery</span>
+              <span className="fidelity-badge">RDP + GENECONV + BootScan + MaxChi + CHIMAERA + 3SEQ discovery</span>
             </div>
             <div className="method-grid">
               {methods.map((method) => (
@@ -229,6 +245,7 @@ export function SettingsStep({
                         ? (method.name === "MAXCHI" && !options.maxChiEnabled) ||
                           (method.name === "CHIMAERA" && !options.chimaeraEnabled) ||
                           (method.name === "GENECONV" && !options.geneconvEnabled) ||
+                          (method.name === "BOOTSCAN" && !options.bootscanPrimaryEnabled) ||
                           (method.name === "3SEQ" && !options.threeSeqEnabled)
                           ? "Available · disabled for this scan"
                           : "Included in event discovery"
@@ -342,6 +359,105 @@ export function SettingsStep({
                 <span>per site</span>
               </div>
               <small>The supplied automated default accepts one covering fragment per polymorphic site.</small>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.bootscanPrimaryEnabled}
+                onChange={(event) => set("bootscanPrimaryEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with BootScan</strong>
+                <small>
+                  Runs the supplied automated distance-mode BSXoverR path in every cyclic pass.
+                  Pair/window bootstrap distances are reused across triplets in a bounded cache.
+                </small>
+              </span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.bootscanSecondaryEnabled}
+                onChange={(event) => set("bootscanSecondaryEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Use BootScan for late corroboration</strong>
+                <small>
+                  Rechecks representative and final-list triplets without moving reconciled event
+                  boundaries. This remains independent of primary BootScan discovery.
+                </small>
+              </span>
+            </label>
+            <label className="field">
+              <span>BootScan window</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="5"
+                  max="5000"
+                  step="1"
+                  value={options.bootscanWindowSites}
+                  disabled={!options.bootscanPrimaryEnabled && !options.bootscanSecondaryEnabled}
+                  onChange={(event) => set("bootscanWindowSites", Number(event.target.value))}
+                />
+                <span>nucleotide sites</span>
+              </div>
+              <small>The supplied distance-mode default is 200.</small>
+            </label>
+            <label className="field">
+              <span>BootScan step</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, Math.floor(options.bootscanWindowSites / 2))}
+                  step="1"
+                  value={options.bootscanStepSites}
+                  disabled={!options.bootscanPrimaryEnabled && !options.bootscanSecondaryEnabled}
+                  onChange={(event) => set("bootscanStepSites", Number(event.target.value))}
+                />
+                <span>sites</span>
+              </div>
+              <small>The supplied default is 20.</small>
+            </label>
+            <label className="field">
+              <span>Bootstrap replicates</span>
+              <input
+                type="number"
+                min="10"
+                max="1000"
+                step="10"
+                value={options.bootscanBootstrapReplicates}
+                disabled={!options.bootscanPrimaryEnabled && !options.bootscanSecondaryEnabled}
+                onChange={(event) => set("bootscanBootstrapReplicates", Number(event.target.value))}
+              />
+              <small>Replicate zero is the unresampled window, matching SEQBOOT2.</small>
+            </label>
+            <label className="field">
+              <span>Bootstrap support cutoff</span>
+              <input
+                type="number"
+                min="0.5"
+                max="1"
+                step="0.01"
+                value={options.bootscanSupportCutoff}
+                disabled={!options.bootscanPrimaryEnabled && !options.bootscanSecondaryEnabled}
+                onChange={(event) => set("bootscanSupportCutoff", Number(event.target.value))}
+              />
+              <small>The manual describes approximately 70% as the default detection threshold.</small>
+            </label>
+            <label className="field">
+              <span>BootScan random seed</span>
+              <input
+                type="number"
+                min="1"
+                max="4294967295"
+                step="1"
+                value={options.bootscanRandomSeed}
+                disabled={!options.bootscanPrimaryEnabled && !options.bootscanSecondaryEnabled}
+                onChange={(event) => set("bootscanRandomSeed", Number(event.target.value))}
+              />
+              <small>The supplied default is 3, using the Microsoft 15-bit rand sequence.</small>
             </label>
             <label className="settings-toggle">
               <input
