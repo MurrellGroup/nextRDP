@@ -145,8 +145,8 @@ reconstruction.
 | Native matrix | Browser value |
 | --- | --- |
 | `FMat` / `SMat` | direct whole-outside / whole-inside Jukes–Cantor distance |
-| `FAMat` / `SAMat` | raw whole-outside / whole-inside patristic distance |
-| `FCMat` / `SCMat` | weak-branch-collapsed whole-outside / whole-inside patristic distance |
+| `FAMat` / `SAMat` | raw whole-outside / whole-inside midpoint-ultrametric topology rank |
+| `FCMat` / `SCMat` | weak-node parent-promoted whole-outside / whole-inside topology rank |
 | `*MatSmall(role, y)` | distance from the working representative for `role` to ordinary candidate `y` |
 
 Candidate-to-candidate checks in the equivalence and straggler passes can revisit the same pair many

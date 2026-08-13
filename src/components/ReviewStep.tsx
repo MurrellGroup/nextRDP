@@ -1983,7 +1983,11 @@ export function ReviewStep({
             <p className="evidence-method-note">
               Each candidate must group more closely with the presumed recombinant than either
               parent in both trees of a paired region. Internal branches below 50% bootstrap support
-              are collapsed. {selected.treePanel.subsampled
+              are collapsed. The analytical comparisons use the desktop RDP calculation path and its
+              midpoint-rooted ultrametric topology ranks after Clearcut float NJ and SEQBOOT2
+              resampling (seed {selected.treePanel.randomSeed}); breakpoint flanks target{" "}
+              {selected.treePanel.flankVariableSiteTarget} informative variable sites on each side.{" "}
+              {selected.treePanel.subsampled
                 ? `The closest ${selected.treePanel.sequenceCap} sequences form the tree panel; remaining active sequences use the marked Jukes–Cantor fallback.`
                 : "All active sequences are in the tree panel."}
             </p>
@@ -1992,7 +1996,7 @@ export function ReviewStep({
                 <span className={region.usable ? "is-usable" : ""} key={region.name}>
                   <b>{region.name.replaceAll("-", " ")}</b>
                   {region.usable
-                    ? `${region.supportedInternalBranches}/${region.internalBranches} supported`
+                    ? `${region.supportedInternalBranches}/${region.internalBranches} supported · ${region.collapsedDistanceRankLevels} ranks`
                     : `${region.sites} sites · fallback`}
                 </span>
               ))}

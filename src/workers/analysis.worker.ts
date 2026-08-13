@@ -542,7 +542,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema !== "org.rdp-web.project/v1alpha14" &&
     schema !== "org.rdp-web.project/v1alpha15" &&
     schema !== "org.rdp-web.project/v1alpha16" &&
-    schema !== "org.rdp-web.project/v1alpha17"
+    schema !== "org.rdp-web.project/v1alpha17" &&
+    schema !== "org.rdp-web.project/v1alpha18"
   ) {
     throw new Error(`Unsupported RDP Web project schema: ${schema}`);
   }
@@ -669,7 +670,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const supportsMaxChiDiscovery =
     schema === "org.rdp-web.project/v1alpha10" || supportsReferenceGroups;
   const supportsChimaeraDiscovery =
@@ -678,26 +680,33 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const supportsGeneconvDiscovery =
     schema === "org.rdp-web.project/v1alpha13" ||
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const supportsThreeSeqDiscovery =
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const supportsThreeSeqSplit =
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const supportsBootscanSecondary =
     schema === "org.rdp-web.project/v1alpha16" ||
-    schema === "org.rdp-web.project/v1alpha17";
-  const supportsBootscanPrimary = schema === "org.rdp-web.project/v1alpha17";
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
+  const supportsBootscanPrimary =
+    schema === "org.rdp-web.project/v1alpha17" ||
+    schema === "org.rdp-web.project/v1alpha18";
   const referenceGroups = new Array<number>(restoredDataset.sequenceCount).fill(0);
   if (supportsReferenceGroups &&
       Array.isArray(analysis.referenceGroupIndices)) {

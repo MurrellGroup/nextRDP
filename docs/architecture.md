@@ -84,9 +84,11 @@ or late consensus can identify as recombinant.
   parent pair per event role currently rechecked. Disabled rows incur tree-matrix context cost only.
 - Role/correlation evidence: `O(ENL)` after event grouping. Five coordinate lists are shared; each
   candidate is reduced to fixed category counts and three six-value correlations.
-- Event phylogenetics: six regions and eleven matrices per region (base plus ten bootstraps). NJ is
-  `O(K³)` for `K = min(panel candidates, 100)`. Column-state loading makes each JC matrix
-  `O(K²L_region)`; omitted original candidates use cached anchor-relative JC affinity.
+- Event phylogenetics: six regions, one retained-base plus ten source `SEQBOOT2` weight columns per
+  region, and one single-precision Clearcut-shaped NJ tree per matrix. NJ is `O(K³)` for
+  `K = min(panel candidates, 100)`. Column-state loading makes the full weighted JC family
+  `O(K²L_region R)`; omitted original candidates use cached anchor-relative JC affinity. Raw and
+  collapsed four-decimal path levels are rank-coded once and reused by every analytical consumer.
 - Role consensus: nine fixed metrics over three roles after distance/tree matrices exist.
 - Mapped late-matrix scoring: constant score work per retained candidate after the same six
   distance/tree matrix families exist. Detected-region matching builds valid/difference prefixes in
@@ -179,7 +181,9 @@ or late consensus can identify as recombinant.
   walks reuse the equality vectors; only the on-demand review plot rereads the selected original
   triplet, and its union coordinate grid is downsampled before transfer.
 - Six tree families built once per event and reused by all role hypotheses and metrics.
-- Canonical split keys for bootstrap support rather than tree-string comparison.
+- One compact site-major retained/bootstrap weight matrix per region; no sampled alignment copies.
+- Canonical split keys for bootstrap support rather than repeatedly parsing tree strings; the
+  supplied base-tree pseudocount and VB integer percentage remain unchanged.
 - A lightweight mutable alignment reset that omits the original pair-identity matrix and parser
   diagnostics.
 - Dedicated worker isolation and bounded scheduling.
@@ -217,8 +221,8 @@ the event holding a pending rebuild marker) can be changed; revisiting an earlie
 still allowed and creates a new downstream invalidation point. The same boundary rejects final
 alignment variants unless the scan is complete, every event is decided, and no rebuild is pending.
 
-The emitted schema is `org.rdp-web.project/v1alpha17`; the import path accepts `v1alpha1` through
-`v1alpha17`. Pre-v17 projects restore primary BootScan disabled while retaining their older
+The emitted schema is `org.rdp-web.project/v1alpha18`; the import path accepts `v1alpha1` through
+`v1alpha18`. Pre-v17 projects restore primary BootScan disabled while retaining their older
 optional BootScan corroboration setting. Pre-v11 projects restore the fully exploratory scheduler. Projects through
 `v1alpha9` restore MaxChi disabled, v10/v11 restore CHIMAERA disabled, and every pre-v13 project
 restores GENECONV disabled. Every pre-v14 project restores 3SEQ disabled, and v14 projects reject
@@ -242,7 +246,8 @@ analysis is written to browser storage, and no sequence data leaves the tab.
 
 The checked-in Pages workflow runs only for a manual dispatch or a push to the repository's actual
 default branch. It restores the locked npm graph under Node 20, provisions Emscripten 5.0.1, checks
-the strict TypeScript contract, builds the single-worker C++/WASM target and Vite application, then
+the strict TypeScript contract plus linked BootScan/cache and supplied-source event-tree cores,
+builds the single-worker C++/WASM target and Vite application, then
 uploads only `dist/` through the official Pages artifact/deployment path.
 The wrappers use the current Node-24-generation action releases; hidden-file inclusion is explicit
 so the verified `.nojekyll` marker is not dropped by the artifact action.

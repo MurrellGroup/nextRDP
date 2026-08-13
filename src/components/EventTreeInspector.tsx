@@ -211,7 +211,8 @@ function TreeFigure({
           <strong>{region.sites.toLocaleString()} sites</strong>
         </div>
         <small>
-          {region.supportedInternalBranches}/{region.internalBranches} internal branches ≥50%
+          {region.supportedInternalBranches}/{region.internalBranches} internal branches ≥50% ·{" "}
+          {region.collapsedDistanceRankLevels} distance ranks
         </small>
       </header>
       <div className="event-tree-scroll" tabIndex={0}>
@@ -357,14 +358,16 @@ export function EventTreeInspector({
             <TreeFigure region={selectedRegions[1]} leaves={view.leaves} collapseWeak={collapseWeak} />
           </div>
           <p className="tree-inspector-footnote">
-            <GitBranch size={13} /> Jukes–Cantor neighbour joining · {view.bootstrapReplicates}
-            {" "}deterministic bootstrap replicates · branch labels are percentages. Opening this
+            <GitBranch size={13} /> Supplied Clearcut float NJ · {view.bootstrapReplicates}
+            {" "}Microsoft-CRT SEQBOOT2 replicates (seed {view.randomSeed}) · branch labels use the
+            desktop base-tree pseudocount percentages. Analysis uses the midpoint-rooted ultrametric
+            rank matrices; this drawing uses the saved five-decimal branch lengths. Opening this
             panel transfers only the bounded edge list already produced for reconciliation, not
             distance matrices or alignment rows{view.subsampled
               ? ` · the closest ${view.sequenceCap} working sequences form this panel`
               : ""}{view.fragmentAssisted
               ? " · retained-fragment leaves are labelled with their source event"
-              : ""}.
+              : ""} · breakpoint flanks target {view.flankVariableSiteTarget} informative variable sites.
           </p>
         </>
       ) : null}

@@ -267,6 +267,10 @@ struct TreeRegionSummary {
   std::size_t bootstrap_replicates = 0;
   std::size_t supported_internal_branches = 0;
   std::size_t internal_branches = 0;
+  std::size_t raw_distance_rank_levels = 0;
+  std::size_t collapsed_distance_rank_levels = 0;
+  std::size_t negative_branches_normalized = 0;
+  std::uint32_t bootstrap_random_seed = 0;
   std::size_t node_count = 0;
   std::size_t root = 0;
   std::vector<TreeTopologyEdgeSummary> topology_edges;

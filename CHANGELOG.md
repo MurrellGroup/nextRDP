@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.20.0-session-20
+
+- Traced the automatic six-region event-tree workflow through the supplied `TestMoveInTree`,
+  `MakeNJTreesP`, bundled Clearcut, `SEQBOOT2`, `FastBootDistIP6`, `TreeRepsP`, `CollapseNodes`,
+  `Tree2ArrayP`, and `MakeTreeArrayXP2` paths.
+- Replaced the generic double-precision NJ/bootstrap helper with source-shaped single-precision
+  Clearcut NJ, including its ordered strict ties, first-round terminal-`r2` behavior, packed
+  collapse order, final-clade branches, negative-sign suppression, and five-decimal serialization.
+- Reproduced the Microsoft CRT bootstrap stream, both discarded draws, retained unresampled base
+  column, configured shared seed, base-tree support pseudocount, VB6 integer rounding, and strict
+  below-50% collapse rule.
+- Replaced raw branch-length analytical matrices with the supplied `TreeMidP`/`UltraTreeDistP`
+  midpoint-ultrametric, four-decimal ascending `rank / 1000` topology distances. Weak-node collapse
+  promotes to existing parent ranks without recompressing the scale before TreePhPr, TreeSubPhPr,
+  TreeSubDist, TrpScore, phylogenetic grouping, and later role consensus.
+- Deliberately repaired the supplied Newick writer/parser root-child defect: every actual edge is
+  handed to the four-digit clamp/midpoint pipeline instead of scanning into an unrelated token in
+  the opposite subtree. This numerical fix is explicit in provenance and remains golden-testable.
+- Kept the manual's advertised six-tree workflow with four independently bounded
+  20-informative-variable-site flanks. The late VB source's two bootstrapped whole-region trees plus
+  60-site direct-`DMatS` flank divergence is documented and remains an explicit golden boundary.
+- Exposed event-tree kernel, seed, rank-level, normalized-negative-branch, and bootstrap provenance
+  through typed results, project snapshots, the Windows 95 review UI, and lazy graphical endpoint.
+- Added a deterministic linked event-tree regression and required it in GitHub Pages Actions beside
+  the existing full-core BootScan regression.
+- Advanced the engine/package version to `0.20.0-session-20` and project schema to
+  `org.rdp-web.project/v1alpha18`; imports remain compatible through `v1alpha1`.
+
 ## 0.19.0-session-19
 
 - Added source-shaped automated distance-mode BootScan as a primary discovery method in the

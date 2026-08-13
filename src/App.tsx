@@ -1007,7 +1007,7 @@ export function App() {
                     : "Checkpoint current"}
               </span>
             ) : null}
-            <span className="session-pill">Win95 edition · session 19</span>
+            <span className="session-pill">Win95 edition · session 20</span>
           </div>
         </div>
       </header>
@@ -1145,7 +1145,7 @@ export function App() {
       <footer className="app-statusbar" aria-live="polite">
         <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
         <span>{filename || "No alignment loaded"}</span>
-        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.19"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.20"}</span>
       </footer>
     </div>
   );

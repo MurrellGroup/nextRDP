@@ -3,7 +3,7 @@
 The manual treats recombination analysis as hypothesis construction and ordered review, not a
 single “run” operation. RDP Web uses the same staged shape.
 
-| Manual workflow | Browser implementation | Session 19 boundary |
+| Manual workflow | Browser implementation | Session 20 boundary |
 | --- | --- | --- |
 | Load an aligned nucleotide dataset | Drag/drop local alignment; validate format and length | GenBank/ORFMap, PDB, and `.rdp5` import remain pending |
 | Inspect diversity and alignment quality | Identity, missing-data, variable-site, and informative-site summaries | Full alignment editor/checker remains pending |
@@ -16,7 +16,7 @@ single “run” operation. RDP Web uses the same staged shape.
 | Test all three recombinant roles | Each anchor rotates through recombinant position | Current roles are preserved until the weighted recommendation is applied |
 | Build detectable sets | Direct supporting signals plus iterative cross-role closure | Native event-network parity remains a golden-test item |
 | Build distance-correlation sets | Five regions; six-value Pearson; five relabellings; warnings; overlap; `MakeACOR`; `MakeRList`; `StripDupInv`; duplicate cleanup; nearest-nonrecombinant `OKSeq 6`; both expansions; active matrix `OKSeq` 7–14; selected pruning; `OKSeq 15`; `CalcMatchY` 17/18; complete CScore; all three `ConsensusOK` passes; shared selected-tree cleanup; primary-RDP finalized-list rechecks; MaxChi/CHIMAERA strongest-peak rechecks; ordinary six-track GENECONV; and `TSXOver(1)` 3SEQ Findall for each finalized nonrepresentative | Source-only and unvalidated; full native method-stack event reconstruction and other method-family rechecks remain |
-| Build phylogenetic-correlation sets | Six JC matrices; ten bootstrap NJ replicates; 50% branch collapse; three tree pairs | Above 100 panel sequences, labelled JC fallback controls cost |
+| Build phylogenetic-correlation sets | Six JC families; supplied float Clearcut NJ; Microsoft-CRT `SEQBOOT2`; retained-base pseudocount; `TreeMidP`/`UltraTreeDistP`; below-50% parent-rank promotion; raw/collapsed `MakeTreeArrayXP2` rank distances; three tree pairs | Above 100 panel sequences, labelled JC fallback controls cost; source-shaped path and explicit writer/parser repair are host-regression-tested but still await native golden matrices |
 | Form co-recombinant groups | Any original sequence present in at least two of the three evidence sets | Implemented, not native validated |
 | Identify recombinant and parents | Nine visible metrics; eight use mapped native full/half weights | Missing native method families keep full-weight parity false |
 | Examine masked relatives | Recheck every masked sequence against event parent representatives | Full native trace score remains pending |
@@ -24,7 +24,7 @@ single “run” operation. RDP Web uses the same staged shape.
 | Correct an early event | Edit/apply recommendation, record decision, re-erase corrected group, rediscover later calls | The manual's RDP erased-tract one-window uncertainty rule and separate BURT/`PolishBP` statistical 95%/99% confidence/repositioning evidence are exposed; manual breakpoint edits stay authoritative |
 | Correct over/under-grouping | Search and edit current co-recombinant membership while retaining the automatic post-ConsensusOK two-of-three baseline | Manual group remains authoritative for downstream erasure/export |
 | Reject an event | Preserve rejection for audit, restore its tract, suppress that fixed call, rediscover later calls | Runtime/native replay parity remains unvalidated |
-| Save often | Review-header checkpoint plus export-page project download; a dirty/current indicator, tab-exit warning, and destructive-replacement guard track whether the latest scan/review state was downloaded; `v1alpha17` retains alignment, analysis scheme/reference groups, every discovery trace, BootScan cache/work counters, fragment provenance, late rechecks, final membership stages, groups, edits, and decisions | Alpha schema, not an `.rdp5` replacement; pre-v17 imports keep primary BootScan disabled and all earlier method gates remain conservative |
+| Save often | Review-header checkpoint plus export-page project download; a dirty/current indicator, tab-exit warning, and destructive-replacement guard track whether the latest scan/review state was downloaded; `v1alpha18` retains alignment, event-tree provenance, analysis scheme/reference groups, every discovery trace, BootScan cache/work counters, fragment provenance, late rechecks, final membership stages, groups, edits, and decisions | Alpha schema, not an `.rdp5` replacement; pre-v17 imports keep primary BootScan disabled and all earlier method gates remain conservative |
 | Export tables and alignment variants | CSV; full, enabled-only, and masked/disabled-only row subsets available immediately after load; plus the common accepted-event variants: remove recombinant sequences, remove recombinant columns, tract-mask each current group, or split aligned mosaic fragments | Event variants use accepted current roles/groups and all remain unvalidated |
 
 ## Defaults carried over

@@ -70,12 +70,12 @@ browser cyclic-state interpretation that requires a native fragment fixture beca
 | `CalCR` Pearson and relabelling | `pearson_six_two_sided_p`, `best_category_correlation` | Direct correlation, three pair swaps, and both cyclic relabellings; cycles share native class four |
 | `RCorrWarn` | `correlation_warnings`, distance-triangle guard | Dominant-category warnings plus the source distance-triangle branch and XOR tract/outside warning behavior |
 | `MakeGoodC` | `breakpoint_overlap_sites` | Strictly more than ten non-gap candidate sites across either breakpoint span |
-| `MakeINList` / `MakeACOR` | `source_in_list`, `acceptable_affinity` | Closest outside/inside representative pair maps to the active topology-affinity inequalities; raw patristic distance is preferred with JC fallback |
+| `MakeINList` / `MakeACOR` | `source_in_list`, `acceptable_affinity` | Closest outside/inside representative pair maps to the active topology-affinity inequalities; raw midpoint-ultrametric topology rank is preferred with JC fallback |
 | `MakeRList` | distance evidence finalisation | Preserves the exact first-two-correlation `corc == 2` override quirk and warning-adjusted positive P-score aggregate |
 | `StripDupInv` | `stripped_inverse_only` final membership | Inverse `r > 0.83` remains diagnostic, while active inverse-only rows are removed from the distance set |
 | Opening `FinalTrim` duplicate pass | `duplicate_filtered`, `duplicate_cleaned_support` | Warning/inversion-cleared direct pairs above `0.83` are counted across all three role lists; once a sequence/pair count exceeds one, that pair is suppressed for every occurrence in every role list, matching the source's pair-wide second pass |
 | `FinalTrim` `OKSeq 6` | nearest-membership fixed-point block | Reconstructs ascending `MakeRList` order plus `StripDupInv` swap-last deletion, then repeats raw/collapsed nearest-nonrecombinant limits, strict `0.83`/`0.95`/`0.99` correlation tickets, unfound-event deletion, and paired four-breakpoint JC veto until the source last-index stop condition holds |
-| `FinalTrim` `OKSeq` 7/8 | `FinalTrimMatrixEvidence` tree-position scores | Applies the source's four anchor/parent and candidate/parent comparisons to collapsed and raw outside/inside patristic matrices, including strict/tied rewards and role modifiers |
+| `FinalTrim` `OKSeq` 7/8 | `FinalTrimMatrixEvidence` tree-position scores | Applies the source's four anchor/parent and candidate/parent comparisons to collapsed and raw outside/inside topology-rank matrices, including strict/tied rewards and role modifiers |
 | `FinalTrim` `OKSeq` 9/12/13 | `FinalTrimMatrixEvidence` distance scores | Ports whole-tract and both breakpoint-pair JC branches, native warning/`<3` gates, positive downweighting, weaker-positive suppression, and negative quarter/half/full penalties; scores feed active CScore |
 | `FindActualEvents` / `MakeMatchMatX2P`, `OKSeq 14` | `SourceDetectedTractGrid`, match-matrix prefix path | Uses the active direct-event catalogue, pre-inversion-strip membership, inverse-parent gate, strict `>1/3` overlap and best tract, circular/intersected JC distance with native saturation, all signed branches, and the source's bare-`CompMat` index lookup |
 | `CheckPatternX`, `OKSeq 3` | `source_pattern_scores` | Counts source `1`/`0.5` informative-state patterns across both breakpoint spans and the tract, then emits each role's share with its representative sentinel |
@@ -86,9 +86,9 @@ browser cyclic-state interpretation that requires a native fragment fixture beca
 | `ConsensusOK` list rebuild | primary/equivalent/straggler membership block | Clears all three lists, applies score/regional/class thresholds and collapsed/raw topology fallbacks, snapshots each widening pass, preserves exact six-distance equality and direct/raw straggler comparisons, and restores all old lists if any rebuilt role is empty |
 | Shared selected-role conservative cleanup | post-rebuild tree cleanup block | Accumulates direct whole-region movement sums as Single, ranks all three representatives, applies native raw/direct outlier and clade-equality constraints with swap-last removal, then adds bounded or strict four-matrix inliers; preserves the `FAMatSmall <= HDF` and always-true `Or x = x` branches |
 | Six event subalignments | `build_phylogenetic_regions` | Both breakpoint flanks plus whole outside/inside tract partitions |
-| Jukes–Cantor matrices | `phylogeny.cpp` | Pairwise valid sites; `-0.75 ln(1-4p/3)`; saturated/insufficient pairs use native-style distance 10 |
-| Event tree path | `build_tree_region_evidence` | Deterministic NJ, ten column-bootstrap replicates, canonical split support, and collapse below 50% |
-| Manual tree displays | `event_trees_json`, `EventTreeInspector` | Reuses exact saved edges for all six reconciliation trees; compares each region pair, exposes branch support/collapse and fragment provenance, and arbitrarily roots only the SVG representation |
+| Jukes–Cantor matrices | `phylogeny.cpp` | Supplied `FastBootDistIP6` single-precision valid/difference accumulation; identity ≤0.25 or no comparable sites uses distance 10 |
+| Event tree path | `build_tree_region_evidence` | Source-shaped bundled Clearcut float NJ; Microsoft-CRT `SEQBOOT2`; retained-base pseudocount; VB integer support; `TreeMidP`/`UltraTreeDistP` midpoint ultrametricization; below-50% parent-rank promotion; raw/collapsed `MakeTreeArrayXP2` rank/1000 matrices |
+| Manual tree displays | `event_trees_json`, `EventTreeInspector` | Reuses source-serialized five-decimal saved edges for all six reconciliation trees while identifying the separate analytical rank matrices; compares each region pair, exposes branch support/collapse, seed, and fragment provenance |
 | Large-set tree bound | `select_tree_sequences` | All three anchors plus the closest active originals, capped at 100; omitted candidates use labelled JC affinity |
 | `CheckBSTree` grouping shape | phylogenetic evidence loop | Candidate-anchor distance must beat both anchor-parent and candidate-parent distances in both trees of a pair |
 | Manual “two of three” rule | `complete_two_of_three_set` | Detectable, distance, and phylogenetic membership are counted independently; two memberships include the sequence |
@@ -200,7 +200,8 @@ The full desktop method battery is not present, so JSON deliberately keeps
    threshold need focused native fixtures.
 10. The 100-sequence tree panel, 256-fragment cap, and omission of non-anchor fragment aliases from
     event trees are explicit browser adaptations.
-11. NJ tie/negative-branch behavior and split support require native tree fixtures.
+11. The source-shaped Clearcut tie/negative-branch behavior, split support, and ranked matrices have
+    a deterministic host regression but still require authorized native golden tree fixtures.
 12. Several native recombinant-identification method families remain absent despite the mapped
     weights for the implemented subset.
 13. The manual's RDP-specific uncertainty flag, supplied `CheckEnds` range construction, active

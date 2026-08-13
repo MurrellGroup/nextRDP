@@ -683,6 +683,10 @@ export interface TreeRegionSummary {
   bootstrapReplicates: number;
   supportedInternalBranches: number;
   internalBranches: number;
+  rawDistanceRankLevels: number;
+  collapsedDistanceRankLevels: number;
+  negativeBranchesNormalized: number;
+  bootstrapRandomSeed: number;
   usable: boolean;
 }
 
@@ -690,6 +694,16 @@ export interface TreePanelSummary {
   sequenceCount: number;
   subsampled: boolean;
   sequenceCap: number;
+  njKernel: "supplied-clearcut-float";
+  distanceEncoding: "source-midpoint-ultrametric-ranks";
+  bootstrapGenerator: "microsoft-crt-seqboot2";
+  bootstrapSupport: "base-tree-pseudocount";
+  negativeBranchPolicy: "absolute-five-decimal-serialization";
+  analyticalBranchParsing: "four-decimal-clamped-complete-edge-repair";
+  treeRooting: "source-midpoint-ultrametric";
+  collapseEncoding: "parent-rank-promotion-no-recompression";
+  randomSeed: number;
+  flankVariableSiteTarget: number;
   regions: TreeRegionSummary[];
 }
 
@@ -950,6 +964,10 @@ export interface EventTreeRegion {
   bootstrapReplicates: number;
   supportedInternalBranches: number;
   internalBranches: number;
+  rawDistanceRankLevels: number;
+  collapsedDistanceRankLevels: number;
+  negativeBranchesNormalized: number;
+  bootstrapRandomSeed: number;
   edges: EventTreeEdge[];
 }
 
@@ -957,9 +975,19 @@ export interface EventTreeView {
   eventId: number;
   method: "neighbour-joining";
   distance: "Jukes-Cantor";
+  njKernel: "supplied-clearcut-float";
+  distanceEncoding: "source-midpoint-ultrametric-ranks";
+  bootstrapGenerator: "microsoft-crt-seqboot2";
+  bootstrapSupport: "base-tree-pseudocount";
+  negativeBranchPolicy: "absolute-five-decimal-serialization";
+  analyticalBranchParsing: "four-decimal-clamped-complete-edge-repair";
+  treeRooting: "source-midpoint-ultrametric";
+  collapseEncoding: "parent-rank-promotion-no-recompression";
   displayRooting: "arbitrary-internal-node";
   bootstrapCollapseCutoff: number;
   bootstrapReplicates: number;
+  randomSeed: number;
+  flankVariableSiteTarget: number;
   subsampled: boolean;
   sequenceCap: number;
   fragmentAssisted: boolean;

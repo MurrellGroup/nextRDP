@@ -4,10 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 19 source checkpoint — primary distance-mode BootScan and pair-profile reuse.** This
-> archive contains source only. Primary BootScan now participates in strongest-first cyclic event
-> discovery, with bounded shared-pair caching and explicit probability scopes. The Windows 95 skin
-> and graceful cyclic stop remain intact.
+> **Session 20 source checkpoint — supplied event-tree calculation path.** This archive contains
+> source only. Six-region event trees now follow the supplied Clearcut/SEQBOOT2/collapse/ranked-
+> distance path used by reconciliation. Primary BootScan caching, the Windows 95 skin, and graceful
+> cyclic stop remain intact.
 
 ## What this checkpoint contains
 
@@ -144,8 +144,12 @@ core runs in WebAssembly.
   its best six-track KA fragment, and `TSXOver(1)` evaluates both split walk orientations plus the
   supplied inverse-parent/inverse-interval list copy. These records keep their own probability
   scopes and never move a reconciled event.
-- Six Jukes–Cantor neighbour-joining trees per event, deterministic ten-replicate column bootstrap,
-  50% support collapse, and paired-tree phylogenetic-correlation membership.
+- Six Jukes–Cantor event trees using the supplied single-precision Clearcut NJ path, Microsoft-CRT
+  `SEQBOOT2` ten-replicate weights, retained-base-tree support pseudocount, VB-rounded percentage,
+  `TreeMidP`/`UltraTreeDistP` midpoint rooting, 50% node collapse, and
+  `MakeTreeArrayXP2`-shaped rank-coded topology distances. The raw/collapsed
+  rank matrices now feed TreePhPr, TreeSubPhPr, TreeSubDist, TrpScore, paired-tree membership, and
+  downstream role consensus; source-serialized five-decimal branches remain separate display data.
 - Iterative detectable-set closure and the manual's complete “present in at least two of three”
   co-recombinant group for every presumed-recombinant role.
 - An auditable source-decision-tree role recommendation: nine displayed metrics cover direct, raw-
@@ -173,7 +177,7 @@ core runs in WebAssembly.
 - A batched erase/fragment/re-scan cycle that re-identifies later events after a correction or
   rejection. Core/API guards enforce review order; mid-repair project reload drops the stale tail,
   remaps retained signal anchors, and resumes at the changed event.
-- Reloadable project JSON (`v1alpha17`, accepting `v1alpha1`–`v1alpha17`), expanded event-level CSV,
+- Reloadable project JSON (`v1alpha18`, accepting `v1alpha1`–`v1alpha18`), expanded event-level CSV,
   full, enabled-only, and masked/disabled-only curation FASTA directly from the loaded dataset,
   accepted-group sequence removal,
   accepted-tract column removal, tract-masking FASTA, and event-ordered mosaic-fragment FASTA.
@@ -183,7 +187,8 @@ core runs in WebAssembly.
   review/repair changes visibly require a fresh project checkpoint; tab exit and destructive
   dataset/settings replacement warn until that checkpoint is downloaded.
 - A GitHub Pages Actions workflow that installs locked JavaScript dependencies, provisions a pinned
-  Emscripten toolchain, checks the C ABI/worker/version/schema contract and TypeScript, builds the
+  Emscripten toolchain, checks the C ABI/worker/version/schema contract, TypeScript, the linked
+  BootScan/cache core, and the supplied-source event-tree core, builds the
   compatibility WASM target and Vite site, validates the deployment artifact, and publishes it
   without a separate hosting service.
 - A responsive, accessible React interface that requires no application server.
@@ -225,7 +230,8 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), the
 [cyclic-shortlist trace](docs/native-cyclic-shortlist-trace.md), and the
 [BootScan discovery trace](docs/native-bootscan-discovery-trace.md), and the
-[Session 19 handoff](docs/session-19-handoff.md) before interpreting results or starting the next phase.
+[event-tree kernel trace](docs/native-event-tree-kernel-trace.md), and the
+[Session 20 handoff](docs/session-20-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 

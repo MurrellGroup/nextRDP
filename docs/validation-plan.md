@@ -18,7 +18,8 @@ first runtime checkpoint must use a disposable, resource-limited environment and
 5. Load the smallest three-sequence fixture before any multi-event or production input.
 
 The GitHub Pages workflow encodes steps 1–4 as remote gates: `npm ci`, a header/CMake/worker
-ABI-version-schema check, strict TypeScript checking, the single-worker Emscripten/Vite build, and
+ABI-version-schema check, strict TypeScript checking, linked BootScan/cache and event-tree core
+regressions, the single-worker Emscripten/Vite build, and
 `scripts/verify-pages-output.mjs`. The artifact verifier requires
 top-level `index.html`, `.nojekyll`, `wasm/rdp-core.mjs`, and a nonempty binary with the WebAssembly
 magic header; it rejects root-relative HTML assets and symbolic/hard links. This workflow has not
@@ -189,10 +190,15 @@ accepted correction or rejection.
 - Six-checkpoint fixtures immediately below/at/above 0.6/0.65/0.7/0.75/0.8/0.9; compare raw
   `OKSeq 18`, both `BreaksExist` flags, zero-sentinel sampling, and each `ConsensusOK` topology-order
   rejection with and without a candidate outside the bounded tree panel.
-- Six-region JC matrices with gaps, saturation, exactly 9/10 comparable positions, and both whole
-  tract partitions.
-- Four-to-ten-taxon NJ ties, negative limbs, and known splits; compare native patristic matrices.
-- Bootstrap branches at 4/10, 5/10, and 6/10 support.
+- Six-region JC matrices with gaps, saturation, zero/one comparable positions, and both whole tract
+  partitions; compare the single-precision `FastBootDistIP6` output.
+- Four-to-ten-taxon NJ ties, negative limbs, first-round terminal `r2`, packed collapse order, and
+  final-clade branches; compare the supplied Clearcut Newick after five-decimal serialization.
+- Seed-3 and nondefault `SEQBOOT2` site-major weights, including both discarded draws and retained
+  replicate zero. Compare bootstrap nodes at 4/10, 5/10, and 6/10 matches after the base-tree
+  pseudocount and VB6 `CLng` conversion.
+- Compare `Tree2ArrayP` paths and `MakeTreeArrayXP2` raw/collapsed rank/1000 matrices—not generic
+  branch-length patristic matrices—before comparing TreePhPr-family role scores.
 - A candidate satisfying each paired-tree affinity check, plus one that passes raw trees but fails
   after collapse.
 - Active tree panels of 99, 100, and 101 records to verify full-panel/fallback labeling.
@@ -446,7 +452,7 @@ implementation as an oracle.
   later triplets hit those profiles, peak bytes stay within 64 MiB, in-flight `shared_ptr` profiles
   survive FIFO eviction, and every erasure/re-entry round invalidates stale entries. Compare event
   results with a cache-disabled build.
-- Confirm `v1alpha17` saves/restores method code 5, discovery evidence, all cache/work counters,
+- Confirm `v1alpha18` saves/restores method code 5, discovery evidence, all cache/work counters,
   event support, and review plot; pre-v17 imports must leave primary BootScan disabled. Exercise
   public-ABI and production-WASM Pages fixtures in both exploratory and query/reference schedules.
 - Keep tree, similarity, alternative substitution-model, permutation, manual, and full late

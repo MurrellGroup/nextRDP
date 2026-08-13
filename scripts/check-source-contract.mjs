@@ -11,6 +11,8 @@ const [
   implementation,
   method,
   burt,
+  phylogenyHeader,
+  phylogeny,
   bootscanHeader,
   bootscan,
   maxchi,
@@ -37,11 +39,15 @@ const [
   pagesVerifier,
   bootscanCoreVerifier,
   bootscanCoreScript,
+  treeCoreVerifier,
+  treeCoreScript,
   sessionHandoff,
   session17Handoff,
   session18Handoff,
   session19Handoff,
+  session20Handoff,
   bootscanTrace,
+  eventTreeTrace,
   chimaeraTrace,
   geneconvTrace,
   threeSeqTrace,
@@ -57,6 +63,8 @@ const [
   read("wasm/src/rdp_api.cpp"),
   read("wasm/src/rdp_method.cpp"),
   read("wasm/src/burt_confidence.cpp"),
+  read("wasm/src/phylogeny.hpp"),
+  read("wasm/src/phylogeny.cpp"),
   read("wasm/src/bootscan.hpp"),
   read("wasm/src/bootscan.cpp"),
   read("wasm/src/maxchi.cpp"),
@@ -83,11 +91,15 @@ const [
   read("scripts/verify-pages-output.mjs"),
   read("scripts/verify-bootscan-core.cpp"),
   read("scripts/check-bootscan-core.sh"),
+  read("scripts/verify-tree-core.cpp"),
+  read("scripts/check-tree-core.sh"),
   read("docs/session-15-handoff.md"),
   read("docs/session-17-handoff.md"),
   read("docs/session-18-handoff.md"),
   read("docs/session-19-handoff.md"),
+  read("docs/session-20-handoff.md"),
   read("docs/native-bootscan-discovery-trace.md"),
+  read("docs/native-event-tree-kernel-trace.md"),
   read("docs/native-chimaera-discovery-trace.md"),
   read("docs/native-geneconv-discovery-trace.md"),
   read("docs/native-threeseq-discovery-trace.md"),
@@ -214,11 +226,11 @@ if (!method.includes(`\\\"engineVersion\\\":\\\"${version}\\\"`)) {
   fail("rdp_method.cpp result version differs from package.json");
 }
 
-const schema = "org.rdp-web.project/v1alpha17";
+const schema = "org.rdp-web.project/v1alpha18";
 if (!implementation.includes(schema) || !worker.includes(schema)) {
   fail(`emitted/imported project schema ${schema} is not aligned`);
 }
-for (let generation = 1; generation <= 17; generation += 1) {
+for (let generation = 1; generation <= 18; generation += 1) {
   if (!worker.includes(`schema !== "org.rdp-web.project/v1alpha${generation}"`)) {
     fail(`v1alpha${generation} project import is missing`);
   }
@@ -1581,29 +1593,132 @@ for (const traceContract of [
     fail(`BootScan supplied-source trace is missing ${traceContract}`);
   }
 }
-if (!readme.includes("Session 19 source checkpoint") ||
-    !readme.includes("v1alpha17") ||
+for (const handoffContract of [
+  "0.20.0-session-20",
+  "org.rdp-web.project/v1alpha18",
+  "Clearcut",
+  "SEQBOOT2",
+  "FastBootDistIP6",
+  "TreeRepsP",
+  "MakeTreeArrayXP2",
+  "rank-coded",
+  "20-variable-site",
+  "DMatS",
+  "TreePhPr",
+  "event-tree core regression",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session20Handoff.includes(handoffContract)) {
+    fail(`Session 20 handoff is missing ${handoffContract}`);
+  }
+}
+for (const traceContract of [
+  "TestMoveInTree",
+  "MakeNJTreesP",
+  "Clearcut",
+  "SEQBOOT2",
+  "FastBootDistIP6",
+  "TreeRepsP",
+  "CollapseNodes",
+  "Tree2ArrayP",
+  "MakeTreeArrayXP2",
+  "TreeMidP",
+  "UltraTreeDistP",
+  "MakeBPosLR(VSN=60)",
+  "Microsoft CRT",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!eventTreeTrace.includes(traceContract)) {
+    fail(`event-tree supplied-source trace is missing ${traceContract}`);
+  }
+}
+for (const treeContract of [
+  "class MicrosoftCRand",
+  "source_event_bootstrap_weights_impl",
+  "source_clearcut_neighbor_joining",
+  "transformed_sums(leaf_count, 0.0F)",
+  "source_serialized_branch_length",
+  "std::trunc(magnitude * 100000.0)",
+  "source_rank_tree_distances",
+  "source_vb_round_nonnegative",
+  "static_cast<double>(count) + 1.0",
+]) {
+  if (!phylogeny.includes(treeContract)) {
+    fail(`supplied-source event-tree kernel is missing ${treeContract}`);
+  }
+}
+for (const treeContract of [
+  "source_event_bootstrap_weights",
+  "source_clearcut_float_nj",
+  "source_ranked_tree_distances",
+  "source_midpoint_ultrametric",
+  "source_parent_rank_collapse",
+  "source_seqboot2_bootstrap",
+  "source_bootstrap_pseudocount",
+]) {
+  if (!phylogenyHeader.includes(treeContract)) {
+    fail(`event-tree public provenance contract is missing ${treeContract}`);
+  }
+}
+for (const treeResultContract of [
+  "supplied-clearcut-float",
+  "source-midpoint-ultrametric-ranks",
+  "microsoft-crt-seqboot2",
+  "base-tree-pseudocount",
+  "negativeBranchesNormalized",
+  "bootstrapRandomSeed",
+  "flankVariableSiteTarget",
+  "four-decimal-clamped-complete-edge-repair",
+  "source-midpoint-ultrametric",
+  "parent-rank-promotion-no-recompression",
+]) {
+  if (!method.includes(treeResultContract) || !types.includes(treeResultContract)) {
+    fail(`event-tree result/type contract is missing ${treeResultContract}`);
+  }
+}
+if (!treeCoreVerifier.includes("expected_weights") ||
+    !treeCoreVerifier.includes("replicate-zero pseudocount") ||
+    !treeCoreVerifier.includes("midpoint-rooted ultrametric analytical ranks") ||
+    !treeCoreScript.includes("wasm/src/phylogeny.cpp") ||
+    !pagesWorkflow.includes("npm run check:tree-core")) {
+  fail("event-tree host regression or Pages gate is incomplete");
+}
+if (!bootscanCoreVerifier.includes("source-midpoint-ultrametric-ranks") ||
+    !bootscanCoreVerifier.includes("rdp_get_event_trees_json(handle, 0)") ||
+    !bootscanCoreVerifier.includes("org.rdp-web.project/v1alpha18")) {
+  fail("linked public-API regression does not cover Session 20 tree/schema output");
+}
+if (!method.includes("kEventTreeFlankInformativeSites = 20") ||
+    !method.includes("build_phylogenetic_regions(") ||
+    !method.includes("flankVariableSiteTarget\\\":")) {
+  fail("manual six-tree 20-variable-site flank construction is missing");
+}
+if (!readme.includes("Session 20 source checkpoint") ||
+    !readme.includes("v1alpha18") ||
     !readme.includes("cyclic-shortlist trace") ||
     !readme.includes("native-bootscan-discovery-trace") ||
-    !readme.includes("session-19-handoff") ||
-    !status.includes("Port status — session 19") ||
+    !readme.includes("native-event-tree-kernel-trace") ||
+    !readme.includes("session-20-handoff") ||
+    !status.includes("Port status — session 20") ||
+    !status.includes("Source event-tree kernel") ||
     !status.includes("Primary BootScan distance screen") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 19 README/status documentation is stale");
+  fail("Session 20 README/status documentation is stale");
 }
-if (!app.includes("Win95 edition · session 19") ||
-    !app.includes("RDP Web 0.19")) {
-  fail("Session 19 application chrome is stale");
+if (!app.includes("Win95 edition · session 20") ||
+    !app.includes("RDP Web 0.20")) {
+  fail("Session 20 application chrome is stale");
 }
-if (!exportStep.includes("Session 19 snapshot") ||
+if (!exportStep.includes("Session 20 snapshot") ||
+    !exportStep.includes("supplied-source ranked event-tree provenance") ||
     !exportStep.includes("primary BootScan") ||
     !exportStep.includes("bounded pair-profile reuse") ||
     !exportStep.includes("target-rotated 3SEQ") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)")) {
-  fail("Session 19 export fidelity boundary is stale");
+  fail("Session 20 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",

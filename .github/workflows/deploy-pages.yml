@@ -47,6 +47,9 @@ jobs:
       - name: Check primary BootScan core and cache
         run: npm run check:bootscan-core
 
+      - name: Check supplied-source event-tree core
+        run: npm run check:tree-core
+
       - name: Build WASM and web application
         run: npm run build
 

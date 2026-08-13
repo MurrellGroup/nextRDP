@@ -1,8 +1,14 @@
 The generated Emscripten module is written here by scripts/build-wasm.sh.
 
-Session 19 adds primary automated distance-mode BootScan discovery and keeps the
+Session 20 adds the supplied event-tree calculation path and keeps the
 supplied native projects read-only.
 The source exports lazy breakpoint-alignment and six-region event-tree review endpoints.
+Six-region event trees now use source-shaped single-precision Clearcut NJ,
+Microsoft-CRT SEQBOOT2 resampling, retained-base-tree support pseudocounts,
+50% node collapse, and the midpoint-rooted ultrametric rank matrices consumed by
+TreePhPr, TreeSubPhPr, TreeSubDist, TrpScore, and reconciliation. Graphs retain
+the source-serialized five-decimal branch lengths while analytical comparisons
+use those ranked matrices.
 The primary-RDP late-consensus source now actively maps OKSeq 0-18, FinalTrim,
 ConsensusOK, shared selected-tree cleanup, and finalized-list RDP rechecks.
 Source-shaped ordinary-triplet MaxChi discovery is active alongside RDP, including

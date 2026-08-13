@@ -24,6 +24,7 @@ namespace {
 constexpr double kMinimumProbability = 1e-300;
 constexpr double kDistanceCorrelationCutoff = 0.05;
 constexpr std::size_t kCorrelationFlankInformativeSites = 60;
+constexpr std::size_t kEventTreeFlankInformativeSites = 20;
 constexpr std::size_t kEventTreeBootstrapReplicates = 10;
 constexpr std::size_t kEventTreeSequenceCap = 100;
 constexpr std::size_t kWorkingFragmentSequenceCap = 256;
@@ -323,12 +324,13 @@ bool triplet_informative_at(
       (second == third && second != first);
 }
 
-std::size_t correlation_boundary(
+std::size_t informative_boundary(
     const Alignment& alignment,
     const std::array<std::uint32_t, 3>& triplet,
     std::size_t start,
     std::size_t end_exclusive,
-    int direction) {
+    int direction,
+    std::size_t target_informative_sites) {
   if (alignment.length == 0) return 0;
   start = wrap_coordinate(static_cast<std::int64_t>(start), alignment.length);
   end_exclusive = wrap_coordinate(static_cast<std::int64_t>(end_exclusive), alignment.length);
@@ -339,7 +341,7 @@ std::size_t correlation_boundary(
        ++visited) {
     if (triplet_informative_at(alignment, triplet, coordinate)) {
       ++informative;
-      if (informative >= kCorrelationFlankInformativeSites) return coordinate;
+      if (informative >= target_informative_sites) return coordinate;
     }
     coordinate = wrap_coordinate(
         static_cast<std::int64_t>(coordinate) + direction,
@@ -387,30 +389,34 @@ CorrelationRegionLayout build_correlation_regions(
   const std::size_t after_ending = wrap_coordinate(
       static_cast<std::int64_t>(ending) + 1,
       alignment.length);
-  layout.boundaries[0] = correlation_boundary(
+  layout.boundaries[0] = informative_boundary(
       alignment,
       triplet,
       before_beginning,
       after_ending,
-      -1);
-  layout.boundaries[1] = correlation_boundary(
+      -1,
+      kCorrelationFlankInformativeSites);
+  layout.boundaries[1] = informative_boundary(
       alignment,
       triplet,
       after_beginning,
       ending,
-      1);
-  layout.boundaries[2] = correlation_boundary(
+      1,
+      kCorrelationFlankInformativeSites);
+  layout.boundaries[2] = informative_boundary(
       alignment,
       triplet,
       before_ending,
       beginning,
-      -1);
-  layout.boundaries[3] = correlation_boundary(
+      -1,
+      kCorrelationFlankInformativeSites);
+  layout.boundaries[3] = informative_boundary(
       alignment,
       triplet,
       after_ending,
       before_beginning,
-      1);
+      1,
+      kCorrelationFlankInformativeSites);
 
   // Match MakeBPosLR + MakeSDMP2 exactly: reverse-walk boundaries become
   // inclusive starts, while forward-walk boundaries become exclusive ends.
@@ -667,13 +673,58 @@ std::array<std::uint8_t, 3> correlation_warnings(
 
 PhylogeneticRegions build_phylogenetic_regions(
     const Alignment& alignment,
-    const CorrelationRegionLayout& layout) {
+    const std::array<std::uint32_t, 3>& triplet,
+    std::size_t beginning,
+    std::size_t ending) {
   PhylogeneticRegions regions;
-  regions[0] = layout.regions[0];
-  regions[1] = layout.regions[1];
-  regions[2] = layout.regions[3];
-  regions[3] = layout.regions[2];
-  regions[5] = layout.regions[4];
+  if (alignment.length == 0) return regions;
+  const std::size_t before_beginning = wrap_coordinate(
+      static_cast<std::int64_t>(beginning) - 1,
+      alignment.length);
+  const std::size_t after_beginning = wrap_coordinate(
+      static_cast<std::int64_t>(beginning),
+      alignment.length);
+  const std::size_t before_ending = wrap_coordinate(
+      static_cast<std::int64_t>(ending),
+      alignment.length);
+  const std::size_t after_ending = wrap_coordinate(
+      static_cast<std::int64_t>(ending) + 1,
+      alignment.length);
+  const std::array<std::size_t, 4> boundaries{
+      informative_boundary(
+          alignment,
+          triplet,
+          before_beginning,
+          after_ending,
+          -1,
+          kEventTreeFlankInformativeSites),
+      informative_boundary(
+          alignment,
+          triplet,
+          after_beginning,
+          ending,
+          1,
+          kEventTreeFlankInformativeSites),
+      informative_boundary(
+          alignment,
+          triplet,
+          before_ending,
+          beginning,
+          -1,
+          kEventTreeFlankInformativeSites),
+      informative_boundary(
+          alignment,
+          triplet,
+          after_ending,
+          before_beginning,
+          1,
+          kEventTreeFlankInformativeSites),
+  };
+  regions[0] = forward_region(alignment, boundaries[0], before_beginning);
+  regions[1] = forward_region(alignment, beginning, boundaries[1]);
+  regions[2] = forward_region(alignment, after_ending, boundaries[3]);
+  regions[3] = forward_region(alignment, boundaries[2], ending);
+  regions[5] = forward_region(alignment, beginning, ending);
 
   std::vector<std::uint8_t> inside(alignment.length + 1, 0);
   for (const std::size_t coordinate : regions[5]) {
@@ -4090,7 +4141,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
       event.ending);
   const CorrelationRegions& regions = layout.regions;
   const PhylogeneticRegions phylogenetic_regions =
-      build_phylogenetic_regions(working_alignment_, layout);
+      build_phylogenetic_regions(
+          working_alignment_, representatives, event.beginning, event.ending);
   std::vector<std::array<std::size_t, 2>> overlap_sites(alignment_.sequence_count());
   for (std::size_t sequence = 0; sequence < overlap_sites.size(); ++sequence) {
     overlap_sites[sequence] = breakpoint_overlap_sites(
@@ -4184,17 +4236,13 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     event.tree_panel_leaves.push_back(leaf);
   }
   std::array<TreeRegionEvidence, 6> tree_evidence;
-  const std::uint64_t event_seed = 0x6a09e667f3bcc909ULL ^
-      (static_cast<std::uint64_t>(event.id + 1) << 48U) ^
-      (static_cast<std::uint64_t>(event.beginning) << 24U) ^
-      static_cast<std::uint64_t>(event.ending);
   for (std::size_t region = 0; region < tree_evidence.size(); ++region) {
     tree_evidence[region] = build_tree_region_evidence(
         working_alignment_,
         tree_sequences,
         phylogenetic_regions[region],
         kEventTreeBootstrapReplicates,
-        event_seed ^ (0x9e3779b97f4a7c15ULL * (region + 1)));
+        options_.bootscan_random_seed);
     auto& summary = event.tree_regions[region];
     summary = {};
     summary.sites = tree_evidence[region].site_count;
@@ -4203,6 +4251,14 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     summary.supported_internal_branches =
         tree_evidence[region].supported_internal_branches;
     summary.internal_branches = tree_evidence[region].internal_branches;
+    summary.raw_distance_rank_levels =
+        tree_evidence[region].raw_distance_rank_levels;
+    summary.collapsed_distance_rank_levels =
+        tree_evidence[region].collapsed_distance_rank_levels;
+    summary.negative_branches_normalized =
+        tree_evidence[region].negative_branches_normalized;
+    summary.bootstrap_random_seed =
+        tree_evidence[region].bootstrap_random_seed;
     summary.node_count = tree_evidence[region].topology_node_count;
     summary.root = tree_evidence[region].topology_root;
     summary.topology_edges.reserve(tree_evidence[region].topology_edges.size());
@@ -4258,7 +4314,7 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
 
   // MakeACOR uses the outside/inside phylogenetic distance matrices to reject
   // positive correlations that are incompatible with the representative
-  // topology. Prefer the raw patristic matrices used by the source workflow;
+  // topology. Prefer the raw midpoint-ultrametric rank matrices used by the source workflow;
   // a direct JC distance keeps the gate defined when the capped tree panel
   // does not contain a candidate.
   const auto affinity_distance = [&](
@@ -7825,7 +7881,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.19.0-session-19\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.20.0-session-20\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.bootscan_primary_enabled) out << "+BOOTSCAN";
@@ -8445,7 +8501,18 @@ std::string RdpScanner::results_json() const {
     }
     out << "],\"treePanel\":{\"sequenceCount\":" << event.tree_panel_sequences
         << ",\"subsampled\":" << (event.tree_panel_subsampled ? "true" : "false")
-        << ",\"sequenceCap\":" << kEventTreeSequenceCap << ",\"regions\":[";
+        << ",\"sequenceCap\":" << kEventTreeSequenceCap
+        << ",\"njKernel\":\"supplied-clearcut-float\""
+           ",\"distanceEncoding\":\"source-midpoint-ultrametric-ranks\""
+           ",\"bootstrapGenerator\":\"microsoft-crt-seqboot2\""
+           ",\"bootstrapSupport\":\"base-tree-pseudocount\""
+           ",\"negativeBranchPolicy\":\"absolute-five-decimal-serialization\""
+           ",\"analyticalBranchParsing\":\"four-decimal-clamped-complete-edge-repair\""
+           ",\"treeRooting\":\"source-midpoint-ultrametric\""
+           ",\"collapseEncoding\":\"parent-rank-promotion-no-recompression\""
+        << ",\"randomSeed\":" << options_.bootscan_random_seed
+        << ",\"flankVariableSiteTarget\":" << kEventTreeFlankInformativeSites
+        << ",\"regions\":[";
     constexpr std::array<const char*, 6> tree_region_names{
         "5-prime-outside",
         "5-prime-inside",
@@ -8462,6 +8529,12 @@ std::string RdpScanner::results_json() const {
           << ",\"bootstrapReplicates\":" << summary.bootstrap_replicates
           << ",\"supportedInternalBranches\":" << summary.supported_internal_branches
           << ",\"internalBranches\":" << summary.internal_branches
+          << ",\"rawDistanceRankLevels\":" << summary.raw_distance_rank_levels
+          << ",\"collapsedDistanceRankLevels\":"
+          << summary.collapsed_distance_rank_levels
+          << ",\"negativeBranchesNormalized\":"
+          << summary.negative_branches_normalized
+          << ",\"bootstrapRandomSeed\":" << summary.bootstrap_random_seed
           << ",\"usable\":" << (summary.usable ? "true" : "false") << '}';
     }
     out << "]},\"roleConsensus\":{\"method\":\"source-decision-tree-subset\","
@@ -9696,9 +9769,19 @@ std::string RdpScanner::event_trees_json(
   out << "{\"eventId\":" << event.id
       << ",\"method\":\"neighbour-joining\""
          ",\"distance\":\"Jukes-Cantor\""
+         ",\"njKernel\":\"supplied-clearcut-float\""
+         ",\"distanceEncoding\":\"source-midpoint-ultrametric-ranks\""
+         ",\"bootstrapGenerator\":\"microsoft-crt-seqboot2\""
+         ",\"bootstrapSupport\":\"base-tree-pseudocount\""
+         ",\"negativeBranchPolicy\":\"absolute-five-decimal-serialization\""
+         ",\"analyticalBranchParsing\":\"four-decimal-clamped-complete-edge-repair\""
+         ",\"treeRooting\":\"source-midpoint-ultrametric\""
+         ",\"collapseEncoding\":\"parent-rank-promotion-no-recompression\""
          ",\"displayRooting\":\"arbitrary-internal-node\""
          ",\"bootstrapCollapseCutoff\":0.5"
       << ",\"bootstrapReplicates\":" << kEventTreeBootstrapReplicates
+      << ",\"randomSeed\":" << options_.bootscan_random_seed
+      << ",\"flankVariableSiteTarget\":" << kEventTreeFlankInformativeSites
       << ",\"subsampled\":" << (event.tree_panel_subsampled ? "true" : "false")
       << ",\"sequenceCap\":" << kEventTreeSequenceCap
       << ",\"fragmentAssisted\":"
@@ -9757,6 +9840,12 @@ std::string RdpScanner::event_trees_json(
         << ",\"supportedInternalBranches\":"
         << region.supported_internal_branches
         << ",\"internalBranches\":" << region.internal_branches
+        << ",\"rawDistanceRankLevels\":" << region.raw_distance_rank_levels
+        << ",\"collapsedDistanceRankLevels\":"
+        << region.collapsed_distance_rank_levels
+        << ",\"negativeBranchesNormalized\":"
+        << region.negative_branches_normalized
+        << ",\"bootstrapRandomSeed\":" << region.bootstrap_random_seed
         << ",\"edges\":[";
     for (std::size_t edge_index = 0; edge_index < region.topology_edges.size(); ++edge_index) {
       if (edge_index) out << ',';

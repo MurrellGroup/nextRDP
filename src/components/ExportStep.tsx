@@ -80,7 +80,7 @@ export function ExportStep({
             {results.events.length} events across {results.scanRounds} discovery rounds · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
           </span>
         </div>
-        <span className="fidelity-badge">Session 19 snapshot</span>
+        <span className="fidelity-badge">Session 20 snapshot</span>
       </div>
 
       <div className="export-grid">
@@ -91,7 +91,8 @@ export function ExportStep({
             <h2>RDP Web project</h2>
             <p>
               Reloadable JSON with the alignment, analysis scheme and reference groups, method-specific
-              discovery traces, three role hypotheses, correlation evidence, groups, edits, and review state.
+              discovery traces, supplied-source ranked event-tree provenance, three role hypotheses,
+              correlation evidence, groups, edits, and review state.
             </p>
           </div>
           <button
