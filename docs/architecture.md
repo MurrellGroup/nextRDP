@@ -264,8 +264,8 @@ analysis is written to browser storage, and no sequence data leaves the tab.
 
 The checked-in Pages workflow runs only for a manual dispatch or a push to the repository's actual
 default branch. It restores the locked npm graph under Node 20, provisions Emscripten 5.0.1, checks
-the strict TypeScript contract plus linked BootScan/cache, SISCAN, and supplied-source event-tree cores,
-builds the single-worker C++/WASM target and Vite application, then
+the strict TypeScript contract plus linked deterministic-multicore, BootScan/cache, SISCAN, and
+supplied-source event-tree cores, builds both pthread and single-worker C++/WASM targets plus the Vite application, then
 uploads only `dist/` through the official Pages artifact/deployment path.
 The wrappers use the current Node-24-generation action releases; hidden-file inclusion is explicit
 so the verified `.nojekyll` marker is not dropped by the artifact action.
@@ -283,9 +283,11 @@ with a cached engine binary from an older checkpoint. After instantiation, the w
 the native `_rdp_version()` result with that package version and destroys/refuses a mismatched
 context rather than analysing data across an ABI-skewed UI/engine pair.
 
-Pages cannot attach COOP/COEP headers, so its workflow intentionally omits the optional pthread
-module. The non-threaded WASM instance remains isolated in the module worker; a different static
-host can separately build the optional thread target when it supplies cross-origin isolation.
+Pages cannot attach COOP/COEP headers itself. The static application therefore registers a
+same-origin service worker that decorates fetched responses with those headers and performs one
+first-use reload after taking control. A successfully isolated page selects the pthread module;
+blocked service workers or unsupported browsers select the single-worker module. The service
+worker performs no application or sequence-data caching.
 
 ## Later performance work
 
@@ -294,8 +296,8 @@ host can separately build the optional thread target when it supplies cross-orig
 - Triangular original pair-identity storage for large `N`.
 - Chunked/compressed project export to avoid duplicating very large normalized alignments.
 - A source-supported alternative to the 256-fragment cap if real datasets reach it routinely.
-- Real parallel triplet partitions in the optional pthread build; the current target is build
-  plumbing only and does not divide scan work.
+- Profile whether carefully partitioned opening-round triplets can outperform the active
+  deterministic method-level pthread pool without breaking BootScan/SISCAN caches or cancellation.
 - Resumable in-progress round checkpoints. Completed analyses/review state are resumable now.
 - Profile the active MaxChi heap and destruction lifecycle against supplied native golden fixtures;
   optimize only after the source ordering and boundary behavior are locked down.

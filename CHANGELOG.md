@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.24.0-session-24
+
+- Added monotonic whole-run timing using `performance.now()`, with separate setup, primary-screen,
+  cyclic-rescan, reconciliation, current-round, and completed-round measurements. Timing and CPU
+  execution provenance are included in live progress, final results, and project checkpoints.
+- Restored responsive progress rendering at a maximum of once per 100 ms. A Win95 segmented
+  marquee remains visible while a new cyclic round is at zero processed triplets, so rapid round
+  transitions no longer appear to lose the progress meter.
+- Added deterministic method-level multicore execution. A persistent pool can run GENECONV,
+  BootScan, MaxChi, CHIMAERA, SISCAN, and 3SEQ kernels independently while triplet scheduling,
+  cyclic shortlist/cache decisions, and method-major signal merging remain serial and stable.
+- Added hardware-aware CPU selection (`navigator.hardwareConcurrency`), a headroom-preserving
+  default capped at six heavy-method lanes, and a Settings control that can reduce the analysis to one.
+  The linked regression requires byte-identical progress and result JSON at one and four CPUs.
+- Production builds now emit both pthread and single-worker modules. GitHub Pages uses a small
+  same-origin service-worker response shim to apply COOP/COEP after one automatic first-use reload;
+  browsers without isolation transparently use the compatibility module.
+- Added pthread/static-isolation artifact checks and the multicore host gate to GitHub Actions.
+  The project schema remains `org.rdp-web.project/v1alpha19`: timing/execution metadata are
+  additive and the analytical state format is unchanged.
+
 ## 0.23.0-session-23
 
 - Implemented Darren's permanent clean-triplet rule: when an exact working triplet produces no

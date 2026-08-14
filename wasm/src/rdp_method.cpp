@@ -7,6 +7,8 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <iomanip>
 #include <iterator>
 #include <limits>
@@ -17,6 +19,13 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#if defined(RDP_ENABLE_THREADS)
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#endif
 
 namespace rdp {
 namespace {
@@ -2405,6 +2414,132 @@ void write_siscan_discovery_json(
 
 }  // namespace
 
+class RdpScanner::MethodExecutor {
+ public:
+  explicit MethodExecutor(std::size_t background_threads) {
+#if defined(RDP_ENABLE_THREADS)
+    workers_.reserve(background_threads);
+    try {
+      for (std::size_t index = 0; index < background_threads; ++index) {
+        workers_.emplace_back([this] { worker_loop(); });
+      }
+    } catch (...) {
+      {
+        const std::lock_guard lock(mutex_);
+        stopping_ = true;
+        ++generation_;
+      }
+      start_.notify_all();
+      for (auto& worker : workers_) {
+        if (worker.joinable()) worker.join();
+      }
+      throw;
+    }
+#else
+    (void)background_threads;
+#endif
+  }
+
+  ~MethodExecutor() {
+#if defined(RDP_ENABLE_THREADS)
+    {
+      const std::lock_guard lock(mutex_);
+      stopping_ = true;
+      ++generation_;
+    }
+    start_.notify_all();
+    for (auto& worker : workers_) {
+      if (worker.joinable()) worker.join();
+    }
+#endif
+  }
+
+  MethodExecutor(const MethodExecutor&) = delete;
+  MethodExecutor& operator=(const MethodExecutor&) = delete;
+
+  void run(std::vector<std::function<void()>>& tasks) {
+    if (tasks.empty()) return;
+#if defined(RDP_ENABLE_THREADS)
+    if (workers_.empty() || tasks.size() == 1) {
+      for (auto& task : tasks) task();
+      return;
+    }
+    {
+      const std::lock_guard lock(mutex_);
+      tasks_ = &tasks;
+      next_.store(0, std::memory_order_relaxed);
+      participants_.store(workers_.size() + 1, std::memory_order_release);
+      exception_ = nullptr;
+      ++generation_;
+    }
+    start_.notify_all();
+    execute_available(tasks);
+    participant_finished();
+    {
+      std::unique_lock lock(mutex_);
+      finished_.wait(lock, [&] {
+        return participants_.load(std::memory_order_acquire) == 0;
+      });
+      tasks_ = nullptr;
+      if (exception_) std::rethrow_exception(exception_);
+    }
+#else
+    for (auto& task : tasks) task();
+#endif
+  }
+
+ private:
+#if defined(RDP_ENABLE_THREADS)
+  void execute_available(std::vector<std::function<void()>>& tasks) {
+    for (;;) {
+      const std::size_t index = next_.fetch_add(1, std::memory_order_relaxed);
+      if (index >= tasks.size()) return;
+      try {
+        tasks[index]();
+      } catch (...) {
+        const std::lock_guard lock(mutex_);
+        if (!exception_) exception_ = std::current_exception();
+      }
+    }
+  }
+
+  void participant_finished() {
+    if (participants_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      finished_.notify_one();
+    }
+  }
+
+  void worker_loop() {
+    std::size_t observed_generation = 0;
+    for (;;) {
+      std::vector<std::function<void()>>* tasks = nullptr;
+      {
+        std::unique_lock lock(mutex_);
+        start_.wait(lock, [&] {
+          return stopping_ || generation_ != observed_generation;
+        });
+        if (stopping_) return;
+        observed_generation = generation_;
+        tasks = tasks_;
+      }
+      if (tasks) execute_available(*tasks);
+      participant_finished();
+    }
+  }
+
+  std::vector<std::thread> workers_;
+  std::mutex mutex_;
+  std::condition_variable start_;
+  std::condition_variable finished_;
+  std::vector<std::function<void()>>* tasks_ = nullptr;
+  std::atomic_size_t next_{0};
+  std::atomic_size_t participants_{0};
+  std::exception_ptr exception_;
+  std::size_t generation_ = 0;
+  bool stopping_ = false;
+#endif
+};
+
 std::string curated_sequences_fasta(
     const Alignment& alignment,
     const std::vector<std::uint8_t>& mask,
@@ -2450,6 +2585,39 @@ RdpScanner::RdpScanner(const Alignment& alignment)
       }
     }
   }
+}
+
+RdpScanner::~RdpScanner() = default;
+
+void RdpScanner::set_worker_threads(std::size_t requested) {
+#if defined(RDP_ENABLE_THREADS)
+  // There are six independent heavy method lanes. A larger pool would only
+  // prewarm idle browser Workers and overstate usable parallelism.
+  constexpr std::size_t kMaximumWorkerThreads = 6;
+  requested = std::clamp<std::size_t>(requested, 1, kMaximumWorkerThreads);
+  if (requested == worker_threads_ &&
+      (requested == 1 || method_executor_ != nullptr)) {
+    return;
+  }
+  // The caller only changes this between scans. Destroying the prior pool
+  // joins its idle workers before the replacement is created.
+  method_executor_.reset();
+  worker_threads_ = requested;
+  if (worker_threads_ > 1) {
+    try {
+      method_executor_ = std::make_unique<MethodExecutor>(worker_threads_ - 1);
+    } catch (...) {
+      // Pool exhaustion is a supported runtime fallback. The C API reports
+      // the effective single CPU so the browser can display it accurately.
+      worker_threads_ = 1;
+      method_executor_.reset();
+    }
+  }
+#else
+  (void)requested;
+  worker_threads_ = 1;
+  method_executor_.reset();
+#endif
 }
 
 void RdpScanner::reset_working_alignment() {
@@ -3464,7 +3632,13 @@ void RdpScanner::scan_triplet(
   // Preserve the supplied method-major dispatch order after RDP. This makes
   // stable signal IDs agree with the same order already used for exact-P
   // event ties and keeps project replay deterministic across method mixes.
+  auto& method_signals = method_signal_scratch_;
+  for (auto& output : method_signals) output.clear();
+  auto& method_tasks = method_task_scratch_;
+  method_tasks.clear();
+  if (method_tasks.capacity() == 0) method_tasks.reserve(method_signals.size());
   if (options_.geneconv_enabled && (method_mask & kScanGeneconv) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[0]] {
     GeneconvDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3508,12 +3682,14 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.polymorphic_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.geneconv_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
   }
 
   if (options_.bootscan_primary_enabled &&
       (method_mask & kScanBootscan) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[1]] {
     BootscanDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3560,11 +3736,13 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.informative_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.bootscan_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
   }
 
   if (options_.maxchi_enabled && (method_mask & kScanMaxchi) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[2]] {
     MaxChiDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3603,11 +3781,13 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.variable_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.maxchi_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
   }
 
   if (options_.chimaera_enabled && (method_mask & kScanChimaera) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[3]] {
     ChimaeraDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3647,12 +3827,14 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.information_rich_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.chimaera_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
   }
 
   if (options_.siscan_primary_enabled &&
       (method_mask & kScanSiscan) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[4]] {
     SiscanOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.bonferroni =
@@ -3702,11 +3884,13 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.informative_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.siscan_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
   }
 
   if (options_.threeseq_enabled && (method_mask & kScanThreeseq) != 0) {
+    method_tasks.emplace_back([&, output = &method_signals[5]] {
     ThreeSeqDiscoveryOptions discovery_options;
     discovery_options.circular = options_.circular;
     discovery_options.correction_enabled =
@@ -3748,8 +3932,21 @@ void RdpScanner::scan_triplet(
       signal.informative_sites = discovery.information_rich_sites;
       signal.candidate_pair = discovery.candidate_pair;
       signal.threeseq_discovery = discovery;
-      candidates.push_back(std::move(signal));
+      output->push_back(std::move(signal));
     }
+    });
+  }
+
+  if (method_executor_ && method_tasks.size() > 1) {
+    method_executor_->run(method_tasks);
+  } else {
+    for (auto& task : method_tasks) task();
+  }
+  for (auto& output : method_signals) {
+    candidates.insert(
+        candidates.end(),
+        std::make_move_iterator(output.begin()),
+        std::make_move_iterator(output.end()));
   }
 
   const auto working_key = canonical_triplet(triplet);
@@ -8433,7 +8630,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.23.0-session-23\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.24.0-session-24\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.bootscan_primary_enabled) out << "+BOOTSCAN";

@@ -53,6 +53,8 @@ const [
   cyclicPruningCoreVerifier,
   cyclicPruningCoreScript,
   cyclicPruningDigestVerifier,
+  multicoreCoreVerifier,
+  multicoreCoreScript,
   sessionHandoff,
   session17Handoff,
   session18Handoff,
@@ -61,6 +63,7 @@ const [
   session21Handoff,
   session22Handoff,
   session23Handoff,
+  session24Handoff,
   bootscanTrace,
   siscanTrace,
   eventTreeTrace,
@@ -70,6 +73,9 @@ const [
   threeSeqTrace,
   lateTrace,
   shortlistTrace,
+  indexHtml,
+  coiBootstrap,
+  coiServiceWorker,
   readme,
   status,
 ] = await Promise.all([
@@ -122,6 +128,8 @@ const [
   read("scripts/verify-cyclic-pruning-core.cpp"),
   read("scripts/check-cyclic-pruning-core.sh"),
   read("scripts/verify-cyclic-pruning-digest.mjs"),
+  read("scripts/verify-multicore-core.cpp"),
+  read("scripts/check-multicore-core.sh"),
   read("docs/session-15-handoff.md"),
   read("docs/session-17-handoff.md"),
   read("docs/session-18-handoff.md"),
@@ -130,6 +138,7 @@ const [
   read("docs/session-21-handoff.md"),
   read("docs/session-22-handoff.md"),
   read("docs/session-23-handoff.md"),
+  read("docs/session-24-handoff.md"),
   read("docs/native-bootscan-discovery-trace.md"),
   read("docs/native-siscan-discovery-trace.md"),
   read("docs/native-event-tree-kernel-trace.md"),
@@ -139,6 +148,9 @@ const [
   read("docs/native-threeseq-discovery-trace.md"),
   read("docs/native-late-consensus-trace.md"),
   read("docs/native-cyclic-shortlist-trace.md"),
+  read("index.html"),
+  read("public/coi-bootstrap.js"),
+  read("public/coi-serviceworker.js"),
   read("README.md"),
   read("STATUS.md"),
 ]);
@@ -953,7 +965,7 @@ if (!scan.includes("SISCAN triplet profiles") ||
     !review.includes("SISCAN sister-pair permutation switch") ||
     !review.includes("SISCAN fixed-region recheck") ||
     !signalPlot.includes("SISCAN vertical-permutation sister-pair Z scores") ||
-    !exportStep.includes("Session 23 snapshot")) {
+    !exportStep.includes("Session 24 snapshot")) {
   fail("SISCAN progress/review/plot/export workflow is incomplete");
 }
 for (const runtimeContract of [
@@ -1798,7 +1810,7 @@ if (!pagesVerifier.includes("progress.correctionTests !== 120") ||
     !pagesVerifier.includes("progress.fragmentSequencesPruned > 0")) {
   fail("Pages verification does not exercise fixed correction, shortlist reuse, and fragment pruning");
 }
-if (!worker.includes("PROGRESS_EMISSION_INTERVAL_MS = 500") ||
+if (!worker.includes("PROGRESS_EMISSION_INTERVAL_MS = 100") ||
     !worker.includes("now - lastProgressEmission < PROGRESS_EMISSION_INTERVAL_MS") ||
     worker.indexOf("now - lastProgressEmission < PROGRESS_EMISSION_INTERVAL_MS") >
         worker.indexOf("module._rdp_get_progress_json(context)") ||
@@ -1833,6 +1845,79 @@ for (const performanceContract of [
   if (!cmake.includes(performanceContract)) {
     fail(`release WASM optimization is missing ${performanceContract}`);
   }
+}
+for (const threadContract of [
+  "RDP_ENABLE_THREADS=1",
+  "-pthread",
+  "PTHREAD_POOL_SIZE=5",
+  "PTHREAD_POOL_SIZE_STRICT=2",
+  "rdp-core-threads",
+  "_rdp_set_worker_threads",
+]) {
+  if (!cmake.includes(threadContract)) {
+    fail(`release WASM multicore build is missing ${threadContract}`);
+  }
+}
+for (const methodThreadContract of [
+  "class RdpScanner::MethodExecutor",
+  "method_executor_->run(method_tasks)",
+  "method_signal_scratch_",
+  "set_worker_threads",
+]) {
+  if (!method.includes(methodThreadContract)) {
+    fail(`deterministic heavy-method dispatch is missing ${methodThreadContract}`);
+  }
+}
+for (const webThreadContract of [
+  "hardwareConcurrency",
+  "maximumThreads",
+  "recommendedThreads",
+  "cpuThreads",
+  "wasm-pthreads",
+]) {
+  if (!worker.includes(webThreadContract) || !types.includes(webThreadContract)) {
+    fail(`web multicore runtime contract is missing ${webThreadContract}`);
+  }
+}
+if (!settings.includes("CPUs used for heavy method kernels") ||
+    !settings.includes("Set this to 1 for the lightest machine load") ||
+    !scan.includes("WASM threads") ||
+    !packageSource.includes('"check:multicore-core"') ||
+    !pagesWorkflow.includes("npm run check:multicore-core") ||
+    !multicoreCoreScript.includes("-DRDP_ENABLE_THREADS=1") ||
+    !multicoreCoreVerifier.includes("exact 1-CPU/4-CPU progress and results")) {
+  fail("multicore settings or deterministic host regression wiring is incomplete");
+}
+if (!worker.includes("class ScanTimer")) {
+  fail("scan timing worker is missing ScanTimer");
+}
+for (const timingContract of [
+  "setupMs",
+  "primaryMs",
+  "cyclicRescanMs",
+  "reconciliationMs",
+  "currentRoundMs",
+]) {
+  if (!worker.includes(timingContract) || !types.includes(timingContract)) {
+    fail(`scan timing contract is missing ${timingContract}`);
+  }
+}
+if (!scan.includes("Total run time") ||
+    !scan.includes("Primary scan") ||
+    !scan.includes("Cyclic rescans") ||
+    !scan.includes("Final evidence") ||
+    !styles.includes("win-progress-marquee")) {
+  fail("phase timing or cyclic round-start progress UI is incomplete");
+}
+if (!packageSource.includes("build:wasm:single") ||
+    !packageSource.includes("build:wasm:threads") ||
+    !indexHtml.includes("./coi-bootstrap.js") ||
+    !coiBootstrap.includes("crossOriginIsolated") ||
+    !coiServiceWorker.includes("Cross-Origin-Opener-Policy") ||
+    !coiServiceWorker.includes("Cross-Origin-Embedder-Policy") ||
+    !pagesVerifier.includes("rdp-core-threads.wasm") ||
+    !viteConfig.includes("Cross-Origin-Embedder-Policy")) {
+  fail("dual WASM or static-host cross-origin-isolation deployment wiring is incomplete");
 }
 for (const breakpointRangeContract of [
   "breakpoint_erasure_diff_scratch_",
@@ -2044,6 +2129,21 @@ for (const handoffContract of [
     fail(`Session 23 handoff is missing ${handoffContract}`);
   }
 }
+for (const handoffContract of [
+  "0.24.0-session-24",
+  "org.rdp-web.project/v1alpha19",
+  "100 ms",
+  "performance.now",
+  "method-level",
+  "1-CPU/4-CPU",
+  "SharedArrayBuffer",
+  "GitHub Pages",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session24Handoff.includes(handoffContract)) {
+    fail(`Session 24 handoff is missing ${handoffContract}`);
+  }
+}
 for (const traceContract of [
   "SSXoverC",
   "GetSSOL",
@@ -2164,15 +2264,15 @@ if (!method.includes("kEventTreeFlankInformativeSites = 20") ||
     !method.includes("flankVariableSiteTarget\\\":")) {
   fail("manual six-tree 20-variable-site flank construction is missing");
 }
-if (!readme.includes("Session 23 source checkpoint") ||
+if (!readme.includes("Session 24 source checkpoint") ||
     !readme.includes("v1alpha19") ||
     !readme.includes("cyclic-shortlist trace") ||
     !readme.includes("native-bootscan-discovery-trace") ||
     !readme.includes("native-siscan-discovery-trace") ||
     !readme.includes("native-event-tree-kernel-trace") ||
     !readme.includes("native-phylpro-review-trace") ||
-    !readme.includes("session-23-handoff") ||
-    !status.includes("Port status — session 23") ||
+    !readme.includes("session-24-handoff") ||
+    !status.includes("Port status — session 24") ||
     !status.includes("SISCAN discovery") ||
     !status.includes("SISCAN fixed-region confirmation") ||
     !status.includes("PHYLPRO event review") ||
@@ -2181,13 +2281,13 @@ if (!readme.includes("Session 23 source checkpoint") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 23 README/status documentation is stale");
+  fail("Session 24 README/status documentation is stale");
 }
-if (!app.includes("Win95 edition · session 23") ||
-    !app.includes("RDP Web 0.23")) {
-  fail("Session 23 application chrome is stale");
+if (!app.includes("Win95 edition · session 24") ||
+    !app.includes("RDP Web 0.24")) {
+  fail("Session 24 application chrome is stale");
 }
-if (!exportStep.includes("Session 23 snapshot") ||
+if (!exportStep.includes("Session 24 snapshot") ||
     !exportStep.includes("supplied-source ranked event-tree provenance") ||
     !exportStep.includes("primary BootScan") ||
     !exportStep.includes("SISCAN") ||
@@ -2196,7 +2296,7 @@ if (!exportStep.includes("Session 23 snapshot") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)") ||
     !exportStep.includes("Event PHYLPRO profiles remain")) {
-  fail("Session 23 export fidelity boundary is stale");
+  fail("Session 24 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",

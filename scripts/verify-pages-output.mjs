@@ -7,8 +7,12 @@ const output = resolve(process.cwd(), "dist");
 const requiredFiles = [
   "index.html",
   ".nojekyll",
+  "coi-bootstrap.js",
+  "coi-serviceworker.js",
   "wasm/rdp-core.mjs",
   "wasm/rdp-core.wasm",
+  "wasm/rdp-core-threads.mjs",
+  "wasm/rdp-core-threads.wasm",
 ];
 
 function fail(message) {
@@ -40,12 +44,24 @@ async function inspectTree(directory) {
   }
 }
 
-const [indexPath, , modulePath, wasmPath] = await Promise.all(
+const [
+  indexPath,
+  ,
+  bootstrapPath,
+  serviceWorkerPath,
+  modulePath,
+  wasmPath,
+  threadedModulePath,
+  threadedWasmPath,
+] = await Promise.all(
   requiredFiles.map(requireFile),
 );
 
 const html = await readFile(indexPath, "utf8");
 if (html.includes("/src/main.tsx")) fail("index.html still references development source");
+if (!html.includes("./coi-bootstrap.js")) {
+  fail("index.html does not start the static-host isolation bootstrap");
+}
 for (const match of html.matchAll(/\b(?:href|src)=["']([^"']+)["']/g)) {
   const url = match[1];
   if (url.startsWith("/") && !url.startsWith("//")) {
@@ -58,9 +74,37 @@ if (!moduleSource.includes("rdp-core.wasm")) {
   fail("the Emscripten module does not reference rdp-core.wasm");
 }
 
+const threadedModuleSource = await readFile(threadedModulePath, "utf8");
+if (!threadedModuleSource.includes("rdp-core-threads.wasm")) {
+  fail("the pthread Emscripten module does not reference rdp-core-threads.wasm");
+}
+const wasmDirectoryEntries = await readdir(resolve(output, "wasm"));
+const pthreadWorker = wasmDirectoryEntries.find((name) =>
+  /^rdp-core-threads\.worker\.(?:js|mjs)$/.test(name));
+if (!pthreadWorker) {
+  fail("the pthread Emscripten worker helper is missing");
+}
+if (!threadedModuleSource.includes(pthreadWorker)) {
+  fail(`the pthread module does not reference ${pthreadWorker}`);
+}
+
+const bootstrapSource = await readFile(bootstrapPath, "utf8");
+const serviceWorkerSource = await readFile(serviceWorkerPath, "utf8");
+if (!bootstrapSource.includes("coi-serviceworker.js") ||
+    !bootstrapSource.includes("crossOriginIsolated") ||
+    !serviceWorkerSource.includes("Cross-Origin-Opener-Policy") ||
+    !serviceWorkerSource.includes("Cross-Origin-Embedder-Policy")) {
+  fail("the static-host cross-origin-isolation bootstrap is incomplete");
+}
+
 const wasm = await readFile(wasmPath);
 if (wasm.length < 8 || !wasm.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
   fail("rdp-core.wasm does not have a WebAssembly header");
+}
+const threadedWasm = await readFile(threadedWasmPath);
+if (threadedWasm.length < 8 ||
+    !threadedWasm.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
+  fail("rdp-core-threads.wasm does not have a WebAssembly header");
 }
 
 const { default: createRdpModule } = await import(
@@ -76,6 +120,10 @@ if (!(engine.HEAPU8 instanceof Uint8Array)) {
 
 const context = engine._rdp_create();
 if (!context) fail("the WASM engine could not create a FASTA smoke-test context");
+if (engine._rdp_set_worker_threads(context, 4) !== 1) {
+  engine._rdp_destroy(context);
+  fail("the single-worker compatibility module did not clamp CPU workers to one");
+}
 const fasta = new TextEncoder().encode(
   ">alpha\nACGTACGT\n>beta\nACGTACGA\n>gamma\nACGTTCGA\n",
 );
@@ -638,5 +686,5 @@ try {
 
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, primary-BootScan/cache, SISCAN/context/random-prefix, cyclic-shortlist, PHYLPRO review, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files plus the pthread helper, static-host isolation bootstrap, FASTA upload, primary-BootScan/cache, SISCAN/context/random-prefix, cyclic-shortlist, PHYLPRO review, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );

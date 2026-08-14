@@ -1,4 +1,4 @@
-import { Check, CircleDot, Info, LockKeyhole, ScanSearch } from "lucide-react";
+import { Check, CircleDot, Cpu, Info, LockKeyhole, ScanSearch } from "lucide-react";
 
 import type { ScanOptions } from "../lib/types";
 
@@ -12,6 +12,9 @@ interface SettingsStepProps {
   referenceSequenceCount: number;
   referenceGroupCount: number;
   queryReferenceCorrectionTestCount: number;
+  threaded: boolean;
+  hardwareConcurrency: number;
+  maximumThreads: number;
   onChange: (options: ScanOptions) => void;
   onBack: () => void;
   onContinue: () => void;
@@ -65,6 +68,9 @@ export function SettingsStep({
   referenceSequenceCount,
   referenceGroupCount,
   queryReferenceCorrectionTestCount,
+  threaded,
+  hardwareConcurrency,
+  maximumThreads,
   onChange,
   onBack,
   onContinue,
@@ -74,6 +80,9 @@ export function SettingsStep({
     referenceGroupCount >= 2 && queryReferenceTripletCount > 0
   );
   const settingsValid = sequenceCount >= 3 && schemeValid &&
+    Number.isInteger(options.cpuThreads) &&
+    options.cpuThreads >= 1 &&
+    options.cpuThreads <= maximumThreads &&
     Number.isFinite(options.pValueCutoff) &&
     options.pValueCutoff > 0 &&
     options.pValueCutoff <= 1 &&
@@ -277,6 +286,49 @@ export function SettingsStep({
 
         <aside className="settings-side">
           <div className="content-card sticky-card">
+            <div className="card-heading compute-heading">
+              <span className="eyebrow">Compute</span>
+              <h2><Cpu size={17} /> CPU workers</h2>
+            </div>
+            <label className="field cpu-thread-field">
+              <span>CPUs used for heavy method kernels</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="1"
+                  max={maximumThreads}
+                  step="1"
+                  value={options.cpuThreads}
+                  disabled={maximumThreads === 1}
+                  onChange={(event) => set("cpuThreads", Number(event.target.value))}
+                />
+                <span>of {maximumThreads}</span>
+              </div>
+              <input
+                className="cpu-thread-slider"
+                type="range"
+                min="1"
+                max={maximumThreads}
+                step="1"
+                value={options.cpuThreads}
+                disabled={maximumThreads === 1}
+                aria-label="CPU workers"
+                onChange={(event) => set("cpuThreads", Number(event.target.value))}
+              />
+              <small>
+                {threaded
+                  ? `${hardwareConcurrency} logical CPUs detected. The default leaves headroom; active use also cannot exceed the enabled heavy methods. Set this to 1 for the lightest machine load.`
+                  : `${hardwareConcurrency} logical CPU${hardwareConcurrency === 1 ? "" : "s"} detected, but this host is using the deterministic single-worker fallback.`}
+              </small>
+            </label>
+            <div className="inline-note compute-note">
+              <Info size={17} />
+              <p>
+                Only independent GENECONV, BootScan, MaxChi, CHIMAERA, SISCAN, and 3SEQ kernels
+                share CPUs. Triplet scheduling, cyclic cache decisions, and signal merging retain
+                their original deterministic order.
+              </p>
+            </div>
             <div className="card-heading">
               <span className="eyebrow">Statistical controls</span>
               <h2>Primary methods</h2>

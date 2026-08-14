@@ -1,14 +1,15 @@
 {
   "name": "rdp-wasm",
   "private": true,
-  "version": "0.23.0-session-23",
+  "version": "0.24.0-session-24",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "vite",
-    "build:wasm": "bash scripts/build-wasm.sh single",
+    "build:wasm": "npm run build:wasm:single && npm run build:wasm:threads",
+    "build:wasm:single": "bash scripts/build-wasm.sh single",
     "build:wasm:threads": "bash scripts/build-wasm.sh threads",
     "build:web": "vite build",
     "check:source": "node scripts/check-source-contract.mjs && node scripts/check-source-balance.mjs",
@@ -18,6 +19,7 @@
     "check:siscan-core": "bash scripts/check-siscan-core.sh",
     "check:tree-core": "bash scripts/check-tree-core.sh",
     "check:phylpro-core": "bash scripts/check-phylpro-core.sh",
+    "check:multicore-core": "bash scripts/check-multicore-core.sh",
     "verify:pages": "node scripts/verify-pages-output.mjs",
     "build": "npm run build:wasm && npm run build:web && npm run verify:pages",
     "preview": "vite preview"

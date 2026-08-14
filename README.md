@@ -4,10 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 23 source checkpoint — cyclic pruning and browser throughput.** This archive contains
-> source only. Clean unchanged triplets are permanently pruned, event-free fragment rows are
-> `DropSeqs`-compacted and reindexed after one follow-up round, routine progress is limited to one
-> update per 500 ms, and the worker adapts its batch size toward responsive 40 ms slices.
+> **Session 24 source checkpoint — timed multicore analysis.** This archive contains source only.
+> Every run now reports total, setup, primary, cyclic-rescan, reconciliation, and round timing;
+> routine progress is refreshed at most once per 100 ms; and independent heavy method kernels can
+> use a hardware-aware, user-adjustable WASM pthread pool without changing deterministic merge order.
 
 ## What this checkpoint contains
 
@@ -79,7 +79,8 @@ core runs in WebAssembly.
   by default. The WPGMA context is built once per affected cyclic round, the random prefix survives
   round invalidation, and unchanged triplets also benefit from the shared XOverList-style shortlist.
 - Adaptive worker batches targeting roughly 40 ms, reusable scan buffers, progress
-  serialization/posting/rendering limited to once every 500 ms, and method-aware plot
+  serialization/posting/rendering limited to once every 100 ms, exact monotonic phase/round timing,
+  a visible indeterminate meter while a fresh cyclic round starts, and method-aware plot
   downsampling that forces both breakpoints, the selected method peak, and applicable profile maxima
   into the browser payload. CHIMAERA displays only its selected target/parent-one trace; GENECONV
   displays a three-colour `-log10(raw KA P)` inner/outer fragment envelope; 3SEQ displays all three
@@ -262,7 +263,7 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [SISCAN source trace](docs/native-siscan-discovery-trace.md), and the
 [event-tree kernel trace](docs/native-event-tree-kernel-trace.md), and the
 [PHYLPRO review trace](docs/native-phylpro-review-trace.md), and the
-[Session 23 handoff](docs/session-23-handoff.md) before interpreting results or starting the next phase.
+[Session 24 handoff](docs/session-24-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 
@@ -278,9 +279,11 @@ The workflow publishes `dist/` only after the expected HTML, Emscripten loader, 
 binary are present and every built URL is safe for a Pages project subdirectory. The existing
 relative Vite base also supports a user/organization root site or custom domain.
 
-GitHub Pages does not provide the COOP/COEP headers required for `SharedArrayBuffer`, so this
-workflow deliberately builds the single-worker compatibility module. Numerical work still stays
-off the UI thread in the dedicated analysis worker.
+The workflow builds both the pthread and single-worker modules. Because GitHub Pages cannot set
+COOP/COEP response headers directly, a small same-origin service worker adds them and performs one
+automatic reload on first use. Browsers that permit this become cross-origin isolated and select
+the threaded module; blocked/unsupported service workers transparently retain the single-worker
+module. No sequence or analysis data are cached by that service worker.
 
 ## Automated query vs reference workflow
 
@@ -323,16 +326,16 @@ For local UI development after a WASM build:
 npm run dev
 ```
 
-The default module uses one dedicated analysis worker and needs no special response headers. An
-optional pthread-capable module can be produced with `npm run build:wasm:threads`; browsers will
-only select it when the host supplies cross-origin isolation headers. Otherwise the single-worker
-module remains the automatic fallback.
+`npm run build` produces both modules. Local Vite development/preview supplies cross-origin
+isolation headers, while the production static bundle includes the same service-worker bootstrap
+used on GitHub Pages. The analysis worker selects the pthread module only when isolation and
+`SharedArrayBuffer` are available; otherwise the single-worker module remains the automatic fallback.
 
 The generated files belong in `public/wasm/`:
 
 - `rdp-core.mjs`
 - `rdp-core.wasm`
-- optional `rdp-core-threads.*` files
+- `rdp-core-threads.mjs`, `rdp-core-threads.wasm`, and its generated worker helper
 
 ## Project layout
 

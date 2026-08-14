@@ -26,6 +26,7 @@ import type {
 import { RdpWorkerClient } from "./lib/wasmClient";
 
 const initialOptions: ScanOptions = {
+  cpuThreads: 1,
   analysisMode: "exploratory",
   circular: true,
   pValueCutoff: 0.05,
@@ -118,6 +119,13 @@ const initialProgress: ScanProgress = {
   siscanRandomValuesGenerated: 0,
   cycleTermination: "not-started",
   fraction: 0,
+  timing: null,
+  execution: {
+    mode: "single-worker",
+    requestedThreads: 1,
+    activeThreads: 1,
+    hardwareConcurrency: 1,
+  },
 };
 
 const NATIVE_CORRECTION_CAP = Math.floor((255 ** 4) / 2);
@@ -234,10 +242,14 @@ function scanEligibleSequenceCount(
   ) ?? 0;
 }
 
-type EngineState =
-  | { status: "loading"; message: string; threaded: false }
-  | { status: "ready"; message: string; threaded: boolean }
-  | { status: "error"; message: string; threaded: false };
+interface EngineState {
+  status: "loading" | "ready" | "error";
+  message: string;
+  threaded: boolean;
+  hardwareConcurrency: number;
+  maximumThreads: number;
+  recommendedThreads: number;
+}
 
 export function App() {
   const client = useRef<RdpWorkerClient | null>(null);
@@ -247,6 +259,9 @@ export function App() {
     status: "loading",
     message: "Initialising the analysis worker…",
     threaded: false,
+    hardwareConcurrency: 1,
+    maximumThreads: 1,
+    recommendedThreads: 1,
   });
   const [dataset, setDataset] = useState<DatasetSummary | null>(null);
   const [filename, setFilename] = useState("");
@@ -272,19 +287,33 @@ export function App() {
     let live = true;
     worker
       .init()
-      .then(({ threaded, version }) => {
+      .then(({ threaded, version, hardwareConcurrency, maximumThreads, recommendedThreads }) => {
         if (!live) return;
         setEngine({
           status: "ready",
           threaded,
-          message: `${threaded ? "Thread-capable" : "Single-worker"} WASM · engine ${version}`,
+          hardwareConcurrency,
+          maximumThreads,
+          recommendedThreads,
+          message: threaded
+            ? `${maximumThreads}-thread WASM available · ${hardwareConcurrency} logical CPUs detected · engine ${version}`
+            : `Single-worker WASM fallback · ${hardwareConcurrency} logical CPUs detected · engine ${version}`,
         });
+        setOptions((current) => ({
+          ...current,
+          cpuThreads: current.cpuThreads === 1
+            ? recommendedThreads
+            : Math.max(1, Math.min(maximumThreads, current.cpuThreads)),
+        }));
       })
       .catch((caught: unknown) => {
         if (!live) return;
         setEngine({
           status: "error",
           threaded: false,
+          hardwareConcurrency: 1,
+          maximumThreads: 1,
+          recommendedThreads: 1,
           message: caught instanceof Error ? caught.message : String(caught),
         });
       });
@@ -402,6 +431,10 @@ export function App() {
           restored.results
             ? {
                 analysisMode: restored.results.analysisMode,
+                cpuThreads: Math.max(1, Math.min(
+                  engine.maximumThreads,
+                  restored.results.execution?.activeThreads ?? engine.recommendedThreads,
+                )),
                 circular: restored.results.circular,
                 pValueCutoff: restored.results.pValueCutoff,
                 correction: restored.results.correction,
@@ -445,7 +478,8 @@ export function App() {
                 ),
               }
             : {
-                ...initialOptions,
+              ...initialOptions,
+                cpuThreads: engine.recommendedThreads,
                 maskedSequenceIndices: [...restoredMask],
                 disabledSequenceIndices: [...restoredDisabled],
                 referenceGroupIndices: referenceGroupArray(
@@ -527,6 +561,8 @@ export function App() {
                   restored.results.siscanRandomValuesGenerated ?? 0,
                 cycleTermination: restored.results.cycleTermination,
                 fraction: 1,
+                timing: restored.results.timing ?? null,
+                execution: restored.results.execution ?? initialProgress.execution,
               }
             : {
                 ...initialProgress,
@@ -552,6 +588,7 @@ export function App() {
       setReferenceGroups(inferredReferenceGroups);
       setOptions({
         ...initialOptions,
+        cpuThreads: engine.recommendedThreads,
         maskedSequenceIndices: [...initialMask],
         disabledSequenceIndices: [],
         referenceGroupIndices: referenceGroupArray(
@@ -778,7 +815,14 @@ export function App() {
       const value = await client.current.scan(scanOptions);
       setResults(value);
       setCheckpointDirty(true);
-      setProgress((current) => ({ ...current, state: "done", phase: "complete", fraction: 1 }));
+      setProgress((current) => ({
+        ...current,
+        state: "done",
+        phase: "complete",
+        fraction: 1,
+        timing: value.timing,
+        execution: value.execution,
+      }));
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       if (!message.toLowerCase().includes("cancel")) setError(message);
@@ -887,7 +931,7 @@ export function App() {
     setError("");
     setReconciling(true);
     try {
-      setResults(await client.current.reconcileAfter(eventId));
+      setResults(await client.current.reconcileAfter(eventId, options.cpuThreads));
       setCheckpointDirty(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -1065,7 +1109,7 @@ export function App() {
                     : "Checkpoint current"}
               </span>
             ) : null}
-            <span className="session-pill">Win95 edition · session 23</span>
+            <span className="session-pill">Win95 edition · session 24</span>
           </div>
         </div>
       </header>
@@ -1133,6 +1177,9 @@ export function App() {
             referenceSequenceCount={referencePlan.referenceSequenceCount}
             referenceGroupCount={referencePlan.referenceGroupCount}
             queryReferenceCorrectionTestCount={referencePlan.correctionTestCount}
+            threaded={engine.threaded}
+            hardwareConcurrency={engine.hardwareConcurrency}
+            maximumThreads={engine.maximumThreads}
             onChange={changeOptions}
             onBack={() => go("dataset")}
             onContinue={() => go("scan")}
@@ -1204,7 +1251,7 @@ export function App() {
       <footer className="app-statusbar" aria-live="polite">
         <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
         <span>{filename || "No alignment loaded"}</span>
-        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.23"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.24"}</span>
       </footer>
     </div>
   );

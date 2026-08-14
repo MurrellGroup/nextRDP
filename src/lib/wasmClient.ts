@@ -1,5 +1,6 @@
 import type {
   DatasetSummary,
+  EngineRuntimeInfo,
   EventAlignmentView,
   EventTreeView,
   EventPhylproView,
@@ -60,16 +61,13 @@ export class RdpWorkerClient {
     return () => this.progressListeners.delete(listener);
   }
 
-  init(): Promise<{ threaded: boolean; version: string }> {
+  init(): Promise<EngineRuntimeInfo> {
     const wasmBaseUrl = new URL("wasm/", document.baseURI).href;
     return this.send({
       type: "init",
       wasmBaseUrl,
       assetVersion: packageMetadata.version,
-    }) as Promise<{
-      threaded: boolean;
-      version: string;
-    }>;
+    }) as Promise<EngineRuntimeInfo>;
   }
 
   async load(file: File): Promise<DatasetSummary> {
@@ -145,8 +143,8 @@ export class RdpWorkerClient {
     return this.send({ type: "update-event-group", eventId, sequenceIndices, manualOverride }) as Promise<ScanResults>;
   }
 
-  reconcileAfter(eventId: number): Promise<ScanResults> {
-    return this.send({ type: "reconcile-after", eventId }) as Promise<ScanResults>;
+  reconcileAfter(eventId: number, cpuThreads: number): Promise<ScanResults> {
+    return this.send({ type: "reconcile-after", eventId, cpuThreads }) as Promise<ScanResults>;
   }
 
   exportCsv(): Promise<string> {

@@ -10,6 +10,7 @@ extern "C" {
 uint32_t rdp_create(void);
 void rdp_destroy(uint32_t handle);
 const char* rdp_version(void);
+uint32_t rdp_set_worker_threads(uint32_t handle, uint32_t requested);
 
 int rdp_load_alignment(uint32_t handle, const uint8_t* bytes, size_t length);
 const char* rdp_get_summary_json(uint32_t handle);

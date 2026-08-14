@@ -33,6 +33,7 @@ export interface DatasetSummary {
 }
 
 export interface ScanOptions {
+  cpuThreads: number;
   analysisMode: AnalysisMode;
   circular: boolean;
   pValueCutoff: number;
@@ -64,6 +65,38 @@ export interface ScanOptions {
   maskedSequenceIndices: number[];
   disabledSequenceIndices: number[];
   referenceGroupIndices: number[];
+}
+
+export interface ScanRoundTiming {
+  round: number;
+  elapsedMs: number;
+  completed: boolean;
+}
+
+export interface ScanTiming {
+  startedAt: string;
+  totalMs: number;
+  setupMs: number;
+  primaryMs: number;
+  cyclicRescanMs: number;
+  reconciliationMs: number;
+  currentRoundMs: number;
+  rounds: ScanRoundTiming[];
+}
+
+export interface ScanExecution {
+  mode: "single-worker" | "wasm-pthreads";
+  requestedThreads: number;
+  activeThreads: number;
+  hardwareConcurrency: number;
+}
+
+export interface EngineRuntimeInfo {
+  threaded: boolean;
+  version: string;
+  hardwareConcurrency: number;
+  maximumThreads: number;
+  recommendedThreads: number;
 }
 
 export interface ScanProgress {
@@ -125,6 +158,8 @@ export interface ScanProgress {
   siscanRandomValuesGenerated: number;
   cycleTermination: string;
   fraction: number;
+  timing: ScanTiming | null;
+  execution: ScanExecution;
 }
 
 export type ReviewState = "unreviewed" | "accepted" | "rejected";
@@ -1337,6 +1372,8 @@ export interface ScanResults {
   siscanPValuePermutations: number;
   siscanRandomSeed: number;
   polishBreakpoints: boolean;
+  timing: ScanTiming | null;
+  execution: ScanExecution;
   signals: RdpSignal[];
   events: ReconciledEvent[];
   notes: string[];
@@ -1369,7 +1406,7 @@ export type WorkerRequest =
   | { id: number; type: "set-event-review-state"; eventId: number; state: ReviewState }
   | { id: number; type: "update-event"; eventId: number; edit: EventEdit }
   | { id: number; type: "update-event-group"; eventId: number; sequenceIndices: number[]; manualOverride: boolean }
-  | { id: number; type: "reconcile-after"; eventId: number }
+  | { id: number; type: "reconcile-after"; eventId: number; cpuThreads: number }
   | { id: number; type: "export-csv" }
   | {
       id: number;
@@ -1391,7 +1428,7 @@ export type WorkerRequest =
 
 export type WorkerEvent =
   | { type: "progress"; progress: ScanProgress }
-  | { type: "engine"; threaded: boolean; version: string };
+  | ({ type: "engine" } & EngineRuntimeInfo);
 
 export type WorkerResponse =
   | { id: number; ok: true; value: unknown }

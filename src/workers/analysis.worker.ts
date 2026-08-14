@@ -2,9 +2,13 @@
 
 import type {
   DatasetSummary,
+  EngineRuntimeInfo,
   ImportedProject,
+  ScanExecution,
+  ScanOptions,
   ScanProgress,
   ScanResults,
+  ScanTiming,
   WorkerRequest,
   WorkerResponse,
 } from "../lib/types";
@@ -17,6 +21,7 @@ interface EmscriptenModule {
   _rdp_create(): number;
   _rdp_destroy(handle: number): void;
   _rdp_version(): number;
+  _rdp_set_worker_threads(handle: number, requested: number): number;
   _rdp_load_alignment(handle: number, bytes: number, length: number): number;
   _rdp_get_summary_json(handle: number): number;
   _rdp_scan_begin(
@@ -367,17 +372,144 @@ let datasetName = "";
 let threaded = false;
 let scanActive = false;
 let lastProgressEmission = Number.NEGATIVE_INFINITY;
+let hardwareConcurrency = Math.max(1, Math.trunc(scopeNavigatorHardwareConcurrency()));
+let maximumThreads = 1;
+let recommendedThreads = 1;
+let requestedThreads = 1;
+let activeThreads = 1;
+let scanMethodThreadCapacity = 1;
+let activeScanTimer: ScanTimer | null = null;
+let lastScanTiming: ScanTiming | null = null;
+let lastScanExecution: ScanExecution | null = null;
 
 // Progress JSON construction crosses the WASM boundary, allocates a sizeable
-// string, parses it, posts a structured clone, and causes a React render. Keep
-// routine statistics at Darren's requested maximum of two updates per second.
-const PROGRESS_EMISSION_INTERVAL_MS = 500;
+// string, parses it, posts a structured clone, and causes a React render. A
+// 100 ms ceiling keeps the Windows progress meter visibly alive without
+// allowing statistics rendering to dominate the scan.
+const PROGRESS_EMISSION_INTERVAL_MS = 100;
 const INITIAL_SCAN_BATCH = 512;
 const MINIMUM_SCAN_BATCH = 1;
 const MAXIMUM_SCAN_BATCH = 65_536;
 const TARGET_SCAN_SLICE_MS = 40;
 
 const scope = self as DedicatedWorkerGlobalScope;
+
+function scopeNavigatorHardwareConcurrency(): number {
+  return typeof navigator === "undefined" || !Number.isFinite(navigator.hardwareConcurrency)
+    ? 1
+    : navigator.hardwareConcurrency;
+}
+
+type TimedPhase = "setup" | "primary" | "cyclic-rescan" | "reconciliation" | "complete";
+
+class ScanTimer {
+  private readonly started = performance.now();
+  private readonly startedAt = new Date().toISOString();
+  private phase: TimedPhase = "setup";
+  private phaseStarted = this.started;
+  private setupMs = 0;
+  private primaryMs = 0;
+  private cyclicRescanMs = 0;
+  private reconciliationMs = 0;
+  private currentRound = 1;
+  private roundStarted = this.started;
+  private readonly rounds: ScanTiming["rounds"] = [];
+  private finished: number | null = null;
+
+  beginPrimary(now = performance.now()): void {
+    this.enter("primary", now);
+    this.roundStarted = now;
+  }
+
+  completeRound(now = performance.now()): void {
+    this.rounds.push({
+      round: this.currentRound,
+      elapsedMs: Math.max(0, now - this.roundStarted),
+      completed: true,
+    });
+    ++this.currentRound;
+    this.roundStarted = now;
+    if (this.currentRound === 2) this.enter("cyclic-rescan", now);
+  }
+
+  beginReconciliation(completedRound: boolean, now = performance.now()): void {
+    this.rounds.push({
+      round: this.currentRound,
+      elapsedMs: Math.max(0, now - this.roundStarted),
+      completed: completedRound,
+    });
+    this.enter("reconciliation", now);
+  }
+
+  finish(now = performance.now()): ScanTiming {
+    if (this.finished === null) {
+      this.enter("complete", now);
+      this.finished = now;
+    }
+    return this.snapshot(this.finished);
+  }
+
+  snapshot(now = this.finished ?? performance.now()): ScanTiming {
+    let setupMs = this.setupMs;
+    let primaryMs = this.primaryMs;
+    let cyclicRescanMs = this.cyclicRescanMs;
+    let reconciliationMs = this.reconciliationMs;
+    const activeElapsed = Math.max(0, now - this.phaseStarted);
+    if (this.phase === "setup") setupMs += activeElapsed;
+    else if (this.phase === "primary") primaryMs += activeElapsed;
+    else if (this.phase === "cyclic-rescan") cyclicRescanMs += activeElapsed;
+    else if (this.phase === "reconciliation") reconciliationMs += activeElapsed;
+    return {
+      startedAt: this.startedAt,
+      totalMs: Math.max(0, now - this.started),
+      setupMs,
+      primaryMs,
+      cyclicRescanMs,
+      reconciliationMs,
+      currentRoundMs:
+        this.phase === "primary" || this.phase === "cyclic-rescan"
+          ? Math.max(0, now - this.roundStarted)
+          : 0,
+      rounds: [...this.rounds],
+    };
+  }
+
+  private enter(next: TimedPhase, now: number): void {
+    const elapsed = Math.max(0, now - this.phaseStarted);
+    if (this.phase === "setup") this.setupMs += elapsed;
+    else if (this.phase === "primary") this.primaryMs += elapsed;
+    else if (this.phase === "cyclic-rescan") this.cyclicRescanMs += elapsed;
+    else if (this.phase === "reconciliation") this.reconciliationMs += elapsed;
+    this.phase = next;
+    this.phaseStarted = now;
+  }
+}
+
+function scanExecution(): ScanExecution {
+  return lastScanExecution ?? {
+    mode: threaded && activeThreads > 1 ? "wasm-pthreads" : "single-worker",
+    requestedThreads,
+    activeThreads,
+    hardwareConcurrency,
+  };
+}
+
+function heavyMethodThreadCapacity(options: ScanOptions): number {
+  return Math.max(1, [
+    options.geneconvEnabled,
+    options.bootscanPrimaryEnabled,
+    options.maxChiEnabled,
+    options.chimaeraEnabled,
+    options.siscanPrimaryEnabled,
+    options.threeSeqEnabled,
+  ].filter(Boolean).length);
+}
+
+function decorateScanResults(results: ScanResults): ScanResults {
+  results.timing = lastScanTiming;
+  results.execution = scanExecution();
+  return results;
+}
 
 function respond(response: WorkerResponse): void {
   scope.postMessage(response);
@@ -407,8 +539,16 @@ async function importFactory(url: string): Promise<ModuleFactory> {
 async function initialise(
   wasmBaseUrl: string,
   assetVersion: string,
-): Promise<{ threaded: boolean; version: string }> {
-  if (module) return { threaded, version: value(module._rdp_version()) };
+): Promise<EngineRuntimeInfo> {
+  if (module) {
+    return {
+      threaded,
+      version: value(module._rdp_version()),
+      hardwareConcurrency,
+      maximumThreads,
+      recommendedThreads,
+    };
+  }
 
   const base = wasmBaseUrl.endsWith("/") ? wasmBaseUrl : `${wasmBaseUrl}/`;
   const assetUrl = (path: string) => {
@@ -443,7 +583,20 @@ async function initialise(
         );
       }
       threaded = candidate.threaded;
-      return { threaded, version: loadedVersion };
+      hardwareConcurrency = Math.max(1, Math.trunc(scopeNavigatorHardwareConcurrency()));
+      maximumThreads = threaded ? Math.max(1, Math.min(6, hardwareConcurrency)) : 1;
+      recommendedThreads = threaded
+        ? Math.max(1, Math.min(maximumThreads, Math.floor(hardwareConcurrency * 0.75)))
+        : 1;
+      requestedThreads = recommendedThreads;
+      activeThreads = module._rdp_set_worker_threads(context, recommendedThreads) || 1;
+      return {
+        threaded,
+        version: loadedVersion,
+        hardwareConcurrency,
+        maximumThreads,
+        recommendedThreads,
+      };
     } catch (error) {
       module = null;
       context = 0;
@@ -549,8 +702,61 @@ function requireArray(value: unknown, message: string): unknown[] {
   return value;
 }
 
+function restoredScanTiming(value: unknown): ScanTiming | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const timing = value as Record<string, unknown>;
+  const startedAt = typeof timing.startedAt === "string" ? timing.startedAt : "";
+  const rounds = Array.isArray(timing.rounds)
+    ? timing.rounds.flatMap((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+        const round = entry as Record<string, unknown>;
+        const index = integer(round.round, -1);
+        const elapsedMs = finiteNumber(round.elapsedMs, -1);
+        if (index < 1 || elapsedMs < 0) return [];
+        return [{
+          round: index,
+          elapsedMs,
+          completed: round.completed !== false,
+        }];
+      })
+    : [];
+  const totalMs = finiteNumber(timing.totalMs, -1);
+  if (!startedAt || totalMs < 0) return null;
+  return {
+    startedAt,
+    totalMs,
+    setupMs: Math.max(0, finiteNumber(timing.setupMs)),
+    primaryMs: Math.max(0, finiteNumber(timing.primaryMs)),
+    cyclicRescanMs: Math.max(0, finiteNumber(timing.cyclicRescanMs)),
+    reconciliationMs: Math.max(0, finiteNumber(timing.reconciliationMs)),
+    currentRoundMs: 0,
+    rounds,
+  };
+}
+
+function restoredScanExecution(value: unknown): ScanExecution | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const execution = value as Record<string, unknown>;
+  const mode = execution.mode === "wasm-pthreads" ? "wasm-pthreads" :
+    execution.mode === "single-worker" ? "single-worker" : null;
+  if (!mode) return null;
+  const savedHardware = Math.max(1, integer(execution.hardwareConcurrency, 1));
+  const savedRequested = Math.max(1, integer(execution.requestedThreads, 1));
+  const savedActive = Math.max(1, integer(execution.activeThreads, 1));
+  return {
+    mode,
+    requestedThreads: savedRequested,
+    activeThreads: savedActive,
+    hardwareConcurrency: savedHardware,
+  };
+}
+
 function loadAlignment(name: string, bytes: ArrayBuffer): DatasetSummary {
   if (!module || !context) throw new Error("The engine has not been initialised.");
+  activeScanTimer = null;
+  lastScanTiming = null;
+  lastScanExecution = null;
+  scanMethodThreadCapacity = 1;
   const input = new Uint8Array(bytes);
   const pointer = copyBytes(input);
   try {
@@ -570,6 +776,7 @@ function loadAlignment(name: string, bytes: ArrayBuffer): DatasetSummary {
 
 function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
   if (!module || !context) throw new Error("The engine has not been initialised.");
+  scanMethodThreadCapacity = 1;
   let root: Record<string, unknown>;
   try {
     root = requireObject(
@@ -660,8 +867,14 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
   datasetName = typeof root.sourceFilename === "string" ? root.sourceFilename : name;
 
   const rawAnalysis = root.analysis;
-  if (!rawAnalysis) return { dataset: restoredDataset, results: null, sourceFilename: datasetName };
+  if (!rawAnalysis) {
+    lastScanTiming = null;
+    lastScanExecution = null;
+    return { dataset: restoredDataset, results: null, sourceFilename: datasetName };
+  }
   const analysis = requireObject(rawAnalysis, "The saved analysis is invalid.");
+  lastScanTiming = restoredScanTiming(analysis.timing);
+  lastScanExecution = restoredScanExecution(analysis.execution);
   const savedSignals = requireArray(analysis.signals, "The saved analysis has no discovery signals.");
   const savedEvents = Array.isArray(analysis.events) ? analysis.events : [];
   const pending = integer(analysis.downstreamReconciliationRequiredAfter, -1);
@@ -772,6 +985,17 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha18" ||
     schema === "org.rdp-web.project/v1alpha19";
   const supportsSiscan = schema === "org.rdp-web.project/v1alpha19";
+  scanMethodThreadCapacity = Math.max(1,
+    Number(supportsGeneconvDiscovery && analysis.geneconvEnabled !== false) +
+    Number(supportsBootscanPrimary && analysis.bootscanPrimaryEnabled === true) +
+    Number(supportsMaxChiDiscovery && analysis.maxChiEnabled !== false) +
+    Number(supportsChimaeraDiscovery && analysis.chimaeraEnabled !== false) +
+    Number(supportsSiscan && analysis.siscanPrimaryEnabled === true) +
+    Number(supportsThreeSeqDiscovery && analysis.threeSeqEnabled !== false));
+  activeThreads = module._rdp_set_worker_threads(
+    context,
+    Math.min(recommendedThreads, scanMethodThreadCapacity),
+  ) || 1;
   const referenceGroups = new Array<number>(restoredDataset.sequenceCount).fill(0);
   if (supportsReferenceGroups &&
       Array.isArray(analysis.referenceGroupIndices)) {
@@ -1211,10 +1435,10 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
   ) {
     throw engineError("The saved downstream reconciliation marker could not be restored.");
   }
-  const results = parseJson<ScanResults>(
+  const results = decorateScanResults(parseJson<ScanResults>(
     module._rdp_get_results_json(context),
     "The restored analysis was not returned.",
-  );
+  ));
   return { dataset: restoredDataset, results, sourceFilename: datasetName };
 }
 
@@ -1224,6 +1448,12 @@ function exportProject(): string {
   if (!raw) throw engineError("The project snapshot could not be exported.");
   const project = JSON.parse(raw) as Record<string, unknown>;
   project.sourceFilename = datasetName;
+  if (project.analysis && typeof project.analysis === "object" &&
+      !Array.isArray(project.analysis)) {
+    const analysis = project.analysis as Record<string, unknown>;
+    analysis.timing = lastScanTiming;
+    analysis.execution = scanExecution();
+  }
   return JSON.stringify(project, null, 2);
 }
 
@@ -1237,9 +1467,11 @@ function emitProgress(force = false): ScanProgress | undefined {
     module._rdp_get_progress_json(context),
     "Scan progress was not returned.",
   );
+  progress.timing = activeScanTimer?.snapshot() ?? lastScanTiming;
+  progress.execution = scanExecution();
   scope.postMessage({ type: "progress", progress });
   // Measure from the completed post, so JSON construction time cannot make
-  // two visible updates land less than 500 ms apart.
+  // two visible updates land less than 100 ms apart.
   lastProgressEmission = performance.now();
   return progress;
 }
@@ -1267,6 +1499,24 @@ async function yieldToWorkerQueue(): Promise<void> {
 async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promise<unknown> {
   if (!module || !context || !dataset) throw new Error("Load an alignment before starting a scan.");
   if (scanActive) throw new Error("A scan is already running.");
+
+  activeScanTimer = new ScanTimer();
+  lastScanTiming = null;
+  requestedThreads = Math.max(
+    1,
+    Math.min(maximumThreads, integer(request.options.cpuThreads, recommendedThreads)),
+  );
+  scanMethodThreadCapacity = heavyMethodThreadCapacity(request.options);
+  activeThreads = module._rdp_set_worker_threads(
+    context,
+    Math.min(requestedThreads, scanMethodThreadCapacity),
+  ) || 1;
+  lastScanExecution = {
+    mode: threaded && activeThreads > 1 ? "wasm-pthreads" : "single-worker",
+    requestedThreads,
+    activeThreads,
+    hardwareConcurrency,
+  };
 
   const mask = new Uint8Array(dataset.sequenceCount);
   request.options.maskedSequenceIndices.forEach((index) => {
@@ -1326,6 +1576,7 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       disabled.length,
     );
     if (started !== 1) throw engineError("The recombination scan could not be started.");
+    activeScanTimer.beginPrimary();
   } finally {
     module._free(maskPointer);
     module._free(disabledPointer);
@@ -1341,14 +1592,23 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       const batchStarted = performance.now();
       const status = module._rdp_scan_batch(context, tripletBudget);
       const batchElapsed = performance.now() - batchStarted;
+      if (status === 4) activeScanTimer?.completeRound();
       emitProgress();
       if (status === 1) break;
       if (status === 3) {
+        const terminalDiscovery = parseJson<ScanProgress>(
+          module._rdp_get_progress_json(context),
+          "Terminal discovery progress was not returned.",
+        );
+        activeScanTimer?.beginReconciliation(
+          terminalDiscovery.cycleTermination !== "user-stopped" &&
+            terminalDiscovery.processedTriplets === terminalDiscovery.totalTriplets,
+        );
+        emitProgress(true);
         await yieldToWorkerQueue();
         if (module._rdp_reconcile(context) !== 1) {
           throw engineError("The discovery signals could not be reconciled into event hypotheses.");
         }
-        emitProgress();
         break;
       }
       if (status === 2) throw new Error("The scan was cancelled.");
@@ -1361,18 +1621,49 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       }
       await yieldToWorkerQueue();
     }
-    return parseJson(module._rdp_get_results_json(context), "The scan returned no results.");
+    const results = parseJson<ScanResults>(
+      module._rdp_get_results_json(context),
+      "The scan returned no results.",
+    );
+    if (activeScanTimer) {
+      // Include native result serialization and JSON parsing in the measured
+      // run, rather than stopping the clock as soon as reconciliation returns.
+      lastScanTiming = activeScanTimer.finish();
+      activeScanTimer = null;
+    }
+    emitProgress(true);
+    return decorateScanResults(results);
   } finally {
+    if (activeScanTimer) {
+      lastScanTiming = activeScanTimer.finish();
+      activeScanTimer = null;
+    }
     scanActive = false;
   }
 }
 
-async function reidentifyLaterEvents(eventId: number): Promise<ScanResults> {
+async function reidentifyLaterEvents(eventId: number, cpuThreads: number): Promise<ScanResults> {
   if (!module || !context) throw new Error("The engine has not been initialised.");
   if (scanActive) throw new Error("A scan is already running.");
+  activeScanTimer = new ScanTimer();
+  lastScanTiming = null;
+  requestedThreads = Math.max(1, Math.min(maximumThreads, integer(cpuThreads, recommendedThreads)));
+  activeThreads = module._rdp_set_worker_threads(
+    context,
+    Math.min(requestedThreads, scanMethodThreadCapacity),
+  ) || 1;
+  lastScanExecution = {
+    mode: threaded && activeThreads > 1 ? "wasm-pthreads" : "single-worker",
+    requestedThreads,
+    activeThreads,
+    hardwareConcurrency,
+  };
   if (module._rdp_reconcile_after(context, eventId) !== 1) {
+    lastScanTiming = activeScanTimer.finish();
+    activeScanTimer = null;
     throw engineError("Later events could not be prepared for re-identification.");
   }
+  activeScanTimer.beginPrimary();
   scanActive = true;
   lastProgressEmission = Number.NEGATIVE_INFINITY;
   emitProgress(true);
@@ -1382,13 +1673,15 @@ async function reidentifyLaterEvents(eventId: number): Promise<ScanResults> {
       const batchStarted = performance.now();
       const status = module._rdp_scan_batch(context, tripletBudget);
       const batchElapsed = performance.now() - batchStarted;
+      if (status === 4) activeScanTimer?.completeRound();
       emitProgress();
       if (status === 3) {
+        activeScanTimer?.beginReconciliation(true);
+        emitProgress(true);
         await yieldToWorkerQueue();
         if (module._rdp_reconcile(context) !== 1) {
           throw engineError("The rebuilt signals could not be reconciled into event hypotheses.");
         }
-        emitProgress();
         break;
       }
       if (status === 2) throw new Error("Re-identification was cancelled.");
@@ -1398,11 +1691,21 @@ async function reidentifyLaterEvents(eventId: number): Promise<ScanResults> {
       }
       await yieldToWorkerQueue();
     }
-    return parseJson<ScanResults>(
+    const results = parseJson<ScanResults>(
       module._rdp_get_results_json(context),
       "Re-identified event results were not returned.",
     );
+    if (activeScanTimer) {
+      lastScanTiming = activeScanTimer.finish();
+      activeScanTimer = null;
+    }
+    emitProgress(true);
+    return decorateScanResults(results);
   } finally {
+    if (activeScanTimer) {
+      lastScanTiming = activeScanTimer.finish();
+      activeScanTimer = null;
+    }
     scanActive = false;
   }
 }
@@ -1487,10 +1790,10 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         ) {
           throw engineError("The event review state could not be changed.");
         }
-        result = parseJson(
+        result = decorateScanResults(parseJson<ScanResults>(
           module._rdp_get_results_json(context),
           "Updated event results were not returned.",
-        );
+        ));
         break;
       }
       case "update-event":
@@ -1508,10 +1811,10 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         ) {
           throw engineError("The event correction could not be saved.");
         }
-        result = parseJson(
+        result = decorateScanResults(parseJson<ScanResults>(
           module._rdp_get_results_json(context),
           "Updated event results were not returned.",
-        );
+        ));
         break;
       case "update-event-group": {
         if (!module || !context) throw new Error("The engine has not been initialised.");
@@ -1533,14 +1836,14 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         } finally {
           module._free(pointer);
         }
-        result = parseJson(
+        result = decorateScanResults(parseJson<ScanResults>(
           module._rdp_get_results_json(context),
           "Updated event results were not returned.",
-        );
+        ));
         break;
       }
       case "reconcile-after":
-        result = await reidentifyLaterEvents(request.eventId);
+        result = await reidentifyLaterEvents(request.eventId, request.cpuThreads);
         break;
       case "export-csv":
         if (!module || !context) throw new Error("The engine has not been initialised.");

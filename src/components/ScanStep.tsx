@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, LoaderCircle, Pause, Play, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, Clock3, Cpu, LoaderCircle, Pause, Play, ShieldCheck } from "lucide-react";
 
 import type { ScanOptions, ScanProgress } from "../lib/types";
 
@@ -22,6 +22,18 @@ interface ScanStepProps {
 
 const integer = new Intl.NumberFormat();
 
+function formatDuration(milliseconds: number): string {
+  const safe = Math.max(0, Number.isFinite(milliseconds) ? milliseconds : 0);
+  if (safe < 1000) return `${Math.round(safe)} ms`;
+  const totalSeconds = safe / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(3)} s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+  if (minutes < 60) return `${minutes}m ${seconds.toFixed(3).padStart(6, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m ${seconds.toFixed(3).padStart(6, "0")}s`;
+}
+
 export function ScanStep({
   options,
   sequenceCount,
@@ -40,6 +52,9 @@ export function ScanStep({
   onReview,
 }: ScanStepProps) {
   const percentage = Math.round(progress.fraction * 1000) / 10;
+  const indeterminate = running && progress.processedTriplets === 0;
+  const timing = progress.timing;
+  const recentRounds = timing?.rounds.slice(-3) ?? [];
   const currentCorrectionTests = progress.state === "idle"
     ? correctionTestCount
     : progress.correctionTests;
@@ -167,6 +182,14 @@ export function ScanStep({
             <span>Breakpoint confidence</span>
             <strong>{options.polishBreakpoints ? "BURT enabled" : "Preserve detected calls"}</strong>
           </div>
+          <div>
+            <span>Compute</span>
+            <strong>
+              {progress.state === "idle"
+                ? `${options.cpuThreads} CPU${options.cpuThreads === 1 ? "" : "s"} requested`
+                : `${progress.execution.activeThreads} CPU${progress.execution.activeThreads === 1 ? "" : "s"} · ${progress.execution.mode === "wasm-pthreads" ? "WASM threads" : "single worker"}`}
+            </strong>
+          </div>
         </div>
 
         <div className="progress-block" aria-live="polite">
@@ -174,17 +197,48 @@ export function ScanStep({
             <span>
               Round {progress.scanRound} · {integer.format(progress.processedTriplets)} / {integer.format(currentTotalTriplets)} triplets
             </span>
-            <strong>{percentage}%</strong>
+            <strong>{indeterminate ? "Working…" : `${percentage}%`}</strong>
           </div>
           <div
-            className="progress-track"
+            className={`progress-track${running ? " is-active" : ""}${indeterminate ? " is-indeterminate" : ""}`}
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={percentage}
+            aria-valuenow={indeterminate ? undefined : percentage}
+            aria-valuetext={indeterminate ? `Round ${progress.scanRound} is starting` : `${percentage}%`}
           >
-            <span style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }} />
+            <span style={indeterminate ? undefined : { width: `${Math.min(100, Math.max(0, percentage))}%` }} />
           </div>
+          {timing ? (
+            <div className="timing-panel" aria-label="Analysis timing">
+              <div className="timing-total">
+                <Clock3 size={15} />
+                <span>{running ? "Elapsed" : "Total run time"}</span>
+                <strong>{formatDuration(timing.totalMs)}</strong>
+              </div>
+              <dl className="timing-phases">
+                <div><dt>Setup</dt><dd>{formatDuration(timing.setupMs)}</dd></div>
+                <div><dt>Primary scan</dt><dd>{formatDuration(timing.primaryMs)}</dd></div>
+                <div><dt>Cyclic rescans</dt><dd>{formatDuration(timing.cyclicRescanMs)}</dd></div>
+                <div><dt>Final evidence</dt><dd>{formatDuration(timing.reconciliationMs)}</dd></div>
+              </dl>
+              {running && timing.currentRoundMs > 0 ? (
+                <div className="timing-rounds">
+                  <span>Current round {progress.scanRound}: {formatDuration(timing.currentRoundMs)}</span>
+                  {recentRounds.map((round) => (
+                    <span key={round.round}>R{round.round}: {formatDuration(round.elapsedMs)}</span>
+                  ))}
+                </div>
+              ) : timing.rounds.length > 0 ? (
+                <div className="timing-rounds">
+                  <span>{timing.rounds.length} timed round{timing.rounds.length === 1 ? "" : "s"}</span>
+                  {recentRounds.map((round) => (
+                    <span key={round.round}>R{round.round}: {formatDuration(round.elapsedMs)}</span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="progress-meta">
             <span>
               {integer.format(progress.signalCount)} signals · {integer.format(progress.eventCount)} event candidates
@@ -378,6 +432,9 @@ export function ScanStep({
         </ol>
 
         <div className="scan-controls">
+          <span className="compute-status">
+            <Cpu size={15} /> {options.cpuThreads} CPU{options.cpuThreads === 1 ? "" : "s"} selected
+          </span>
           {!running && !hasResults ? (
             <button
               className="button button-primary button-large"

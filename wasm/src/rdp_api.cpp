@@ -4,6 +4,7 @@
 #include "json.hpp"
 #include "rdp_method.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -36,6 +37,7 @@ struct Context {
   bool loaded = false;
   bool restoring_alignment = false;
   bool restoring_scan = false;
+  std::size_t requested_worker_threads = 1;
 };
 
 std::vector<std::unique_ptr<Context>>& contexts() {
@@ -80,7 +82,7 @@ std::uint64_t restored_counter(double value) {
 std::string project_json(const Context& context) {
   std::ostringstream out;
   out << "{\"schema\":\"org.rdp-web.project/v1alpha19\","
-         "\"engineVersion\":\"0.23.0-session-23\",\"dataset\":{";
+         "\"engineVersion\":\"0.24.0-session-24\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -121,7 +123,25 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.23.0-session-23";
+  return "0.24.0-session-24";
+}
+
+RDP_KEEPALIVE std::uint32_t rdp_set_worker_threads(
+    std::uint32_t handle,
+    std::uint32_t requested) {
+  Context* context = context_for(handle);
+  if (!context) return 0;
+  context->requested_worker_threads =
+      std::clamp<std::size_t>(requested, 1, 6);
+  if (context->scanner) {
+    context->scanner->set_worker_threads(context->requested_worker_threads);
+    return static_cast<std::uint32_t>(context->scanner->worker_threads());
+  }
+#if defined(RDP_ENABLE_THREADS)
+  return static_cast<std::uint32_t>(context->requested_worker_threads);
+#else
+  return 1;
+#endif
 }
 
 RDP_KEEPALIVE int rdp_load_alignment(
@@ -248,6 +268,7 @@ RDP_KEEPALIVE int rdp_scan_begin(
   options.disabled.assign(disabled_sequences, disabled_sequences + disabled_length);
 
   context->scanner = std::make_unique<rdp::RdpScanner>(context->alignment);
+  context->scanner->set_worker_threads(context->requested_worker_threads);
   if (!context->scanner->begin(std::move(options), context->error)) {
     context->scanner.reset();
     return 0;
@@ -1128,6 +1149,7 @@ RDP_KEEPALIVE int rdp_restore_scan_finish(
   }
   context->error.clear();
   context->scanner = std::make_unique<rdp::RdpScanner>(context->alignment);
+  context->scanner->set_worker_threads(context->requested_worker_threads);
   const bool restored = context->scanner->restore(
       std::move(context->restore_options),
       std::move(context->restore_signals),

@@ -1,7 +1,8 @@
 The generated Emscripten module is written here by scripts/build-wasm.sh.
 
-Session 23 includes the supplied event-tree, SISCAN, and PHYLPRO calculation paths,
-plus cyclic clean-triplet/fragment pruning, and keeps the supplied native projects read-only.
+Session 24 includes the supplied event-tree, SISCAN, and PHYLPRO calculation paths,
+cyclic clean-triplet/fragment pruning, exact phase timing, and deterministic method-level
+multicore dispatch, and keeps the supplied native projects read-only.
 The source exports lazy breakpoint-alignment, six-region event-tree, and PHYLPRO review endpoints.
 Six-region event trees now use source-shaped single-precision Clearcut NJ,
 Microsoft-CRT SEQBOOT2 resampling, retained-base-tree support pseudocounts,
@@ -45,5 +46,7 @@ The linked host regressions cover primary BootScan discovery/cache, SISCAN,
 event trees, PHYLPRO target rows against brute-force recomputation, cyclic
 reconciliation, exact selected-result digest, clean-negative reuse, DropSeqs-style
 fragment compaction/reindexing, and plot output. Routine browser statistics are
-limited to once per 500 ms and release WASM uses LTO/SIMD. Authorized native golden
-validation remains pending.
+limited to once per 100 ms and release WASM uses LTO/SIMD. The build emits both
+single-worker and pthread modules; the UI selects pthreads only under cross-origin
+isolation and otherwise falls back automatically. Authorized native golden validation
+remains pending.

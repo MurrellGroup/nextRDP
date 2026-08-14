@@ -14,6 +14,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -418,6 +420,10 @@ struct SignalPlot {
 class RdpScanner {
  public:
   explicit RdpScanner(const Alignment& alignment);
+  ~RdpScanner();
+
+  void set_worker_threads(std::size_t requested);
+  [[nodiscard]] std::size_t worker_threads() const { return worker_threads_; }
 
   bool begin(ScanOptions options, std::string& error);
   int scan_batch(std::size_t triplet_budget, std::string& error);
@@ -536,6 +542,8 @@ class RdpScanner {
   [[nodiscard]] bool cancelled() const { return cancelled_.load(); }
 
  private:
+  class MethodExecutor;
+
   struct TripletProfile {
     std::array<std::uint32_t, 3> sequences{};
     std::vector<std::uint8_t> category;
@@ -677,6 +685,10 @@ class RdpScanner {
   std::string cycle_termination_ = "not-started";
   std::int32_t reconciliation_required_after_ = -1;
   std::atomic_bool cancelled_{false};
+  std::size_t worker_threads_ = 1;
+  std::unique_ptr<MethodExecutor> method_executor_;
+  std::array<std::vector<Signal>, 6> method_signal_scratch_;
+  std::vector<std::function<void()>> method_task_scratch_;
 
   [[nodiscard]] bool build_profile(
       const std::array<std::uint32_t, 3>& triplet,

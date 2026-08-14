@@ -18,7 +18,7 @@ jobs:
     name: Build static WASM site
     if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -58,6 +58,9 @@ jobs:
 
       - name: Check supplied-source PHYLPRO review core
         run: npm run check:phylpro-core
+
+      - name: Check deterministic multicore method dispatch
+        run: npm run check:multicore-core
 
       - name: Build WASM and web application
         run: npm run build
