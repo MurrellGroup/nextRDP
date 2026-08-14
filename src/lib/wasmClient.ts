@@ -2,10 +2,12 @@ import type {
   DatasetSummary,
   EventAlignmentView,
   EventTreeView,
+  EventPhylproView,
   EventEdit,
   ImportedProject,
   ReviewState,
   ScanOptions,
+  PhylproGapMode,
   ScanProgress,
   ScanResults,
   SignalPlot,
@@ -106,6 +108,21 @@ export class RdpWorkerClient {
 
   eventTrees(eventId: number): Promise<EventTreeView> {
     return this.send({ type: "event-trees", eventId }) as Promise<EventTreeView>;
+  }
+
+  eventPhylpro(
+    eventId: number,
+    windowSites = 60,
+    gapMode: PhylproGapMode = "ignore-missing-pairwise",
+    includeSelf = false,
+  ): Promise<EventPhylproView> {
+    return this.send({
+      type: "event-phylpro",
+      eventId,
+      windowSites,
+      gapMode,
+      includeSelf,
+    }) as Promise<EventPhylproView>;
   }
 
   setReviewState(signalId: number, state: ReviewState): Promise<void> {

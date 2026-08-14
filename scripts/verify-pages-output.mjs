@@ -188,6 +188,7 @@ try {
     0, 1, 1, // GENECONV
     0, // 3SEQ
     0, 0, 200, 20, 100, 0.7, 3, // primary/secondary BootScan
+    0, 0, 200, 20, 100, 1000, 3, // primary/secondary SISCAN
     0, // preserve detected breakpoints
     0, // exploratory mode
     referenceGroupsPointer,
@@ -214,26 +215,31 @@ try {
   const progress = JSON.parse(engine.UTF8ToString(
     engine._rdp_get_progress_json(cyclicContext),
   ));
-  if (status !== 3 || progress.eventCount < 2 || progress.scanRound < 3) {
+  if (status !== 3 || progress.eventCount < 2 || progress.scanRound < 3 ||
+      progress.processedTriplets !== progress.totalTriplets) {
     fail("cyclic-shortlist smoke test did not complete two detection rounds");
   }
   if (progress.correctionTests !== 120) {
     fail("the project correction count changed after cyclic fragment re-entry");
   }
   if (!(progress.tripletSummariesReused > 0) ||
+      !(progress.cleanTripletsPruned > 0) ||
       !(progress.methodScansSkipped > 0) ||
       !(progress.cachedSignalsReused > 0) ||
+      !(progress.invalidScheduleTripletsSkipped > 0) ||
+      !(progress.fragmentSequencesPruned > 0) ||
       !(progress.tripletKernelEvaluations < progress.cumulativeTriplets)) {
-    fail("cyclic shortlist summaries were not reused across rounds");
+    fail("cyclic shortlist or event-free fragment pruning was not applied across rounds");
   }
   if (engine._rdp_reconcile(cyclicContext) !== 1) {
     fail(`cyclic-shortlist reconciliation failed: ${engine.UTF8ToString(
       engine._rdp_get_error(cyclicContext),
     )}`);
   }
-  const results = JSON.parse(engine.UTF8ToString(
+  const resultsText = engine.UTF8ToString(
     engine._rdp_get_results_json(cyclicContext),
-  ));
+  );
+  const results = JSON.parse(resultsText);
   const selectedResult = {
     events: results.events.map((event) => [
       event.recombinant,
@@ -265,6 +271,48 @@ try {
     fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
   }
 
+  // Reconstruct the supplied PHYLPRO diagnostic lazily from the reconciled
+  // event. It is deliberately a review-only profile: the supplied RDP5 route
+  // has no active significance test and therefore must not invent a p-value
+  // or feed a new detection back into the cyclic scheduler.
+  const phylproPointer = engine._rdp_get_event_phylpro_json(
+    cyclicContext,
+    results.events[0].id,
+    60,
+    0, // ignore missing observations pairwise
+    0, // exclude the zero-distance self observation
+  );
+  if (!phylproPointer) {
+    fail(`PHYLPRO lazy review failed: ${engine.UTF8ToString(
+      engine._rdp_get_error(cyclicContext),
+    )}`);
+  }
+  const phylpro = JSON.parse(engine.UTF8ToString(phylproPointer));
+  if (phylpro.status !== "source-shaped-active-unvalidated" ||
+      phylpro.kernel !== "FindSubSeqPP-MakePDstMat-UpdatePDstMat-PPRegression" ||
+      phylpro.significanceTest !== "not-implemented-in-supplied-rdp5" ||
+      phylpro.optimization !== "three-target-rows-linear-in-context" ||
+      phylpro.circular !== true ||
+      phylpro.contextSequences !== syntheticSequences.length ||
+      phylpro.sequenceIndices.length !== 3 ||
+      phylpro.minimumBySequence.length !== 3 ||
+      phylpro.breakpoints.length !== 2 ||
+      !(phylpro.eligibleColumns > 0) ||
+      !(phylpro.evaluatedPoints >= phylpro.returnedPoints) ||
+      !Array.isArray(phylpro.points) || phylpro.points.length < 2 ||
+      !phylpro.points.every((point) =>
+        Number.isFinite(point.recombinant) &&
+        Number.isFinite(point.majorParent) &&
+        Number.isFinite(point.minorParent))) {
+    fail("PHYLPRO lazy review profile/provenance is incomplete");
+  }
+  const resultsAfterPhylpro = engine.UTF8ToString(
+    engine._rdp_get_results_json(cyclicContext),
+  );
+  if (resultsAfterPhylpro !== resultsText) {
+    fail("PHYLPRO review mutated the reconciled discovery result");
+  }
+
   // Exercise primary distance-mode BootScan through the public WASM ABI. The
   // ten-record fixture contains two mosaics and 45 unique sequence pairs, so
   // a complete opening round must discover support regions while reusing the
@@ -289,6 +337,7 @@ try {
       0, 1, 1,
       0,
       1, 0, 100, 20, 30, 0.7, 3,
+      0, 0, 200, 20, 100, 1000, 3,
       0,
       0,
       referenceGroupsPointer,
@@ -368,6 +417,135 @@ try {
     engine._rdp_destroy(bootscanContext);
   }
 
+  // Exercise the supplied SISCAN path through the production Emscripten ABI.
+  // The fourth sequence is the deterministic nearest outlier; the recombinant
+  // switches from parent one to parent two for a planted 60-site tract.
+  const siscanLength = 240;
+  const siscanAlphabet = "ACGT";
+  const siscanParentOne = Array.from(
+    { length: siscanLength },
+    (_, index) => siscanAlphabet[index % 4],
+  ).join("");
+  const siscanParentTwo = Array.from(
+    { length: siscanLength },
+    (_, index) => siscanAlphabet[(index + 1) % 4],
+  ).join("");
+  const siscanOutlier = Array.from(
+    { length: siscanLength },
+    (_, index) => siscanAlphabet[(index + 2) % 4],
+  ).join("");
+  const siscanRecombinant = Array.from(
+    siscanParentOne,
+    (base, index) => index >= 80 && index <= 139 ? siscanParentTwo[index] : base,
+  ).join("");
+  const siscanFasta = new TextEncoder().encode(
+    `>siscan-recombinant\n${siscanRecombinant}\n` +
+    `>siscan-parent-one\n${siscanParentOne}\n` +
+    `>siscan-parent-two\n${siscanParentTwo}\n` +
+    `>siscan-outlier\n${siscanOutlier}\n`,
+  );
+  const siscanPointer = engine._malloc(siscanFasta.byteLength);
+  const siscanContext = engine._rdp_create();
+  if (!siscanPointer || !siscanContext) {
+    fail("the WASM engine could not allocate the SISCAN smoke test");
+  }
+  try {
+    engine.HEAPU8.set(siscanFasta, siscanPointer);
+    if (engine._rdp_load_alignment(
+      siscanContext,
+      siscanPointer,
+      siscanFasta.byteLength,
+    ) !== 1) {
+      fail(`SISCAN alignment load failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(siscanContext),
+      )}`);
+    }
+    const siscanStarted = engine._rdp_scan_begin(
+      siscanContext,
+      0, 1, 0.05, 30,
+      0, 70,
+      0, 60,
+      0, 1, 1,
+      0,
+      0, 0, 200, 20, 100, 0.7, 3,
+      1, 0, 40, 5, 20, 100, 3,
+      0,
+      0,
+      referenceGroupsPointer,
+      4,
+      zeroFlagsPointer,
+      4,
+      zeroFlagsPointer,
+      4,
+    );
+    if (siscanStarted !== 1) {
+      fail(`SISCAN scan could not start: ${engine.UTF8ToString(
+        engine._rdp_get_error(siscanContext),
+      )}`);
+    }
+    let siscanStatus = 0;
+    for (let batch = 0;
+      batch < 1000 && siscanStatus !== 4 && siscanStatus !== 3;
+      ++batch) {
+      siscanStatus = engine._rdp_scan_batch(siscanContext, 64);
+      if (siscanStatus < 0) {
+        fail(`SISCAN scan failed: ${engine.UTF8ToString(
+          engine._rdp_get_error(siscanContext),
+        )}`);
+      }
+    }
+    const siscanProgress = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_progress_json(siscanContext),
+    ));
+    if (siscanStatus !== 4 || siscanProgress.eventCount < 1 ||
+        !(siscanProgress.siscanProfilesScanned > 0) ||
+        !(siscanProgress.siscanWindowsScored > 0) ||
+        !(siscanProgress.siscanCandidateRegionsScored > 0) ||
+        !(siscanProgress.siscanCandidatesFound > 0) ||
+        !(siscanProgress.siscanPermutationDraws > 0) ||
+        siscanProgress.siscanContextBuilds !== 1 ||
+        siscanProgress.siscanContextTreeMerges !== 3 ||
+        !(siscanProgress.siscanRandomValuesGenerated > 0)) {
+      fail("SISCAN discovery/context/random-prefix telemetry is inconsistent");
+    }
+    engine._rdp_cancel(siscanContext);
+    siscanStatus = engine._rdp_scan_batch(siscanContext, 1);
+    if (siscanStatus !== 3 || engine._rdp_reconcile(siscanContext) !== 1) {
+      fail(`SISCAN result finalization failed: ${engine.UTF8ToString(
+        engine._rdp_get_error(siscanContext),
+      )}`);
+    }
+    const siscanResults = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_results_json(siscanContext),
+    ));
+    const siscanSignal = siscanResults.signals.find(
+      (signal) => signal.method === "SISCAN" && signal.siscanDiscovery,
+    );
+    if (!siscanResults.siscanPrimaryEnabled || !siscanSignal ||
+        siscanSignal.siscanDiscovery.outlierMode !== "nearest-source-wpgma" ||
+        siscanSignal.siscanDiscovery.permutationGenerator !== "microsoft-crt-flat-prefix" ||
+        siscanSignal.siscanDiscovery.sourceFastWindowQuirk !== true ||
+        !(siscanSignal.siscanDiscovery.maximumZ > 0) ||
+        !(siscanSignal.siscanDiscovery.normalTailPValue > 0) ||
+        !(siscanSignal.siscanDiscovery.windowAdjustedPValue > 0) ||
+        !(siscanSignal.siscanDiscovery.correctedPValue > 0)) {
+      fail("SISCAN discovery evidence did not survive reconciliation");
+    }
+    const siscanPlot = JSON.parse(engine.UTF8ToString(
+      engine._rdp_get_signal_plot_json(siscanContext, siscanSignal.id),
+    ));
+    if (siscanPlot.method !== "SISCAN" ||
+        siscanPlot.metric !== "sister-scan-z-score" ||
+        !(siscanPlot.minimumValue < 0) ||
+        !(siscanPlot.maximumValue > 0) ||
+        !Array.isArray(siscanPlot.points) || siscanPlot.points.length < 2) {
+      fail("SISCAN review plot was not reconstructed");
+    }
+  } finally {
+    engine._free(siscanPointer);
+    engine._rdp_destroy(siscanContext);
+  }
+
   // A user stop during a later cyclic pass is a graceful workflow boundary:
   // discard the unfinished pass, preserve its already committed event prefix,
   // and continue through reconciliation so Review receives usable results.
@@ -391,6 +569,7 @@ try {
       0, 1, 1,
       0,
       0, 0, 200, 20, 100, 0.7, 3,
+      0, 0, 200, 20, 100, 1000, 3,
       0,
       0,
       referenceGroupsPointer,
@@ -459,5 +638,5 @@ try {
 
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, primary-BootScan/cache, cyclic-shortlist, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files, FASTA upload, primary-BootScan/cache, SISCAN/context/random-prefix, cyclic-shortlist, PHYLPRO review, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );

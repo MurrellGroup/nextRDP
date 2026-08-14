@@ -4,7 +4,8 @@ export type CorrectionMode = "bonferroni" | "none";
 export type AnalysisMode = "exploratory" | "query-reference";
 export type QueryReferenceInputRole = "query" | "reference" | "not-applied";
 export type SequenceAnalysisState = "enabled" | "masked" | "disabled";
-export type DiscoveryMethod = "RDP" | "MAXCHI" | "CHIMAERA" | "GENECONV" | "3SEQ" | "BOOTSCAN";
+export type PhylproGapMode = "ignore-missing-pairwise" | "strip-any-missing-column";
+export type DiscoveryMethod = "RDP" | "MAXCHI" | "CHIMAERA" | "GENECONV" | "3SEQ" | "BOOTSCAN" | "SISCAN";
 
 export interface SequenceSummary {
   index: number;
@@ -52,6 +53,13 @@ export interface ScanOptions {
   bootscanBootstrapReplicates: number;
   bootscanSupportCutoff: number;
   bootscanRandomSeed: number;
+  siscanPrimaryEnabled: boolean;
+  siscanSecondaryEnabled: boolean;
+  siscanWindowSites: number;
+  siscanStepSites: number;
+  siscanScanPermutations: number;
+  siscanPValuePermutations: number;
+  siscanRandomSeed: number;
   polishBreakpoints: boolean;
   maskedSequenceIndices: number[];
   disabledSequenceIndices: number[];
@@ -71,8 +79,11 @@ export interface ScanProgress {
   cumulativeTriplets: number;
   tripletKernelEvaluations: number;
   tripletSummariesReused: number;
+  cleanTripletsPruned: number;
   cachedSignalsReused: number;
   methodScansSkipped: number;
+  invalidScheduleTripletsSkipped: number;
+  fragmentSequencesPruned: number;
   scanRound: number;
   fixedEventCount: number;
   signalCount: number;
@@ -103,6 +114,15 @@ export interface ScanProgress {
   bootscanPairProfileCacheEvictions: number;
   bootscanPairProfileCacheBytes: number;
   bootscanPairProfileCachePeakBytes: number;
+  siscanProfilesScanned: number;
+  siscanWindowsScored: number;
+  siscanCandidateRegionsScored: number;
+  siscanCandidatesFound: number;
+  siscanPermutationDraws: number;
+  siscanContextBuilds: number;
+  siscanContextPairComparisons: number;
+  siscanContextTreeMerges: number;
+  siscanRandomValuesGenerated: number;
   cycleTermination: string;
   fraction: number;
 }
@@ -222,6 +242,29 @@ export interface BootscanDiscoveryEvidence {
   erasedWindowFilterApplied: boolean;
 }
 
+export interface SiscanDiscoveryEvidence {
+  status: "source-shaped-active-unvalidated";
+  kernel: "SSXoverC-GetSSOL-Get3Score-GetPScores2-DoPerms3-MakeZValue2-DoSums-FindMaxZ-ShrinkRegionC";
+  outlierMode: "nearest-source-wpgma";
+  permutationGenerator: "microsoft-crt-flat-prefix";
+  gapMode: "strip";
+  variablePatternMode: "one-two-three-variable";
+  sourceFastWindowQuirk: true;
+  globalPair: 0 | 1 | 2;
+  candidatePair: 0 | 1 | 2;
+  outlierSequence: number;
+  windowsInRegion: number;
+  informativeSites: number;
+  permutationDraws: number;
+  selectedScore: number;
+  selectedScoreFamily: "partition" | "summed";
+  maximumZ: number;
+  normalTailPValue: number;
+  regionLengthAdjustedPValue: number;
+  windowAdjustedPValue: number;
+  correctedPValue: number;
+}
+
 export interface RdpSignal {
   id: number;
   method: DiscoveryMethod;
@@ -251,6 +294,7 @@ export interface RdpSignal {
   geneconvDiscovery: GeneconvDiscoveryEvidence | null;
   threeSeqDiscovery: ThreeSeqDiscoveryEvidence | null;
   bootscanDiscovery: BootscanDiscoveryEvidence | null;
+  siscanDiscovery: SiscanDiscoveryEvidence | null;
   fragmentAssisted: boolean;
   fragmentEventContext: [number | null, number | null, number | null];
   eventId: number | null;
@@ -622,6 +666,40 @@ export interface BootscanRecheckEvidence {
   sourceRecheckHit: boolean;
 }
 
+export interface SiscanRecheckEvidence {
+  status:
+    | "complete-active-unvalidated"
+    | "representative-skipped"
+    | "not-requested"
+    | "outlier-unavailable"
+    | "profile-unavailable";
+  kernel: "GetSSOL-Get3Score-GetPScores2-DoPerms3P-MakeZValue2-DoSums";
+  eventDiscoveryApplied: false;
+  coordinateChanging: false;
+  requested: boolean;
+  representativeSkipped: boolean;
+  profileAvailable: boolean;
+  outlierAvailable: boolean;
+  sourceNearestOutlier: true;
+  sourceGapStripping: true;
+  sourceVariablePatterns: true;
+  bonferroniApplied: boolean;
+  correctionTests: number;
+  outlierSequence: number | null;
+  informativeSites: number;
+  permutationDraws: number;
+  globalPair: 0 | 1 | 2;
+  scoredPair: 0 | 1 | 2 | null;
+  selectedScore: number;
+  selectedScoreFamily: "partition" | "summed" | "unavailable";
+  maximumZ: number;
+  normalTailPValue: number;
+  regionLengthAdjustedPValue: number;
+  windowAdjustedPValue: number;
+  correctedPValue: number;
+  sourceRecheckHit: boolean;
+}
+
 export interface DistanceCorrelationEvidence {
   sequenceIndex: number;
   sequenceName: string;
@@ -654,6 +732,7 @@ export interface DistanceCorrelationEvidence {
   postGroupGeneconvRecheck: GeneconvRecheckEvidence;
   postGroupThreeSeqRecheck: ThreeSeqRecheckEvidence;
   postGroupBootscanRecheck: BootscanRecheckEvidence;
+  postGroupSiscanRecheck: SiscanRecheckEvidence;
 }
 
 export interface PhylogeneticCorrelationEvidence {
@@ -781,6 +860,8 @@ export interface RoleHypothesisEvidence {
   nativeThreeSeqFullRecheckComplete: false;
   bootscanPostGroupRecheckStatus: "source-shaped-distance-bootstrap-binomial-unvalidated";
   nativeBootscanFullRecheckComplete: false;
+  siscanPostGroupRecheckStatus: "source-shaped-fixed-region-vertical-permutation-unvalidated";
+  nativeSiscanFullRecheckComplete: false;
   lateNativeConsensusComplete: false;
 }
 
@@ -815,6 +896,7 @@ export interface ReconciledEvent {
   geneconvTripletRecheck: GeneconvRecheckEvidence;
   threeSeqTripletRecheck: ThreeSeqRecheckEvidence;
   bootscanTripletRecheck: BootscanRecheckEvidence;
+  siscanTripletRecheck: SiscanRecheckEvidence;
   bestLocalPValue: number;
   bestCorrectedPValue: number;
   supportSignalIds: number[];
@@ -854,7 +936,7 @@ export interface SignalPlot {
   signalId: number;
   windowSites: number;
   method: DiscoveryMethod;
-  metric: "pair-identity" | "chi-square" | "negative-log10-p-value" | "random-walk-height" | "bootstrap-support";
+  metric: "pair-identity" | "chi-square" | "negative-log10-p-value" | "random-walk-height" | "bootstrap-support" | "sister-scan-z-score";
   profileContext: "detection-alignment" | "original-alignment-reconstruction";
   detectionProfileExact: boolean;
   minimumValue: number;
@@ -995,8 +1077,62 @@ export interface EventTreeView {
   regions: EventTreeRegion[];
 }
 
+export interface PhylproPlotPoint {
+  alignmentPosition: number;
+  recombinant: number;
+  majorParent: number;
+  minorParent: number;
+}
+
+export interface PhylproMinimum {
+  sequenceIndex: number;
+  position: number;
+  correlation: number;
+}
+
+export interface PhylproBreakpoint {
+  name: "beginning" | "ending";
+  eventPosition: number;
+  profilePosition: number;
+  correlations: [number, number, number];
+}
+
+export interface EventPhylproView {
+  eventId: number;
+  status: "source-shaped-active-unvalidated";
+  kernel: "FindSubSeqPP-MakePDstMat-UpdatePDstMat-PPRegression";
+  roleOrder: "recombinant-major-parent-minor-parent";
+  columnSelection: "polymorphic-after-gap-policy";
+  distance: "pairwise-Hamming-count";
+  correlation: "Pearson-source-single-output";
+  significanceTest: "not-implemented-in-supplied-rdp5";
+  optimization: "three-target-rows-linear-in-context";
+  maskedContextIncluded: true;
+  disabledContextExcluded: true;
+  fragmentContextIncluded: false;
+  circular: boolean;
+  windowSites: number;
+  halfWindowSites: number;
+  windowCapped: boolean;
+  gapMode: PhylproGapMode;
+  includeSelf: boolean;
+  eligibleColumns: number;
+  contextSequences: number;
+  targetContextComparisons: number;
+  rollingUpdates: number;
+  evaluatedPoints: number;
+  returnedPoints: number;
+  minimumValue: number;
+  maximumValue: number;
+  sequenceIndices: [number, number, number];
+  sequenceNames: [string, string, string];
+  minimumBySequence: [PhylproMinimum, PhylproMinimum, PhylproMinimum];
+  breakpoints: [PhylproBreakpoint, PhylproBreakpoint];
+  points: PhylproPlotPoint[];
+}
+
 export interface LateConsensusStatus {
-  status: "active-rdp-geneconv-bootscan-maxchi-chimaera-threeseq-plus-optional-bootscan-post-group-recheck";
+  status: "active-rdp-geneconv-bootscan-maxchi-chimaera-siscan-threeseq-plus-optional-bootscan-siscan-post-group-recheck";
   groupPruningApplied: true;
   nativeGroupMembershipComplete: true;
   primaryRdpPostGroupRecheckApplied: true;
@@ -1033,6 +1169,15 @@ export interface LateConsensusStatus {
   bootscanPostGroupRecheckApplied: boolean;
   bootscanRecheckKernelStatus: "source-shaped-distance-bootstrap-binomial-unvalidated";
   nativeBootscanFullRecheckComplete: false;
+  siscanPrimaryEnabled: boolean;
+  siscanEventDiscoveryApplied: boolean;
+  siscanDiscoveryFeedsCyclicScheduler: boolean;
+  siscanDiscoveryKernelStatus: "source-shaped-ssxoverc-wpgma-vertical-permutation-unvalidated";
+  siscanSecondaryEnabled: boolean;
+  siscanTripletRecheckApplied: boolean;
+  siscanPostGroupRecheckApplied: boolean;
+  siscanRecheckKernelStatus: "source-shaped-fixed-region-vertical-permutation-unvalidated";
+  nativeSiscanFullRecheckComplete: false;
   nativeMaxChiFullRecheckComplete: false;
   nativeChimaeraFullRecheckComplete: false;
   nativeGeneconvFullRecheckComplete: false;
@@ -1078,6 +1223,18 @@ export interface TreeInspectionStatus {
   payload: "on-demand-edge-lists";
 }
 
+export interface PhylproInspectionStatus {
+  available: true;
+  status: "source-shaped-active-unvalidated";
+  source: "original-alignment-current-event-roles";
+  payload: "on-demand-three-target-correlation-profile";
+  defaultWindowSites: 60;
+  defaultGapMode: "ignore-missing-pairwise";
+  defaultIncludeSelf: false;
+  significanceTest: "not-implemented-in-supplied-rdp5";
+  canChangeEvents: false;
+}
+
 export interface ScanResults {
   engineVersion: string;
   status: "cyclic-three-set-reconciled";
@@ -1097,6 +1254,7 @@ export interface ScanResults {
   lateConsensus: LateConsensusStatus;
   breakpointInspection: BreakpointInspectionStatus;
   treeInspection: TreeInspectionStatus;
+  phylproInspection: PhylproInspectionStatus;
   finalAlignmentReady: boolean;
   fragmentReentry: boolean;
   fragmentReentryAlignmentLengthLimit: number;
@@ -1137,6 +1295,15 @@ export interface ScanResults {
   bootscanPairProfileCacheMisses: number;
   bootscanPairProfileCacheEvictions: number;
   bootscanPairProfileCachePeakBytes: number;
+  siscanProfilesScanned: number;
+  siscanWindowsScored: number;
+  siscanCandidateRegionsScored: number;
+  siscanCandidatesFound: number;
+  siscanPermutationDraws: number;
+  siscanContextBuilds: number;
+  siscanContextPairComparisons: number;
+  siscanContextTreeMerges: number;
+  siscanRandomValuesGenerated: number;
   cycleTermination: string;
   correction: CorrectionMode;
   correctionTests: number;
@@ -1162,6 +1329,13 @@ export interface ScanResults {
   bootscanBootstrapReplicates: number;
   bootscanSupportCutoff: number;
   bootscanRandomSeed: number;
+  siscanPrimaryEnabled: boolean;
+  siscanSecondaryEnabled: boolean;
+  siscanWindowSites: number;
+  siscanStepSites: number;
+  siscanScanPermutations: number;
+  siscanPValuePermutations: number;
+  siscanRandomSeed: number;
   polishBreakpoints: boolean;
   signals: RdpSignal[];
   events: ReconciledEvent[];
@@ -1183,6 +1357,14 @@ export type WorkerRequest =
   | { id: number; type: "plot"; signalId: number }
   | { id: number; type: "event-alignment"; eventId: number; flankSites: number; rowLimit: number }
   | { id: number; type: "event-trees"; eventId: number }
+  | {
+      id: number;
+      type: "event-phylpro";
+      eventId: number;
+      windowSites: number;
+      gapMode: PhylproGapMode;
+      includeSelf: boolean;
+    }
   | { id: number; type: "set-review-state"; signalId: number; state: ReviewState }
   | { id: number; type: "set-event-review-state"; eventId: number; state: ReviewState }
   | { id: number; type: "update-event"; eventId: number; edit: EventEdit }

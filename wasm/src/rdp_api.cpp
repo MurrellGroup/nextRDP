@@ -79,8 +79,8 @@ std::uint64_t restored_counter(double value) {
 
 std::string project_json(const Context& context) {
   std::ostringstream out;
-  out << "{\"schema\":\"org.rdp-web.project/v1alpha18\","
-         "\"engineVersion\":\"0.20.0-session-20\",\"dataset\":{";
+  out << "{\"schema\":\"org.rdp-web.project/v1alpha19\","
+         "\"engineVersion\":\"0.23.0-session-23\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -121,7 +121,7 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.20.0-session-20";
+  return "0.23.0-session-23";
 }
 
 RDP_KEEPALIVE int rdp_load_alignment(
@@ -184,6 +184,13 @@ RDP_KEEPALIVE int rdp_scan_begin(
     std::uint32_t bootscan_bootstrap_replicates,
     double bootscan_support_cutoff,
     std::uint32_t bootscan_random_seed,
+    int siscan_primary_enabled,
+    int siscan_secondary_enabled,
+    std::uint32_t siscan_window_sites,
+    std::uint32_t siscan_step_sites,
+    std::uint32_t siscan_scan_permutations,
+    std::uint32_t siscan_p_value_permutations,
+    std::uint32_t siscan_random_seed,
     int polish_breakpoints,
     int query_reference_mode,
     const std::uint32_t* reference_groups,
@@ -224,6 +231,13 @@ RDP_KEEPALIVE int rdp_scan_begin(
   options.bootscan_bootstrap_replicates = bootscan_bootstrap_replicates;
   options.bootscan_support_cutoff = bootscan_support_cutoff;
   options.bootscan_random_seed = bootscan_random_seed;
+  options.siscan_primary_enabled = siscan_primary_enabled != 0;
+  options.siscan_secondary_enabled = siscan_secondary_enabled != 0;
+  options.siscan_window_sites = siscan_window_sites;
+  options.siscan_step_sites = siscan_step_sites;
+  options.siscan_scan_permutations = siscan_scan_permutations;
+  options.siscan_p_value_permutations = siscan_p_value_permutations;
+  options.siscan_random_seed = siscan_random_seed;
   options.polish_breakpoints = polish_breakpoints != 0;
   options.analysis_mode = query_reference_mode != 0
       ? rdp::AnalysisMode::query_reference
@@ -304,6 +318,31 @@ RDP_KEEPALIVE const char* rdp_get_event_trees_json(
   if (!context || !context->scanner) return "";
   context->error.clear();
   const std::string view = context->scanner->event_trees_json(event_id, context->error);
+  if (!context->error.empty()) return "";
+  return cached(*context, view);
+}
+
+RDP_KEEPALIVE const char* rdp_get_event_phylpro_json(
+    std::uint32_t handle,
+    std::uint32_t event_id,
+    std::uint32_t window_sites,
+    int gap_mode,
+    int include_self) {
+  Context* context = context_for(handle);
+  if (!context || !context->scanner) return "";
+  context->error.clear();
+  if (gap_mode != 0 && gap_mode != 1) {
+    context->error = "The selected PHYLPRO gap mode is unavailable.";
+    return "";
+  }
+  const std::string view = context->scanner->event_phylpro_json(
+      event_id,
+      window_sites,
+      gap_mode == 1
+          ? rdp::PhylproGapMode::strip_columns
+          : rdp::PhylproGapMode::ignore_pairwise,
+      include_self != 0,
+      context->error);
   if (!context->error.empty()) return "";
   return cached(*context, view);
 }
@@ -460,6 +499,13 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
     std::uint32_t bootscan_bootstrap_replicates,
     double bootscan_support_cutoff,
     std::uint32_t bootscan_random_seed,
+    int siscan_primary_enabled,
+    int siscan_secondary_enabled,
+    std::uint32_t siscan_window_sites,
+    std::uint32_t siscan_step_sites,
+    std::uint32_t siscan_scan_permutations,
+    std::uint32_t siscan_p_value_permutations,
+    std::uint32_t siscan_random_seed,
     int polish_breakpoints,
     int query_reference_mode,
     const std::uint32_t* reference_groups,
@@ -505,6 +551,17 @@ RDP_KEEPALIVE int rdp_restore_scan_begin(
       bootscan_bootstrap_replicates;
   context->restore_options.bootscan_support_cutoff = bootscan_support_cutoff;
   context->restore_options.bootscan_random_seed = bootscan_random_seed;
+  context->restore_options.siscan_primary_enabled =
+      siscan_primary_enabled != 0;
+  context->restore_options.siscan_secondary_enabled =
+      siscan_secondary_enabled != 0;
+  context->restore_options.siscan_window_sites = siscan_window_sites;
+  context->restore_options.siscan_step_sites = siscan_step_sites;
+  context->restore_options.siscan_scan_permutations =
+      siscan_scan_permutations;
+  context->restore_options.siscan_p_value_permutations =
+      siscan_p_value_permutations;
+  context->restore_options.siscan_random_seed = siscan_random_seed;
   context->restore_options.polish_breakpoints = polish_breakpoints != 0;
   context->restore_options.analysis_mode = query_reference_mode != 0
       ? rdp::AnalysisMode::query_reference
@@ -561,6 +618,8 @@ RDP_KEEPALIVE int rdp_restore_signal(
                   ? rdp::SignalMethod::threeseq
                   : method == 5
                       ? rdp::SignalMethod::bootscan
+                  : method == 6
+                      ? rdp::SignalMethod::siscan
                   : rdp::SignalMethod::rdp;
   signal.triplet = {triplet_0, triplet_1, triplet_2};
   signal.recombinant = recombinant;
@@ -941,6 +1000,86 @@ RDP_KEEPALIVE int rdp_restore_bootscan_discovery(
       : 0;
 }
 
+RDP_KEEPALIVE int rdp_restore_siscan_discovery(
+    std::uint32_t handle,
+    std::uint32_t signal_id,
+    std::uint32_t global_pair,
+    std::uint32_t candidate_pair,
+    std::uint32_t outlier_sequence,
+    std::uint32_t windows_in_region,
+    std::uint32_t informative_sites,
+    double permutation_draws,
+    std::uint32_t selected_score,
+    std::uint32_t selected_score_family,
+    double maximum_z,
+    double normal_tail_p_value,
+    double region_length_adjusted_p_value,
+    double window_adjusted_p_value) {
+  Context* context = context_for(handle);
+  if (!context || !context->restoring_scan ||
+      signal_id >= context->restore_signals.size() || global_pair > 2 ||
+      candidate_pair > 2 || candidate_pair == global_pair ||
+      outlier_sequence >= context->alignment.sequence_count() ||
+      windows_in_region == 0 || selected_score > 15 ||
+      (selected_score_family != 1 && selected_score_family != 2) ||
+      !std::isfinite(permutation_draws) || permutation_draws < 0.0 ||
+      !std::isfinite(maximum_z) || maximum_z <= 0.0 ||
+      !std::isfinite(normal_tail_p_value) || normal_tail_p_value <= 0.0 ||
+      normal_tail_p_value > 1.0 ||
+      !std::isfinite(region_length_adjusted_p_value) ||
+      region_length_adjusted_p_value <= 0.0 ||
+      region_length_adjusted_p_value > 1.0 ||
+      !std::isfinite(window_adjusted_p_value) ||
+      window_adjusted_p_value <= 0.0 || window_adjusted_p_value > 1.0) {
+    return 0;
+  }
+  auto& signal = context->restore_signals[signal_id];
+  if (signal.method != rdp::SignalMethod::siscan ||
+      signal.informative_sites != informative_sites ||
+      signal.candidate_pair != candidate_pair ||
+      signal.local_p_value != window_adjusted_p_value) {
+    return 0;
+  }
+  const auto local_member = [&](std::uint32_t sequence) {
+    for (std::uint8_t member = 0; member < signal.triplet.size(); ++member) {
+      if (signal.triplet[member] == sequence) return member;
+    }
+    return static_cast<std::uint8_t>(3);
+  };
+  auto& discovery = signal.siscan_discovery;
+  discovery.beginning = signal.beginning;
+  discovery.ending = signal.ending;
+  discovery.wraps_origin = signal.wraps_origin;
+  discovery.informative_beginning = signal.informative_beginning;
+  discovery.informative_ending = signal.informative_ending;
+  discovery.recombinant_local = local_member(signal.recombinant);
+  discovery.major_parent_local = local_member(signal.major_parent);
+  discovery.minor_parent_local = local_member(signal.minor_parent);
+  discovery.global_pair = static_cast<std::uint8_t>(global_pair);
+  discovery.candidate_pair = static_cast<std::uint8_t>(candidate_pair);
+  discovery.outlier_sequence = outlier_sequence;
+  discovery.windows_in_region = windows_in_region;
+  discovery.informative_sites = informative_sites;
+  discovery.permutation_draws = static_cast<std::size_t>(
+      restored_counter(permutation_draws));
+  discovery.selected_score = static_cast<std::uint8_t>(selected_score);
+  discovery.selected_score_family = selected_score_family == 1
+      ? rdp::SiscanScoreFamily::partition
+      : rdp::SiscanScoreFamily::summed;
+  discovery.maximum_z = maximum_z;
+  discovery.normal_tail_p_value = normal_tail_p_value;
+  discovery.region_length_adjusted_p_value =
+      region_length_adjusted_p_value;
+  discovery.window_adjusted_p_value = window_adjusted_p_value;
+  discovery.corrected_p_value = signal.corrected_p_value;
+  discovery.pair_similarity = signal.pair_similarity;
+  return discovery.recombinant_local < 3 &&
+          discovery.major_parent_local < 3 &&
+          discovery.minor_parent_local < 3
+      ? 1
+      : 0;
+}
+
 RDP_KEEPALIVE int rdp_restore_scan_finish(
     std::uint32_t handle,
     std::uint32_t correction_tests,
@@ -971,6 +1110,15 @@ RDP_KEEPALIVE int rdp_restore_scan_finish(
     double bootscan_pair_profile_cache_misses,
     double bootscan_pair_profile_cache_evictions,
     double bootscan_pair_profile_cache_peak_bytes,
+    double siscan_profiles_scanned,
+    double siscan_windows_scored,
+    double siscan_candidate_regions_scored,
+    double siscan_candidates_found,
+    double siscan_permutation_draws,
+    double siscan_context_builds,
+    double siscan_context_pair_comparisons,
+    double siscan_context_tree_merges,
+    double siscan_random_values_generated,
     const std::uint8_t* cycle_termination,
     std::size_t cycle_termination_length) {
   Context* context = context_for(handle);
@@ -1011,6 +1159,15 @@ RDP_KEEPALIVE int rdp_restore_scan_finish(
       restored_counter(bootscan_pair_profile_cache_misses),
       restored_counter(bootscan_pair_profile_cache_evictions),
       restored_counter(bootscan_pair_profile_cache_peak_bytes),
+      restored_counter(siscan_profiles_scanned),
+      restored_counter(siscan_windows_scored),
+      restored_counter(siscan_candidate_regions_scored),
+      restored_counter(siscan_candidates_found),
+      restored_counter(siscan_permutation_draws),
+      restored_counter(siscan_context_builds),
+      restored_counter(siscan_context_pair_comparisons),
+      restored_counter(siscan_context_tree_merges),
+      restored_counter(siscan_random_values_generated),
       bytes_to_string(cycle_termination, cycle_termination_length),
       context->error);
   context->restoring_scan = false;

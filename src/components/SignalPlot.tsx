@@ -19,12 +19,14 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
   const randomWalk = plot.metric === "random-walk-height";
+  const sisterScan = plot.metric === "sister-scan-z-score";
   const unitInterval = plot.metric === "pair-identity" || plot.metric === "bootstrap-support";
-  const rawMinimum = randomWalk ? Math.min(0, plot.minimumValue) : 0;
+  const signedMetric = randomWalk || sisterScan;
+  const rawMinimum = signedMetric ? Math.min(0, plot.minimumValue) : 0;
   const rawMaximum = !unitInterval ? Math.max(0, plot.maximumValue) : 1;
   const rawSpan = Math.max(1, rawMaximum - rawMinimum);
-  const yMinimum = randomWalk ? rawMinimum - rawSpan * 0.05 : 0;
-  const yMaximum = randomWalk
+  const yMinimum = signedMetric ? rawMinimum - rawSpan * 0.05 : 0;
+  const yMaximum = signedMetric
     ? rawMaximum + rawSpan * 0.05
     : !unitInterval ? Math.max(1, rawMaximum * 1.05) : 1;
   const ySpan = Math.max(1, yMaximum - yMinimum);
@@ -71,6 +73,8 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
                 ? "3SEQ target-specific hypergeometric random walks"
                 : signal.method === "BOOTSCAN"
                   ? "BootScan strict closest-pair bootstrap support"
+                : signal.method === "SISCAN"
+                  ? "SISCAN vertical-permutation sister-pair Z scores"
                 : plot.metric === "chi-square" ? "MaxChi χ² profile" : "Sliding-window pairwise identity"} for signal {signal.id + 1}
         </title>
         <desc>
@@ -82,6 +86,8 @@ export function SignalPlot({ plot, signal, loading }: SignalPlotProps) {
                 ? "Three target-specific plus-one/minus-one walks across information-rich sites. Each trace treats one triplet member as the candidate recombinant; the highlighted region is the selected maximum excursion."
                 : signal.method === "BOOTSCAN"
                   ? "Three seeded sliding-window bootstrap-support curves. Each replicate votes only for its unique closest pair; the highlighted region is the significant supported-pair tract."
+                : signal.method === "SISCAN"
+                  ? "Three pair-associated SISCAN Z-score curves from the supplied gap-stripped variable-pattern categories and seeded vertical permutations. The highlighted region is the inferred sister-pair switch."
                 : plot.metric === "chi-square"
                   ? "Three pairwise maximum chi-square traces across variable sites. The highlighted region is the matched recombinant tract."
                   : "Pairwise identity across information-rich sites for the three sequences used to detect this signal. The highlighted region is bounded by the inferred breakpoints."}

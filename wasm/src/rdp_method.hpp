@@ -6,6 +6,8 @@
 #include "chimaera.hpp"
 #include "geneconv.hpp"
 #include "maxchi.hpp"
+#include "phylpro.hpp"
+#include "siscan.hpp"
 #include "threeseq.hpp"
 
 #include <array>
@@ -41,6 +43,7 @@ enum class SignalMethod : std::uint8_t {
   geneconv = 3,
   threeseq = 4,
   bootscan = 5,
+  siscan = 6,
 };
 
 struct ScanOptions {
@@ -64,6 +67,13 @@ struct ScanOptions {
   std::size_t bootscan_bootstrap_replicates = 100;
   double bootscan_support_cutoff = 0.70;
   std::uint32_t bootscan_random_seed = 3;
+  bool siscan_primary_enabled = false;
+  bool siscan_secondary_enabled = true;
+  std::size_t siscan_window_sites = 200;
+  std::size_t siscan_step_sites = 20;
+  std::size_t siscan_scan_permutations = 100;
+  std::size_t siscan_p_value_permutations = 1000;
+  std::uint32_t siscan_random_seed = 3;
   bool polish_breakpoints = true;
   std::vector<std::uint8_t> mask;
   std::vector<std::uint8_t> disabled;
@@ -102,6 +112,7 @@ struct Signal {
   GeneconvDiscoveryCandidate geneconv_discovery;
   ThreeSeqDiscoveryCandidate threeseq_discovery;
   BootscanDiscoveryCandidate bootscan_discovery;
+  SiscanDiscoveryCandidate siscan_discovery;
   bool fragment_assisted = false;
   std::array<std::int32_t, 3> fragment_event_context{-1, -1, -1};
   // Transient XOverList-style provenance. Detection and project JSON use the
@@ -237,6 +248,7 @@ struct DistanceCorrelationEvidence {
   GeneconvRecheckEvidence post_group_geneconv_recheck;
   ThreeSeqRecheckEvidence post_group_threeseq_recheck;
   BootscanRecheckEvidence post_group_bootscan_recheck;
+  SiscanRecheckEvidence post_group_siscan_recheck;
 };
 
 struct PhylogeneticCorrelationEvidence {
@@ -385,6 +397,7 @@ struct UniqueEvent {
   GeneconvRecheckEvidence geneconv_triplet_recheck;
   ThreeSeqRecheckEvidence threeseq_triplet_recheck;
   BootscanRecheckEvidence bootscan_triplet_recheck;
+  SiscanRecheckEvidence siscan_triplet_recheck;
 };
 
 struct PlotPoint {
@@ -429,6 +442,12 @@ class RdpScanner {
       std::string& error) const;
   [[nodiscard]] std::string event_trees_json(
       std::uint32_t event_id,
+      std::string& error) const;
+  [[nodiscard]] std::string event_phylpro_json(
+      std::uint32_t event_id,
+      std::size_t window_sites,
+      PhylproGapMode gap_mode,
+      bool include_self,
       std::string& error) const;
   bool set_review_state(std::uint32_t signal_id, ReviewState state);
   bool set_event_review_state(
@@ -480,6 +499,15 @@ class RdpScanner {
       std::uint64_t bootscan_pair_profile_cache_misses,
       std::uint64_t bootscan_pair_profile_cache_evictions,
       std::uint64_t bootscan_pair_profile_cache_peak_bytes,
+      std::uint64_t siscan_profiles_scanned,
+      std::uint64_t siscan_windows_scored,
+      std::uint64_t siscan_candidate_regions_scored,
+      std::uint64_t siscan_candidates_found,
+      std::uint64_t siscan_permutation_draws,
+      std::uint64_t siscan_context_builds,
+      std::uint64_t siscan_context_pair_comparisons,
+      std::uint64_t siscan_context_tree_merges,
+      std::uint64_t siscan_random_values_generated,
       std::string cycle_termination,
       std::string& error);
   bool restore_event_state(
@@ -547,12 +575,17 @@ class RdpScanner {
   static constexpr std::uint8_t kScanMaxchi = 1U << 3U;
   static constexpr std::uint8_t kScanChimaera = 1U << 4U;
   static constexpr std::uint8_t kScanThreeseq = 1U << 5U;
+  static constexpr std::uint8_t kScanSiscan = 1U << 6U;
 
   const Alignment& alignment_;
   Alignment working_alignment_;
   std::vector<std::uint8_t> native_input_missing_data_;
   std::vector<std::uint32_t> working_origins_;
   std::vector<std::int32_t> working_fragment_events_;
+  // Sparse-state fingerprints accelerate exact duplicate-fragment checks.
+  // Equality is still confirmed byte-for-byte, so collisions cannot change
+  // analytical behavior.
+  std::vector<std::uint64_t> working_state_fingerprints_;
   ScanOptions options_;
   std::vector<std::uint32_t> active_sequences_;
   std::vector<std::uint32_t> query_sequences_;
@@ -570,15 +603,19 @@ class RdpScanner {
   GeneconvWorkspace geneconv_workspace_;
   ThreeSeqWorkspace threeseq_workspace_;
   BootscanWorkspace bootscan_workspace_;
+  SiscanWorkspace siscan_workspace_;
   std::vector<Signal> signal_candidates_scratch_;
   std::vector<MaxChiDiscoveryCandidate> maxchi_candidates_scratch_;
   std::vector<ChimaeraDiscoveryCandidate> chimaera_candidates_scratch_;
   std::vector<GeneconvDiscoveryCandidate> geneconv_candidates_scratch_;
   std::vector<ThreeSeqDiscoveryCandidate> threeseq_candidates_scratch_;
   std::vector<BootscanDiscoveryCandidate> bootscan_candidates_scratch_;
+  std::vector<SiscanDiscoveryCandidate> siscan_candidates_scratch_;
   std::array<std::vector<std::uint8_t>, 3> breakpoint_erasure_scratch_;
+  std::array<std::vector<std::int32_t>, 3> breakpoint_erasure_diff_scratch_;
   std::vector<std::uint8_t> breakpoint_input_missing_scratch_;
   std::vector<std::uint8_t> breakpoint_polish_missing_scratch_;
+  std::vector<std::int32_t> breakpoint_polish_erasure_diff_scratch_;
   std::vector<std::size_t> breakpoint_informative_coordinates_scratch_;
   std::array<std::vector<std::size_t>, 2> breakpoint_check_coordinates_scratch_;
   std::vector<std::uint32_t> breakpoint_relevant_event_indices_scratch_;
@@ -595,8 +632,11 @@ class RdpScanner {
   std::uint64_t correction_tests_ = 0;
   std::uint64_t triplet_kernel_evaluations_ = 0;
   std::uint64_t triplet_summaries_reused_ = 0;
+  std::uint64_t clean_triplets_pruned_ = 0;
   std::uint64_t cached_signals_reused_ = 0;
   std::uint64_t method_scans_skipped_ = 0;
+  std::uint64_t invalid_schedule_triplets_skipped_ = 0;
+  std::uint64_t fragment_sequences_pruned_ = 0;
   std::uint64_t maxchi_profiles_scanned_ = 0;
   std::uint64_t maxchi_peak_attempts_ = 0;
   std::uint64_t maxchi_candidates_found_ = 0;
@@ -618,6 +658,11 @@ class RdpScanner {
   std::uint64_t bootscan_candidate_regions_scored_ = 0;
   std::uint64_t bootscan_candidates_found_ = 0;
   std::uint64_t bootscan_pair_profiles_requested_ = 0;
+  std::uint64_t siscan_profiles_scanned_ = 0;
+  std::uint64_t siscan_windows_scored_ = 0;
+  std::uint64_t siscan_candidate_regions_scored_ = 0;
+  std::uint64_t siscan_candidates_found_ = 0;
+  std::uint64_t siscan_permutation_draws_ = 0;
   bool running_ = false;
   bool primary_done_ = false;
   bool done_ = false;
@@ -648,7 +693,7 @@ class RdpScanner {
       const std::array<std::uint32_t, 3>& triplet,
       std::uint8_t method_mask);
   void append_round_signal(Signal signal);
-  void reuse_carried_triplet_signals(
+  [[nodiscard]] bool reuse_carried_triplet_signals(
       const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool triplet_touches_dirty_sequence(
       const std::array<std::uint32_t, 3>& triplet) const;
@@ -688,11 +733,15 @@ class RdpScanner {
       ChimaeraRecheckEvidence& chimaera,
       GeneconvRecheckEvidence& geneconv,
       ThreeSeqRecheckEvidence& threeseq,
-      BootscanRecheckEvidence& bootscan);
+      BootscanRecheckEvidence& bootscan,
+      SiscanRecheckEvidence& siscan);
   void prepare_maxchi_missing_data(
       const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool finish_detection_round(std::string& error);
   [[nodiscard]] ErasureResult erase_event_tract(const UniqueEvent& event);
+  [[nodiscard]] std::size_t prune_event_free_fragments();
+  void remap_working_triplet_provenance(
+      const std::vector<std::uint32_t>& old_to_new);
   void refresh_active_sequences();
   [[nodiscard]] std::uint64_t valid_triplet_count() const;
   [[nodiscard]] bool working_triplet_is_valid(

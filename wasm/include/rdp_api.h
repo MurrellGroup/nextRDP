@@ -35,6 +35,13 @@ int rdp_scan_begin(
     uint32_t bootscan_bootstrap_replicates,
     double bootscan_support_cutoff,
     uint32_t bootscan_random_seed,
+    int siscan_primary_enabled,
+    int siscan_secondary_enabled,
+    uint32_t siscan_window_sites,
+    uint32_t siscan_step_sites,
+    uint32_t siscan_scan_permutations,
+    uint32_t siscan_p_value_permutations,
+    uint32_t siscan_random_seed,
     int polish_breakpoints,
     int query_reference_mode,
     const uint32_t* reference_groups,
@@ -56,6 +63,12 @@ const char* rdp_get_event_alignment_json(
     uint32_t flank_sites,
     uint32_t row_limit);
 const char* rdp_get_event_trees_json(uint32_t handle, uint32_t event_id);
+const char* rdp_get_event_phylpro_json(
+    uint32_t handle,
+    uint32_t event_id,
+    uint32_t window_sites,
+    int gap_mode,
+    int include_self);
 int rdp_set_review_state(uint32_t handle, uint32_t signal_id, int state);
 int rdp_set_event_review_state(uint32_t handle, uint32_t event_id, int state);
 int rdp_update_event(
@@ -107,6 +120,13 @@ int rdp_restore_scan_begin(
     uint32_t bootscan_bootstrap_replicates,
     double bootscan_support_cutoff,
     uint32_t bootscan_random_seed,
+    int siscan_primary_enabled,
+    int siscan_secondary_enabled,
+    uint32_t siscan_window_sites,
+    uint32_t siscan_step_sites,
+    uint32_t siscan_scan_permutations,
+    uint32_t siscan_p_value_permutations,
+    uint32_t siscan_random_seed,
     int polish_breakpoints,
     int query_reference_mode,
     const uint32_t* reference_groups,
@@ -223,6 +243,21 @@ int rdp_restore_bootscan_discovery(
     double bootstrap_p_value,
     double raw_p_value,
     int erased_window_filter_applied);
+int rdp_restore_siscan_discovery(
+    uint32_t handle,
+    uint32_t signal_id,
+    uint32_t global_pair,
+    uint32_t candidate_pair,
+    uint32_t outlier_sequence,
+    uint32_t windows_in_region,
+    uint32_t informative_sites,
+    double permutation_draws,
+    uint32_t selected_score,
+    uint32_t selected_score_family,
+    double maximum_z,
+    double normal_tail_p_value,
+    double region_length_adjusted_p_value,
+    double window_adjusted_p_value);
 int rdp_restore_scan_finish(
     uint32_t handle,
     uint32_t correction_tests,
@@ -253,6 +288,15 @@ int rdp_restore_scan_finish(
     double bootscan_pair_profile_cache_misses,
     double bootscan_pair_profile_cache_evictions,
     double bootscan_pair_profile_cache_peak_bytes,
+    double siscan_profiles_scanned,
+    double siscan_windows_scored,
+    double siscan_candidate_regions_scored,
+    double siscan_candidates_found,
+    double siscan_permutation_draws,
+    double siscan_context_builds,
+    double siscan_context_pair_comparisons,
+    double siscan_context_tree_merges,
+    double siscan_random_values_generated,
     const uint8_t* cycle_termination,
     size_t cycle_termination_length);
 int rdp_restore_event_state(

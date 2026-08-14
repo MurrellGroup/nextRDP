@@ -47,8 +47,17 @@ jobs:
       - name: Check primary BootScan core and cache
         run: npm run check:bootscan-core
 
+      - name: Check cyclic clean-triplet and fragment pruning
+        run: npm run check:cyclic-pruning-core
+
+      - name: Check supplied-source SISCAN core and caches
+        run: npm run check:siscan-core
+
       - name: Check supplied-source event-tree core
         run: npm run check:tree-core
+
+      - name: Check supplied-source PHYLPRO review core
+        run: npm run check:phylpro-core
 
       - name: Build WASM and web application
         run: npm run build

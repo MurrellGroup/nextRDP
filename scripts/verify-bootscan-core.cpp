@@ -195,6 +195,13 @@ int main() {
           3,
           0,
           0,
+          200,
+          20,
+          100,
+          1000,
+          3,
+          0,
+          0,
           reference_groups.data(),
           reference_groups.size(),
           flags.data(),
@@ -253,15 +260,33 @@ int main() {
           std::string::npos ||
       event_trees.find("\"regions\":[") == std::string::npos) {
     destroy_context();
-    return fail("the lazy six-region tree endpoint lost its Session 20 contract");
+    return fail("the lazy six-region tree endpoint lost its Session 21 contract");
+  }
+  const std::string invalid_phylpro = rdp_get_event_phylpro_json(handle, 0, 40, 2, 0);
+  if (!invalid_phylpro.empty() ||
+      std::string(rdp_get_error(handle)).find("gap mode is unavailable") == std::string::npos) {
+    destroy_context();
+    return fail("the public PHYLPRO ABI accepted an unknown gap policy");
+  }
+  const std::string event_phylpro = rdp_get_event_phylpro_json(handle, 0, 40, 0, 0);
+  if (event_phylpro.find(
+          "\"kernel\":\"FindSubSeqPP-MakePDstMat-UpdatePDstMat-PPRegression\"") ==
+          std::string::npos ||
+      event_phylpro.find("\"optimization\":\"three-target-rows-linear-in-context\"") ==
+          std::string::npos ||
+      event_phylpro.find("\"significanceTest\":\"not-implemented-in-supplied-rdp5\"") ==
+          std::string::npos ||
+      event_phylpro.find("\"points\":[]") != std::string::npos) {
+    destroy_context();
+    return fail("the lazy PHYLPRO event-review endpoint lost its Session 22 contract");
   }
   const std::string project = rdp_export_project_json(handle);
-  if (project.find("\"schema\":\"org.rdp-web.project/v1alpha18\"") ==
+  if (project.find("\"schema\":\"org.rdp-web.project/v1alpha19\"") ==
           std::string::npos ||
-      project.find("\"engineVersion\":\"0.20.0-session-20\"") ==
+      project.find("\"engineVersion\":\"0.23.0-session-23\"") ==
           std::string::npos) {
     destroy_context();
-    return fail("the Session 20 project schema/version contract is missing");
+    return fail("the Session 23 project version/v1alpha19 schema contract is missing");
   }
   const std::size_t signal_id_field = results.rfind("\"id\":", bootscan_method);
   if (signal_id_field == std::string::npos) {
@@ -289,6 +314,7 @@ int main() {
 
   std::cout << "BootScan core verified: two mosaic regions, MakeScoresBS probability, "
                "shared-pair cache hit, round invalidation, reconciled public-API evidence, "
-               "support plot, Session 20 tree endpoint, and v1alpha18 project export.\n";
+               "support plot, Session 21 tree endpoint, Session 22 PHYLPRO endpoint, Session 23 scheduler, and "
+               "v1alpha19 project export.\n";
   return 0;
 }

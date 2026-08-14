@@ -64,6 +64,7 @@ export function ScanStep({
     ...(options.bootscanPrimaryEnabled ? ["BootScan"] : []),
     ...(options.maxChiEnabled ? ["MaxChi"] : []),
     ...(options.chimaeraEnabled ? ["CHIMAERA"] : []),
+    ...(options.siscanPrimaryEnabled ? ["SISCAN"] : []),
     ...(options.threeSeqEnabled ? ["3SEQ"] : []),
   ];
   return (
@@ -198,16 +199,29 @@ export function ScanStep({
               {options.bootscanPrimaryEnabled
                 ? ` · BootScan ${options.bootscanWindowSites}/${options.bootscanStepSites} × ${options.bootscanBootstrapReplicates}`
                 : ""}
+              {options.siscanPrimaryEnabled
+                ? ` · SISCAN ${options.siscanWindowSites}/${options.siscanStepSites} × ${options.siscanScanPermutations}/${options.siscanPValuePermutations}`
+                : ""}
               {options.threeSeqEnabled ? " · 3SEQ exact/Siegmund" : ""}
             </span>
           </div>
-          {progress.tripletSummariesReused > 0 ? (
+          {progress.tripletSummariesReused > 0 || progress.fragmentSequencesPruned > 0 ? (
             <div className="progress-meta">
               <span>
-                {integer.format(progress.tripletSummariesReused)} unchanged triplet summaries reused · {integer.format(progress.cachedSignalsReused)} cached signals replayed
+                {integer.format(progress.cleanTripletsPruned)} clean triplets permanently pruned · {integer.format(progress.cachedSignalsReused)} cached signals replayed
               </span>
               <span>
-                {integer.format(progress.methodScansSkipped)} method scans skipped · {integer.format(progress.tripletKernelEvaluations)} triplet kernel evaluations
+                {integer.format(progress.methodScansSkipped)} method scans skipped · {integer.format(progress.fragmentSequencesPruned)} event-free fragments removed
+              </span>
+            </div>
+          ) : null}
+          {progress.invalidScheduleTripletsSkipped > 0 ? (
+            <div className="progress-meta">
+              <span>
+                {integer.format(progress.tripletKernelEvaluations)} triplet kernel evaluations
+              </span>
+              <span>
+                {integer.format(progress.invalidScheduleTripletsSkipped)} same-origin combinations skipped inside WASM batches
               </span>
             </div>
           ) : null}
@@ -256,6 +270,24 @@ export function ScanStep({
                 {integer.format(progress.bootscanCandidatesFound)} corrected candidates · {integer.format(progress.bootscanPairProfileCacheHits)} / {integer.format(progress.bootscanPairProfilesRequested)} pair-profile cache hits
               </span>
             </div>
+          ) : null}
+          {options.siscanPrimaryEnabled ? (
+            <>
+              <div className="progress-meta">
+                <span>
+                  {integer.format(progress.siscanProfilesScanned)} SISCAN triplet profiles · {integer.format(progress.siscanWindowsScored)} windows · {integer.format(progress.siscanCandidateRegionsScored)} pair-switch regions
+                </span>
+                <span>
+                  {integer.format(progress.siscanCandidatesFound)} corrected candidates · {integer.format(progress.siscanPermutationDraws)} vertical-permutation draws
+                </span>
+              </div>
+              <div className="progress-meta">
+                <span>
+                  {integer.format(progress.siscanContextBuilds)} WPGMA context build{progress.siscanContextBuilds === 1 ? "" : "s"} · {integer.format(progress.siscanContextPairComparisons)} direct pair comparisons · {integer.format(progress.siscanContextTreeMerges)} tree merges
+                </span>
+                <span>{integer.format(progress.siscanRandomValuesGenerated)} cached MakeVRand values</span>
+              </div>
+            </>
           ) : null}
         </div>
 
@@ -310,6 +342,9 @@ export function ScanStep({
                   : ""}
                 {options.geneconvEnabled
                   ? ", and GENECONV six-track KA fragment scores"
+                  : ""}
+                {options.siscanPrimaryEnabled
+                  ? ", and SISCAN nearest-outlier vertical-permutation Z scores"
                   : ""}
                 {options.threeSeqEnabled
                   ? ", and 3SEQ target-rotated exact hypergeometric random walks"

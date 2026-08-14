@@ -15,6 +15,10 @@ const [
   phylogeny,
   bootscanHeader,
   bootscan,
+  siscanHeader,
+  siscan,
+  phylproHeader,
+  phylpro,
   maxchi,
   chimaeraHeader,
   geneconvHeader,
@@ -33,21 +37,34 @@ const [
   signalPlot,
   eventAlignmentInspector,
   eventTreeInspector,
+  eventPhylproInspector,
   exportStep,
   pagesWorkflow,
   viteConfig,
   pagesVerifier,
   bootscanCoreVerifier,
   bootscanCoreScript,
+  siscanCoreVerifier,
+  siscanCoreScript,
   treeCoreVerifier,
   treeCoreScript,
+  phylproCoreVerifier,
+  phylproCoreScript,
+  cyclicPruningCoreVerifier,
+  cyclicPruningCoreScript,
+  cyclicPruningDigestVerifier,
   sessionHandoff,
   session17Handoff,
   session18Handoff,
   session19Handoff,
   session20Handoff,
+  session21Handoff,
+  session22Handoff,
+  session23Handoff,
   bootscanTrace,
+  siscanTrace,
   eventTreeTrace,
+  phylproTrace,
   chimaeraTrace,
   geneconvTrace,
   threeSeqTrace,
@@ -67,6 +84,10 @@ const [
   read("wasm/src/phylogeny.cpp"),
   read("wasm/src/bootscan.hpp"),
   read("wasm/src/bootscan.cpp"),
+  read("wasm/src/siscan.hpp"),
+  read("wasm/src/siscan.cpp"),
+  read("wasm/src/phylpro.hpp"),
+  read("wasm/src/phylpro.cpp"),
   read("wasm/src/maxchi.cpp"),
   read("wasm/src/chimaera.hpp"),
   read("wasm/src/geneconv.hpp"),
@@ -85,21 +106,34 @@ const [
   read("src/components/SignalPlot.tsx"),
   read("src/components/EventAlignmentInspector.tsx"),
   read("src/components/EventTreeInspector.tsx"),
+  read("src/components/EventPhylproInspector.tsx"),
   read("src/components/ExportStep.tsx"),
   read(".github/workflows/deploy-pages.yml"),
   read("vite.config.ts"),
   read("scripts/verify-pages-output.mjs"),
   read("scripts/verify-bootscan-core.cpp"),
   read("scripts/check-bootscan-core.sh"),
+  read("scripts/verify-siscan-core.cpp"),
+  read("scripts/check-siscan-core.sh"),
   read("scripts/verify-tree-core.cpp"),
   read("scripts/check-tree-core.sh"),
+  read("scripts/verify-phylpro-core.cpp"),
+  read("scripts/check-phylpro-core.sh"),
+  read("scripts/verify-cyclic-pruning-core.cpp"),
+  read("scripts/check-cyclic-pruning-core.sh"),
+  read("scripts/verify-cyclic-pruning-digest.mjs"),
   read("docs/session-15-handoff.md"),
   read("docs/session-17-handoff.md"),
   read("docs/session-18-handoff.md"),
   read("docs/session-19-handoff.md"),
   read("docs/session-20-handoff.md"),
+  read("docs/session-21-handoff.md"),
+  read("docs/session-22-handoff.md"),
+  read("docs/session-23-handoff.md"),
   read("docs/native-bootscan-discovery-trace.md"),
+  read("docs/native-siscan-discovery-trace.md"),
   read("docs/native-event-tree-kernel-trace.md"),
+  read("docs/native-phylpro-review-trace.md"),
   read("docs/native-chimaera-discovery-trace.md"),
   read("docs/native-geneconv-discovery-trace.md"),
   read("docs/native-threeseq-discovery-trace.md"),
@@ -226,11 +260,11 @@ if (!method.includes(`\\\"engineVersion\\\":\\\"${version}\\\"`)) {
   fail("rdp_method.cpp result version differs from package.json");
 }
 
-const schema = "org.rdp-web.project/v1alpha18";
+const schema = "org.rdp-web.project/v1alpha19";
 if (!implementation.includes(schema) || !worker.includes(schema)) {
   fail(`emitted/imported project schema ${schema} is not aligned`);
 }
-for (let generation = 1; generation <= 18; generation += 1) {
+for (let generation = 1; generation <= 19; generation += 1) {
   if (!worker.includes(`schema !== "org.rdp-web.project/v1alpha${generation}"`)) {
     fail(`v1alpha${generation} project import is missing`);
   }
@@ -266,6 +300,12 @@ if (!worker.includes("supportsBootscanSecondary") ||
     !worker.includes("analysis.bootscanPrimaryEnabled === true")) {
   fail("pre-v17 imports do not preserve their pre-primary-BootScan semantics");
 }
+if (!worker.includes("supportsSiscan") ||
+    !worker.includes('schema === "org.rdp-web.project/v1alpha19"') ||
+    !worker.includes("supportsSiscan && analysis.siscanPrimaryEnabled === true") ||
+    !worker.includes("supportsSiscan && analysis.siscanSecondaryEnabled !== false")) {
+  fail("pre-v19 imports do not preserve their pre-SISCAN semantics");
+}
 if (!worker.includes("assetVersion") || !worker.includes("loadedVersion !== assetVersion")) {
   fail("worker asset/engine version guard is missing");
 }
@@ -291,6 +331,10 @@ for (const workflowContract of [
   "npm ci",
   "npm run check:source",
   "npm run check:types",
+  "npm run check:bootscan-core",
+  "npm run check:siscan-core",
+  "npm run check:tree-core",
+  "npm run check:phylpro-core",
   "npm run build",
   "path: dist",
 ]) {
@@ -311,6 +355,7 @@ for (const artifactContract of [
   "WebAssembly header",
   "FASTA upload smoke test",
   "cyclic-shortlist",
+  "PHYLPRO lazy review",
   "engine.HEAPU8.set(fasta, fastaPointer)",
   "is a symbolic link",
   "is hard-linked",
@@ -321,7 +366,7 @@ for (const artifactContract of [
 }
 
 const activeLateConsensusStatus =
-  "active-rdp-geneconv-bootscan-maxchi-chimaera-threeseq-plus-optional-bootscan-post-group-recheck";
+  "active-rdp-geneconv-bootscan-maxchi-chimaera-siscan-threeseq-plus-optional-bootscan-siscan-post-group-recheck";
 if (!method.includes(activeLateConsensusStatus) || !types.includes(activeLateConsensusStatus)) {
   fail("active late-consensus status differs between core and web contract");
 }
@@ -377,6 +422,21 @@ for (const statusContract of [
   }
 }
 for (const statusContract of [
+  "siscanPrimaryEnabled",
+  "siscanEventDiscoveryApplied",
+  "siscanDiscoveryFeedsCyclicScheduler",
+  "source-shaped-ssxoverc-wpgma-vertical-permutation-unvalidated",
+  "siscanSecondaryEnabled",
+  "siscanTripletRecheckApplied",
+  "siscanPostGroupRecheckApplied",
+  "source-shaped-fixed-region-vertical-permutation-unvalidated",
+  "nativeSiscanFullRecheckComplete",
+]) {
+  if (!method.includes(statusContract) || !types.includes(statusContract)) {
+    fail(`SISCAN discovery/recheck status is missing ${statusContract}`);
+  }
+}
+for (const statusContract of [
   "geneconvKernelStatus",
   "source-shaped-six-track-ka-fragments-unvalidated",
   "geneconvEventDiscoveryApplied",
@@ -429,6 +489,7 @@ for (const field of [
   "postGroupChimaeraRecheck",
   "postGroupGeneconvRecheck",
   "postGroupThreeSeqRecheck",
+  "postGroupSiscanRecheck",
 ]) {
   if (!method.includes(`\\\"${field}\\\"`) || !types.includes(field)) {
     fail(`late-consensus field ${field} differs between core and web contract`);
@@ -537,6 +598,9 @@ if (!cmake.includes("src/geneconv.cpp")) {
 if (!cmake.includes("src/threeseq.cpp")) {
   fail("3SEQ discovery implementation is not part of the WASM target");
 }
+if (!cmake.includes("src/siscan.cpp")) {
+  fail("SISCAN discovery/recheck implementation is not part of the WASM target");
+}
 if (!cmake.includes("_rdp_restore_chimaera_discovery")) {
   fail("CHIMAERA discovery restore is not exported by the WASM target");
 }
@@ -545,6 +609,9 @@ if (!cmake.includes("_rdp_restore_geneconv_discovery")) {
 }
 if (!cmake.includes("_rdp_restore_threeseq_discovery")) {
   fail("3SEQ discovery restore is not exported by the WASM target");
+}
+if (!cmake.includes("_rdp_restore_siscan_discovery")) {
+  fail("SISCAN discovery restore is not exported by the WASM target");
 }
 for (const sourceContract of [
   "source_normal_z",
@@ -580,7 +647,7 @@ for (const sourceContract of [
   }
 }
 if (!method.includes("kScanGeneconv | kScanBootscan | kScanMaxchi | kScanChimaera") ||
-    !method.includes("kScanThreeseq") ||
+    !method.includes("kScanSiscan | kScanThreeseq") ||
     !method.includes("maxchi_discover_prepared(")) {
   fail("combined discovery scan does not reuse its one-pass prepared profile");
 }
@@ -628,7 +695,7 @@ if (!method.includes("twelve-term-eleven-divisor-source-basin-destruction-only")
     !types.includes("twelve-term-eleven-divisor-source-basin-destruction-only")) {
   fail("MaxChi supplied smoothing quirk differs between core and web contract");
 }
-if (!settings.includes("RDP + GENECONV + BootScan + MaxChi + CHIMAERA + 3SEQ discovery") ||
+if (!settings.includes("RDP + GENECONV + BootScan + MaxChi + CHIMAERA + SISCAN + 3SEQ") ||
     !settings.includes("Discover events with MaxChi") ||
     !settings.includes("Included in event discovery")) {
   fail("method settings do not expose combined RDP/MaxChi discovery");
@@ -713,6 +780,37 @@ for (const workerContract of [
     fail(`BootScan worker/restore contract is missing ${workerContract}`);
   }
 }
+for (const optionContract of [
+  "int siscan_primary_enabled",
+  "int siscan_secondary_enabled",
+  "siscan_window_sites",
+  "siscan_step_sites",
+  "siscan_scan_permutations",
+  "siscan_p_value_permutations",
+  "siscan_random_seed",
+]) {
+  if (!header.includes(optionContract) || !implementation.includes(optionContract)) {
+    fail(`SISCAN scan ABI option is missing ${optionContract}`);
+  }
+}
+for (const resultContract of [
+  "siscanProfilesScanned",
+  "siscanWindowsScored",
+  "siscanCandidateRegionsScored",
+  "siscanCandidatesFound",
+  "siscanPermutationDraws",
+  "siscanContextBuilds",
+  "siscanContextPairComparisons",
+  "siscanContextTreeMerges",
+  "siscanRandomValuesGenerated",
+]) {
+  if (!method.includes(resultContract) || !types.includes(`${resultContract}:`)) {
+    fail(`SISCAN result contract differs between core and web for ${resultContract}`);
+  }
+  if (!app.includes(resultContract) || !scan.includes(resultContract)) {
+    fail(`SISCAN application progress surface is missing ${resultContract}`);
+  }
+}
 for (const uiContract of [
   "Discover events with BootScan",
   "Pair/window bootstrap distances are reused across triplets in a bounded cache",
@@ -749,6 +847,226 @@ if (!bootscanCoreScript.includes('mktemp "${PWD}/wasm/.rdp-bootscan-core-check')
     !pagesVerifier.includes('signal.method === "BOOTSCAN"') ||
     !pagesVerifier.includes('bootscanPlot.metric !== "bootstrap-support"')) {
   fail("BootScan native/production-WASM regression wiring is incomplete");
+}
+for (const sourceContract of [
+  "SiscanOptions",
+  "SiscanDiscoveryCandidate",
+  "SiscanDiscoverySummary",
+  "SiscanRecheckEvidence",
+  "SiscanPlotProfile",
+  "SiscanWorkspace",
+  "siscan_reset_round_context",
+  "siscan_discover",
+  "siscan_recheck",
+  "siscan_plot_profile",
+]) {
+  if (!siscanHeader.includes(sourceContract)) {
+    fail(`SISCAN header contract is missing ${sourceContract}`);
+  }
+}
+for (const sourceContract of [
+  "class MicrosoftCRand",
+  "source_direct_similarity",
+  "build_source_wpgma_context",
+  "nearest_source_outlier",
+  "ensure_vertical_random_prefix",
+  "source_z_score",
+  "source_normal_z",
+  "quick_check_window",
+  "strongest_region_score",
+  "shrink_region",
+  "source_region_length",
+  "window_adjusted",
+  "siscan_discover(",
+  "siscan_recheck(",
+  "siscan_plot_profile(",
+]) {
+  if (!siscan.includes(sourceContract)) {
+    fail(`SISCAN source contract is missing ${sourceContract}`);
+  }
+}
+if (!method.includes("SignalMethod::siscan") ||
+    !method.includes("siscan_discover(") ||
+    !method.includes("siscan_recheck(") ||
+    !method.includes("kScanSiscan") ||
+    !method.includes("siscan_reset_round_context(siscan_workspace_)") ||
+    !method.includes("sister-scan-z-score") ||
+    !implementation.includes("rdp_restore_siscan_discovery") ||
+    !cmake.includes("_rdp_restore_siscan_discovery")) {
+  fail("SISCAN does not enter the cyclic core/API/plot/restore path");
+}
+for (const evidenceContract of [
+  "siscanDiscovery",
+  "SSXoverC-GetSSOL-Get3Score-GetPScores2-DoPerms3-MakeZValue2-DoSums-FindMaxZ-ShrinkRegionC",
+  "nearest-source-wpgma",
+  "microsoft-crt-flat-prefix",
+  "sourceFastWindowQuirk",
+  "globalPair",
+  "candidatePair",
+  "outlierSequence",
+  "windowsInRegion",
+  "permutationDraws",
+  "selectedScoreFamily",
+  "maximumZ",
+  "normalTailPValue",
+  "regionLengthAdjustedPValue",
+  "windowAdjustedPValue",
+  "correctedPValue",
+]) {
+  if (!method.includes(`\\\"${evidenceContract}\\\"`) || !types.includes(evidenceContract)) {
+    fail(`SISCAN evidence differs between core and web for ${evidenceContract}`);
+  }
+}
+for (const workerContract of [
+  "siscanPrimaryEnabled: number",
+  "siscanSecondaryEnabled: number",
+  "siscanScanPermutations: number",
+  "siscanPValuePermutations: number",
+  "_rdp_restore_siscan_discovery",
+  'savedMethod === "SISCAN"',
+  "supportsSiscan",
+  "analysis.siscanProfilesScanned",
+  "analysis.siscanWindowsScored",
+  "analysis.siscanCandidateRegionsScored",
+  "analysis.siscanCandidatesFound",
+  "analysis.siscanPermutationDraws",
+  "analysis.siscanContextBuilds",
+  "analysis.siscanContextPairComparisons",
+  "analysis.siscanContextTreeMerges",
+  "analysis.siscanRandomValuesGenerated",
+]) {
+  if (!worker.includes(workerContract)) {
+    fail(`SISCAN worker/restore contract is missing ${workerContract}`);
+  }
+}
+for (const uiContract of [
+  "Discover events with SISCAN",
+  "Use SISCAN for confirmation",
+  "SISCAN scan permutations",
+  "flat Microsoft-CRT template is cached and reused",
+]) {
+  if (!settings.includes(uiContract)) {
+    fail(`SISCAN settings contract is missing ${uiContract}`);
+  }
+}
+if (!scan.includes("SISCAN triplet profiles") ||
+    !review.includes("SISCAN sister-pair permutation switch") ||
+    !review.includes("SISCAN fixed-region recheck") ||
+    !signalPlot.includes("SISCAN vertical-permutation sister-pair Z scores") ||
+    !exportStep.includes("Session 23 snapshot")) {
+  fail("SISCAN progress/review/plot/export workflow is incomplete");
+}
+for (const runtimeContract of [
+  "nearest fourth sequence",
+  "same-origin/disabled outlier gates",
+  "cached distance tree",
+  "random prefix",
+  "fixed-bound confirmation",
+  "round invalidation",
+  "signed plot",
+  "context-restart",
+]) {
+  if (!siscanCoreVerifier.includes(runtimeContract)) {
+    fail(`SISCAN host regression is missing ${runtimeContract}`);
+  }
+}
+if (!siscanCoreScript.includes('mktemp "${PWD}/wasm/.rdp-siscan-core-check') ||
+    !packageSource.includes('"check:siscan-core"') ||
+    !pagesWorkflow.includes("npm run check:siscan-core") ||
+    !pagesVerifier.includes("SISCAN/context/random-prefix") ||
+    !pagesVerifier.includes("siscanContextBuilds !== 1") ||
+    !pagesVerifier.includes('signal.method === "SISCAN"') ||
+    !pagesVerifier.includes('siscanPlot.metric !== "sister-scan-z-score"') ||
+    !pagesVerifier.includes("siscanPlot.minimumValue < 0")) {
+  fail("SISCAN host/Actions/production-WASM regression wiring is incomplete");
+}
+for (const sourceContract of [
+  "enum class PhylproGapMode",
+  "struct PhylproOptions",
+  "struct PhylproPoint",
+  "struct PhylproProfile",
+  "phylpro_profile(",
+  "O(L*N^2)",
+  "O(L*N)",
+]) {
+  if (!phylproHeader.includes(sourceContract)) {
+    fail(`PHYLPRO header contract is missing ${sourceContract}`);
+  }
+}
+for (const sourceContract of [
+  "vb_round_half",
+  "eligible_columns",
+  "source_pearson",
+  "add_position",
+  "PhylproGapMode::strip_columns",
+  "profile.points.empty()",
+  "options.circular",
+  "3 * context.size() * 4",
+  "fewer than two eligible polymorphic columns",
+]) {
+  if (!phylpro.includes(sourceContract)) {
+    fail(`PHYLPRO source contract is missing ${sourceContract}`);
+  }
+}
+for (const resultContract of [
+  "event_phylpro_json(",
+  "source-shaped-active-unvalidated",
+  "FindSubSeqPP-MakePDstMat-UpdatePDstMat-PPRegression",
+  "not-implemented-in-supplied-rdp5",
+  "three-target-rows-linear-in-context",
+  "polymorphic-after-gap-policy",
+  "maskedContextIncluded",
+  "disabledContextExcluded",
+  "kMaximumPlotPoints = 2048",
+  "phylproInspection",
+  "on-demand-three-target-correlation-profile",
+  "canChangeEvents",
+]) {
+  if (!method.includes(resultContract)) {
+    fail(`PHYLPRO event-result contract is missing ${resultContract}`);
+  }
+}
+if (!implementation.includes("rdp_get_event_phylpro_json(") ||
+    !implementation.includes("selected PHYLPRO gap mode is unavailable") ||
+    !worker.includes("_rdp_get_event_phylpro_json(") ||
+    !worker.includes('case "event-phylpro"') ||
+    !worker.includes('request.gapMode === "strip-any-missing-column"') ||
+    !types.includes("export type PhylproGapMode") ||
+    !types.includes("export interface EventPhylproView") ||
+    !types.includes("export interface PhylproInspectionStatus") ||
+    !types.includes('type: "event-phylpro"') ||
+    !client.includes("eventPhylpro(") ||
+    !app.includes("onGetEventPhylpro={getEventPhylpro}") ||
+    !review.includes("EventPhylproInspector") ||
+    !review.includes("Open PHYLPRO profile") ||
+    !eventPhylproInspector.includes("Left/right phylogenetic-profile correlation") ||
+    !eventPhylproInspector.includes("does not implement a PHYLPRO permutation/significance test")) {
+  fail("PHYLPRO C/WASM/worker/client/review UI wiring is incomplete");
+}
+for (const runtimeContract of [
+  "rolling O(L*N) target rows against brute-force recomputation",
+  "circular source windows",
+  "strip-any-missing source windows",
+  "include-self regression",
+  "disabled-context exclusion",
+  "linear complete half-windows",
+  "linear half-window cap",
+  "zero-variance source fallback",
+]) {
+  if (!phylproCoreVerifier.includes(runtimeContract)) {
+    fail(`PHYLPRO host regression is missing ${runtimeContract}`);
+  }
+}
+if (!phylproCoreScript.includes('mktemp "${PWD}/wasm/.rdp-phylpro-core-check') ||
+    !phylproCoreScript.includes("wasm/src/phylpro.cpp") ||
+    !packageSource.includes('"check:phylpro-core"') ||
+    !pagesWorkflow.includes("npm run check:phylpro-core") ||
+    !bootscanCoreVerifier.includes("rdp_get_event_phylpro_json(handle, 0, 40, 0, 0)") ||
+    !pagesVerifier.includes("PHYLPRO lazy review") ||
+    !pagesVerifier.includes("_rdp_get_event_phylpro_json(") ||
+    !pagesVerifier.includes("not-implemented-in-supplied-rdp5") ||
+    !pagesVerifier.includes("PHYLPRO review mutated the reconciled discovery result")) {
+  fail("PHYLPRO host/ABI/Actions/production-WASM regression wiring is incomplete");
 }
 for (const sourceContract of [
   "ChimaeraDiscoveryOptions",
@@ -902,7 +1220,7 @@ for (const recheckContract of [
   "CHIMAERA recheck",
   "FastRecCheckChim three-target strongest-peak statistic",
   "postGroupChimaeraRecheck",
-  "five late rechecks",
+  "six late rechecks",
   "related-method evidence rather than two independent confirmations",
 ]) {
   if (!review.includes(recheckContract)) {
@@ -993,7 +1311,7 @@ for (const recheckContract of [
   "GENECONV recheck",
   "GCXoverD six-track ordinary-kernel recheck",
   "postGroupGeneconvRecheck",
-  "five late rechecks",
+  "six late rechecks",
 ]) {
   if (!review.includes(recheckContract)) {
     fail(`GENECONV review recheck surface is missing ${recheckContract}`);
@@ -1006,7 +1324,8 @@ for (const tieContract of [
   "case SignalMethod::bootscan: return 2",
   "case SignalMethod::maxchi: return 3",
   "case SignalMethod::chimaera: return 4",
-  "case SignalMethod::threeseq: return 5",
+  "case SignalMethod::siscan: return 5",
+  "case SignalMethod::threeseq: return 6",
 ]) {
   if (!method.includes(tieContract)) {
     fail(`Source method-major tie ordering is missing ${tieContract}`);
@@ -1169,11 +1488,13 @@ const geneconvDispatch = method.indexOf("if (options_.geneconv_enabled", method.
 const bootscanDispatch = method.indexOf("if (options_.bootscan_primary_enabled", method.indexOf("void RdpScanner::scan_triplet"));
 const maxChiDispatch = method.indexOf("if (options_.maxchi_enabled", method.indexOf("void RdpScanner::scan_triplet"));
 const chimaeraDispatch = method.indexOf("if (options_.chimaera_enabled", method.indexOf("void RdpScanner::scan_triplet"));
+const siscanDispatch = method.indexOf("if (options_.siscan_primary_enabled", method.indexOf("void RdpScanner::scan_triplet"));
 const threeSeqDispatch = method.indexOf("if (options_.threeseq_enabled", method.indexOf("void RdpScanner::scan_triplet"));
 if (!(geneconvDispatch >= 0 && geneconvDispatch < bootscanDispatch &&
       bootscanDispatch < maxChiDispatch &&
-      maxChiDispatch < chimaeraDispatch && chimaeraDispatch < threeSeqDispatch)) {
-  fail("combined scan does not retain the supplied GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ dispatch order");
+      maxChiDispatch < chimaeraDispatch && chimaeraDispatch < siscanDispatch &&
+      siscanDispatch < threeSeqDispatch)) {
+  fail("combined scan does not retain the supplied GENECONV/BootScan/MaxChi/CHIMAERA/SISCAN/3SEQ dispatch order");
 }
 for (const evidenceContract of [
   "threeSeqDiscovery",
@@ -1292,7 +1613,7 @@ for (const recheckContract of [
   "3SEQ Findall recheck",
   "TSXOver(1) Findall recheck",
   "postGroupThreeSeqRecheck",
-  "five late rechecks",
+  "six late rechecks",
   "inverse-interval list copy",
 ]) {
   if (!review.includes(recheckContract)) {
@@ -1437,8 +1758,11 @@ for (const progressRoleContract of [
 for (const shortlistProgressContract of [
   "tripletKernelEvaluations",
   "tripletSummariesReused",
+  "cleanTripletsPruned",
   "cachedSignalsReused",
   "methodScansSkipped",
+  "invalidScheduleTripletsSkipped",
+  "fragmentSequencesPruned",
 ]) {
   if (!method.includes(`\\\"${shortlistProgressContract}\\\"`) ||
       !types.includes(`${shortlistProgressContract}: number`) ||
@@ -1455,6 +1779,10 @@ for (const shortlistCoreContract of [
   "reuse_carried_triplet_signals",
   "triplet_touches_dirty_sequence",
   "refresh_threeseq_on_unchanged_triplets_",
+  "previously_signal_bearing",
+  "prune_event_free_fragments",
+  "remap_working_triplet_provenance",
+  "working_state_fingerprints_",
   "correction_tests_frozen_",
   "first_post_erasure_threeseq_refresh",
 ]) {
@@ -1464,8 +1792,56 @@ for (const shortlistCoreContract of [
 }
 if (!pagesVerifier.includes("progress.correctionTests !== 120") ||
     !pagesVerifier.includes("progress.tripletKernelEvaluations < progress.cumulativeTriplets") ||
-    !pagesVerifier.includes("progress.cachedSignalsReused > 0")) {
-  fail("Pages verification does not exercise fixed correction and shortlist reuse");
+    !pagesVerifier.includes("progress.cachedSignalsReused > 0") ||
+    !pagesVerifier.includes("progress.cleanTripletsPruned > 0") ||
+    !pagesVerifier.includes("progress.invalidScheduleTripletsSkipped > 0") ||
+    !pagesVerifier.includes("progress.fragmentSequencesPruned > 0")) {
+  fail("Pages verification does not exercise fixed correction, shortlist reuse, and fragment pruning");
+}
+if (!worker.includes("PROGRESS_EMISSION_INTERVAL_MS = 500") ||
+    !worker.includes("now - lastProgressEmission < PROGRESS_EMISSION_INTERVAL_MS") ||
+    worker.indexOf("now - lastProgressEmission < PROGRESS_EMISSION_INTERVAL_MS") >
+        worker.indexOf("module._rdp_get_progress_json(context)") ||
+    !worker.includes("TARGET_SCAN_SLICE_MS = 40") ||
+    !worker.includes("nextScanBatchBudget") ||
+    !worker.includes("yieldToWorkerQueue")) {
+  fail("worker progress throttling or adaptive scan slicing is incomplete");
+}
+for (const pruningRegressionContract of [
+  "cleanTripletsPruned",
+  "methodScansSkipped",
+  "invalidScheduleTripletsSkipped",
+  "fragmentSequencesPruned",
+  "swap/reindex compaction",
+]) {
+  if (!cyclicPruningCoreVerifier.includes(pruningRegressionContract)) {
+    fail(`cyclic-pruning host regression is missing ${pruningRegressionContract}`);
+  }
+}
+if (!cyclicPruningCoreScript.includes('mktemp "${PWD}/wasm/.rdp-cyclic-pruning-core-check') ||
+    !cyclicPruningCoreScript.includes("verify-cyclic-pruning-digest.mjs") ||
+    !cyclicPruningDigestVerifier.includes("5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa") ||
+    !packageSource.includes('"check:cyclic-pruning-core"') ||
+    !pagesWorkflow.includes("npm run check:cyclic-pruning-core")) {
+  fail("cyclic-pruning host regression is not wired into the local/Pages gates");
+}
+for (const performanceContract of [
+  "-O3",
+  "-flto",
+  "-msimd128",
+]) {
+  if (!cmake.includes(performanceContract)) {
+    fail(`release WASM optimization is missing ${performanceContract}`);
+  }
+}
+for (const breakpointRangeContract of [
+  "breakpoint_erasure_diff_scratch_",
+  "breakpoint_polish_erasure_diff_scratch_",
+  "active_erasure_ranges",
+]) {
+  if (!method.includes(breakpointRangeContract)) {
+    fail(`breakpoint range-union optimization is missing ${breakpointRangeContract}`);
+  }
 }
 if (!review.includes("RDP5 XOverList equivalent") ||
     !review.includes("BURT can move the displayed event") ||
@@ -1535,6 +1911,9 @@ for (const shortlistContract of [
   "Worthwhilescan",
   "StoreLPV",
   "FindBetterRecSignal",
+  "DropSeqs",
+  "cleanTripletsPruned",
+  "fragmentSequencesPruned",
   "correctionTests",
   "tripletKernelEvaluations",
   "CheckSplit3Seq",
@@ -1612,6 +1991,80 @@ for (const handoffContract of [
     fail(`Session 20 handoff is missing ${handoffContract}`);
   }
 }
+for (const handoffContract of [
+  "0.21.0-session-21",
+  "org.rdp-web.project/v1alpha19",
+  "SSXoverC",
+  "GetSSOL",
+  "WPGMA",
+  "Microsoft CRT",
+  "QuickCheckB",
+  "RDP → GENECONV → BootScan → MaxChi → CHIMAERA → SISCAN → 3SEQ",
+  "XOverList/BestXOList-style triplet shortlist",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session21Handoff.includes(handoffContract)) {
+    fail(`Session 21 handoff is missing ${handoffContract}`);
+  }
+}
+for (const handoffContract of [
+  "0.22.0-session-22",
+  "org.rdp-web.project/v1alpha19",
+  "FindSubSeqPP",
+  "PXoverD",
+  "MakePDstMat",
+  "UpdatePDstMat",
+  "PPRegression",
+  "O(LN²)",
+  "O(LN)",
+  "no p-value",
+  "encoded counter reset",
+  "compact-index defect",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session22Handoff.includes(handoffContract)) {
+    fail(`Session 22 handoff is missing ${handoffContract}`);
+  }
+}
+for (const handoffContract of [
+  "0.23.0-session-23",
+  "org.rdp-web.project/v1alpha19",
+  "DoRDP",
+  "DropSeqs",
+  "XOverList",
+  "BestXOList",
+  "Worthwhilescan",
+  "once every 500 ms",
+  "40 ms",
+  "O(E + L)",
+  "5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session23Handoff.includes(handoffContract)) {
+    fail(`Session 23 handoff is missing ${handoffContract}`);
+  }
+}
+for (const traceContract of [
+  "SSXoverC",
+  "GetSSOL",
+  "MakeDistanceBakB",
+  "Get3Score",
+  "GetPScores2",
+  "SetUpSiScan",
+  "MakeVRand",
+  "DoPerms3",
+  "MakeZValue2",
+  "DoSums",
+  "FindMaxZ",
+  "ShrinkRegionC",
+  "QuickCheckB",
+  "NormalZ",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!siscanTrace.includes(traceContract)) {
+    fail(`SISCAN supplied-source trace is missing ${traceContract}`);
+  }
+}
 for (const traceContract of [
   "TestMoveInTree",
   "MakeNJTreesP",
@@ -1630,6 +2083,24 @@ for (const traceContract of [
 ]) {
   if (!eventTreeTrace.includes(traceContract)) {
     fail(`event-tree supplied-source trace is missing ${traceContract}`);
+  }
+}
+for (const traceContract of [
+  "FindSubSeqPP",
+  "PXoverD",
+  "MakePDstMat",
+  "UpdatePDstMat",
+  "PPRegression",
+  "three-target",
+  "O(LN²)",
+  "O(LN)",
+  "A/C/G/T as 66/68/72/85",
+  "compact-to-original context",
+  "no active significance test",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!phylproTrace.includes(traceContract)) {
+    fail(`PHYLPRO supplied-source trace is missing ${traceContract}`);
   }
 }
 for (const treeContract of [
@@ -1685,40 +2156,47 @@ if (!treeCoreVerifier.includes("expected_weights") ||
 }
 if (!bootscanCoreVerifier.includes("source-midpoint-ultrametric-ranks") ||
     !bootscanCoreVerifier.includes("rdp_get_event_trees_json(handle, 0)") ||
-    !bootscanCoreVerifier.includes("org.rdp-web.project/v1alpha18")) {
-  fail("linked public-API regression does not cover Session 20 tree/schema output");
+    !bootscanCoreVerifier.includes("org.rdp-web.project/v1alpha19")) {
+  fail("linked public-API regression does not cover Session 21 tree/schema output");
 }
 if (!method.includes("kEventTreeFlankInformativeSites = 20") ||
     !method.includes("build_phylogenetic_regions(") ||
     !method.includes("flankVariableSiteTarget\\\":")) {
   fail("manual six-tree 20-variable-site flank construction is missing");
 }
-if (!readme.includes("Session 20 source checkpoint") ||
-    !readme.includes("v1alpha18") ||
+if (!readme.includes("Session 23 source checkpoint") ||
+    !readme.includes("v1alpha19") ||
     !readme.includes("cyclic-shortlist trace") ||
     !readme.includes("native-bootscan-discovery-trace") ||
+    !readme.includes("native-siscan-discovery-trace") ||
     !readme.includes("native-event-tree-kernel-trace") ||
-    !readme.includes("session-20-handoff") ||
-    !status.includes("Port status — session 20") ||
+    !readme.includes("native-phylpro-review-trace") ||
+    !readme.includes("session-23-handoff") ||
+    !status.includes("Port status — session 23") ||
+    !status.includes("SISCAN discovery") ||
+    !status.includes("SISCAN fixed-region confirmation") ||
+    !status.includes("PHYLPRO event review") ||
     !status.includes("Source event-tree kernel") ||
     !status.includes("Primary BootScan distance screen") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 20 README/status documentation is stale");
+  fail("Session 23 README/status documentation is stale");
 }
-if (!app.includes("Win95 edition · session 20") ||
-    !app.includes("RDP Web 0.20")) {
-  fail("Session 20 application chrome is stale");
+if (!app.includes("Win95 edition · session 23") ||
+    !app.includes("RDP Web 0.23")) {
+  fail("Session 23 application chrome is stale");
 }
-if (!exportStep.includes("Session 20 snapshot") ||
+if (!exportStep.includes("Session 23 snapshot") ||
     !exportStep.includes("supplied-source ranked event-tree provenance") ||
     !exportStep.includes("primary BootScan") ||
+    !exportStep.includes("SISCAN") ||
     !exportStep.includes("bounded pair-profile reuse") ||
     !exportStep.includes("target-rotated 3SEQ") ||
     !exportStep.includes("CheckSplit3Seq") ||
-    !exportStep.includes("TSXOver(1)")) {
-  fail("Session 20 export fidelity boundary is stale");
+    !exportStep.includes("TSXOver(1)") ||
+    !exportStep.includes("Event PHYLPRO profiles remain")) {
+  fail("Session 23 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",
@@ -1801,6 +2279,11 @@ for (const restoreCounterContract of [
   "double bootscan_pair_profile_cache_misses",
   "double bootscan_pair_profile_cache_evictions",
   "double bootscan_pair_profile_cache_peak_bytes",
+  "double siscan_profiles_scanned",
+  "double siscan_windows_scored",
+  "double siscan_candidate_regions_scored",
+  "double siscan_candidates_found",
+  "double siscan_permutation_draws",
 ]) {
   if (!header.includes(restoreCounterContract) || !implementation.includes(restoreCounterContract)) {
     fail(`completed-project scan counter restore is missing ${restoreCounterContract}`);

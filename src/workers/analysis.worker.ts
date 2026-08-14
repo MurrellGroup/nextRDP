@@ -40,6 +40,13 @@ interface EmscriptenModule {
     bootscanBootstrapReplicates: number,
     bootscanSupportCutoff: number,
     bootscanRandomSeed: number,
+    siscanPrimaryEnabled: number,
+    siscanSecondaryEnabled: number,
+    siscanWindowSites: number,
+    siscanStepSites: number,
+    siscanScanPermutations: number,
+    siscanPValuePermutations: number,
+    siscanRandomSeed: number,
     polishBreakpoints: number,
     queryReferenceMode: number,
     referenceGroups: number,
@@ -62,6 +69,13 @@ interface EmscriptenModule {
     rowLimit: number,
   ): number;
   _rdp_get_event_trees_json(handle: number, eventId: number): number;
+  _rdp_get_event_phylpro_json(
+    handle: number,
+    eventId: number,
+    windowSites: number,
+    gapMode: number,
+    includeSelf: number,
+  ): number;
   _rdp_set_review_state(handle: number, signalId: number, state: number): number;
   _rdp_set_event_review_state(handle: number, eventId: number, state: number): number;
   _rdp_update_event(
@@ -112,6 +126,13 @@ interface EmscriptenModule {
     bootscanBootstrapReplicates: number,
     bootscanSupportCutoff: number,
     bootscanRandomSeed: number,
+    siscanPrimaryEnabled: number,
+    siscanSecondaryEnabled: number,
+    siscanWindowSites: number,
+    siscanStepSites: number,
+    siscanScanPermutations: number,
+    siscanPValuePermutations: number,
+    siscanRandomSeed: number,
     polishBreakpoints: number,
     queryReferenceMode: number,
     referenceGroups: number,
@@ -235,6 +256,22 @@ interface EmscriptenModule {
     rawPValue: number,
     erasedWindowFilterApplied: number,
   ): number;
+  _rdp_restore_siscan_discovery(
+    handle: number,
+    signalId: number,
+    globalPair: number,
+    candidatePair: number,
+    outlierSequence: number,
+    windowsInRegion: number,
+    informativeSites: number,
+    permutationDraws: number,
+    selectedScore: number,
+    selectedScoreFamily: number,
+    maximumZ: number,
+    normalTailPValue: number,
+    regionLengthAdjustedPValue: number,
+    windowAdjustedPValue: number,
+  ): number;
   _rdp_restore_scan_finish(
     handle: number,
     correctionTests: number,
@@ -265,6 +302,15 @@ interface EmscriptenModule {
     bootscanPairProfileCacheMisses: number,
     bootscanPairProfileCacheEvictions: number,
     bootscanPairProfileCachePeakBytes: number,
+    siscanProfilesScanned: number,
+    siscanWindowsScored: number,
+    siscanCandidateRegionsScored: number,
+    siscanCandidatesFound: number,
+    siscanPermutationDraws: number,
+    siscanContextBuilds: number,
+    siscanContextPairComparisons: number,
+    siscanContextTreeMerges: number,
+    siscanRandomValuesGenerated: number,
     cycleTermination: number,
     cycleTerminationLength: number,
   ): number;
@@ -320,6 +366,16 @@ let dataset: DatasetSummary | null = null;
 let datasetName = "";
 let threaded = false;
 let scanActive = false;
+let lastProgressEmission = Number.NEGATIVE_INFINITY;
+
+// Progress JSON construction crosses the WASM boundary, allocates a sizeable
+// string, parses it, posts a structured clone, and causes a React render. Keep
+// routine statistics at Darren's requested maximum of two updates per second.
+const PROGRESS_EMISSION_INTERVAL_MS = 500;
+const INITIAL_SCAN_BATCH = 512;
+const MINIMUM_SCAN_BATCH = 1;
+const MAXIMUM_SCAN_BATCH = 65_536;
+const TARGET_SCAN_SLICE_MS = 40;
 
 const scope = self as DedicatedWorkerGlobalScope;
 
@@ -543,7 +599,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema !== "org.rdp-web.project/v1alpha15" &&
     schema !== "org.rdp-web.project/v1alpha16" &&
     schema !== "org.rdp-web.project/v1alpha17" &&
-    schema !== "org.rdp-web.project/v1alpha18"
+    schema !== "org.rdp-web.project/v1alpha18" &&
+    schema !== "org.rdp-web.project/v1alpha19"
   ) {
     throw new Error(`Unsupported RDP Web project schema: ${schema}`);
   }
@@ -671,7 +728,8 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsMaxChiDiscovery =
     schema === "org.rdp-web.project/v1alpha10" || supportsReferenceGroups;
   const supportsChimaeraDiscovery =
@@ -681,32 +739,39 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsGeneconvDiscovery =
     schema === "org.rdp-web.project/v1alpha13" ||
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsThreeSeqDiscovery =
     schema === "org.rdp-web.project/v1alpha14" ||
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsThreeSeqSplit =
     schema === "org.rdp-web.project/v1alpha15" ||
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsBootscanSecondary =
     schema === "org.rdp-web.project/v1alpha16" ||
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
   const supportsBootscanPrimary =
     schema === "org.rdp-web.project/v1alpha17" ||
-    schema === "org.rdp-web.project/v1alpha18";
+    schema === "org.rdp-web.project/v1alpha18" ||
+    schema === "org.rdp-web.project/v1alpha19";
+  const supportsSiscan = schema === "org.rdp-web.project/v1alpha19";
   const referenceGroups = new Array<number>(restoredDataset.sequenceCount).fill(0);
   if (supportsReferenceGroups &&
       Array.isArray(analysis.referenceGroupIndices)) {
@@ -740,6 +805,13 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         integer(analysis.bootscanBootstrapReplicates, 100),
         finiteNumber(analysis.bootscanSupportCutoff, 0.7),
         integer(analysis.bootscanRandomSeed, 3),
+        supportsSiscan && analysis.siscanPrimaryEnabled === true ? 1 : 0,
+        supportsSiscan && analysis.siscanSecondaryEnabled !== false ? 1 : 0,
+        integer(analysis.siscanWindowSites, 200),
+        integer(analysis.siscanStepSites, 20),
+        integer(analysis.siscanScanPermutations, 100),
+        integer(analysis.siscanPValuePermutations, 1000),
+        integer(analysis.siscanRandomSeed, 3),
         analysis.polishBreakpoints === false ? 0 : 1,
         supportsReferenceGroups && analysis.analysisMode === "query-reference" ? 1 : 0,
         referenceGroupsPointer,
@@ -773,7 +845,7 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
       signal.method,
       `Saved signal ${savedIndex + 1} has no discovery method.`,
     );
-    if (!["RDP", "MAXCHI", "CHIMAERA", "GENECONV", "3SEQ", "BOOTSCAN"].includes(savedMethod)) {
+    if (!["RDP", "MAXCHI", "CHIMAERA", "GENECONV", "3SEQ", "BOOTSCAN", "SISCAN"].includes(savedMethod)) {
       throw new Error(`Saved signal ${savedIndex + 1} uses an unknown discovery method.`);
     }
     if (savedMethod === "3SEQ" && !supportsThreeSeqDiscovery) {
@@ -781,6 +853,9 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
     }
     if (savedMethod === "BOOTSCAN" && !supportsBootscanPrimary) {
       throw new Error(`Saved BootScan signal ${savedIndex + 1} uses a pre-BootScan project schema.`);
+    }
+    if (savedMethod === "SISCAN" && !supportsSiscan) {
+      throw new Error(`Saved SISCAN signal ${savedIndex + 1} uses a pre-SISCAN project schema.`);
     }
     const triplet = requireArray(
       signal.triplet,
@@ -829,7 +904,9 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
               ? 3
               : savedMethod === "3SEQ"
                 ? 4
-                : savedMethod === "BOOTSCAN" ? 5 : 0,
+                : savedMethod === "BOOTSCAN"
+                  ? 5
+                  : savedMethod === "SISCAN" ? 6 : 0,
       ) !== 1
     ) {
       throw engineError(`Saved signal ${savedIndex + 1} could not be restored.`);
@@ -983,6 +1060,35 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
         throw engineError(`Saved BootScan signal ${savedIndex + 1} could not be restored.`);
       }
     }
+    if (savedMethod === "SISCAN") {
+      const discovery = requireObject(
+        signal.siscanDiscovery,
+        `Saved SISCAN signal ${savedIndex + 1} has no discovery trace.`,
+      );
+      const scoreFamily = discovery.selectedScoreFamily === "partition"
+        ? 1
+        : discovery.selectedScoreFamily === "summed" ? 2 : 0;
+      if (
+        module!._rdp_restore_siscan_discovery(
+          context,
+          restoredSignalIndex,
+          integer(discovery.globalPair, -1),
+          integer(discovery.candidatePair, integer(signal.candidatePair, -1)),
+          integer(discovery.outlierSequence, -1),
+          integer(discovery.windowsInRegion),
+          integer(discovery.informativeSites, integer(signal.informativeSites)),
+          finiteNumber(discovery.permutationDraws),
+          integer(discovery.selectedScore),
+          scoreFamily,
+          finiteNumber(discovery.maximumZ),
+          finiteNumber(discovery.normalTailPValue, 1),
+          finiteNumber(discovery.regionLengthAdjustedPValue, 1),
+          finiteNumber(discovery.windowAdjustedPValue, finiteNumber(signal.localPValue, 1)),
+        ) !== 1
+      ) {
+        throw engineError(`Saved SISCAN signal ${savedIndex + 1} could not be restored.`);
+      }
+    }
   });
   const savedCycleTermination = pending < 0 && typeof analysis.cycleTermination === "string"
     ? analysis.cycleTermination
@@ -1035,6 +1141,24 @@ function restoreProject(name: string, bytes: ArrayBuffer): ImportedProject {
           ? finiteNumber(analysis.bootscanPairProfileCacheEvictions) : 0,
         pending < 0 && supportsBootscanPrimary
           ? finiteNumber(analysis.bootscanPairProfileCachePeakBytes) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanProfilesScanned) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanWindowsScored) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanCandidateRegionsScored) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanCandidatesFound) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanPermutationDraws) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanContextBuilds) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanContextPairComparisons) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanContextTreeMerges) : 0,
+        pending < 0 && supportsSiscan
+          ? finiteNumber(analysis.siscanRandomValuesGenerated) : 0,
         cycleTerminationPointer,
         cycleTerminationBytes.byteLength,
       ) !== 1
@@ -1103,14 +1227,41 @@ function exportProject(): string {
   return JSON.stringify(project, null, 2);
 }
 
-function emitProgress(): ScanProgress {
+function emitProgress(force = false): ScanProgress | undefined {
   if (!module || !context) throw new Error("The engine has not been initialised.");
+  const now = performance.now();
+  if (!force && now - lastProgressEmission < PROGRESS_EMISSION_INTERVAL_MS) {
+    return undefined;
+  }
   const progress = parseJson<ScanProgress>(
     module._rdp_get_progress_json(context),
     "Scan progress was not returned.",
   );
   scope.postMessage({ type: "progress", progress });
+  // Measure from the completed post, so JSON construction time cannot make
+  // two visible updates land less than 500 ms apart.
+  lastProgressEmission = performance.now();
   return progress;
+}
+
+function nextScanBatchBudget(current: number, elapsedMilliseconds: number): number {
+  if (!(elapsedMilliseconds > 0)) return Math.min(MAXIMUM_SCAN_BATCH, current * 2);
+  const ratio = Math.max(0.25, Math.min(4, TARGET_SCAN_SLICE_MS / elapsedMilliseconds));
+  return Math.max(
+    MINIMUM_SCAN_BATCH,
+    Math.min(MAXIMUM_SCAN_BATCH, Math.round(current * ratio)),
+  );
+}
+
+async function yieldToWorkerQueue(): Promise<void> {
+  const scheduler = (globalThis as typeof globalThis & {
+    scheduler?: { yield?: () => Promise<void> };
+  }).scheduler;
+  if (scheduler?.yield) {
+    await scheduler.yield();
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promise<unknown> {
@@ -1158,6 +1309,13 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       request.options.bootscanBootstrapReplicates,
       request.options.bootscanSupportCutoff,
       request.options.bootscanRandomSeed,
+      request.options.siscanPrimaryEnabled ? 1 : 0,
+      request.options.siscanSecondaryEnabled ? 1 : 0,
+      request.options.siscanWindowSites,
+      request.options.siscanStepSites,
+      request.options.siscanScanPermutations,
+      request.options.siscanPValuePermutations,
+      request.options.siscanRandomSeed,
       request.options.polishBreakpoints ? 1 : 0,
       request.options.analysisMode === "query-reference" ? 1 : 0,
       referenceGroupsPointer,
@@ -1175,14 +1333,18 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
   }
 
   scanActive = true;
-  emitProgress();
+  lastProgressEmission = Number.NEGATIVE_INFINITY;
+  emitProgress(true);
+  let tripletBudget = INITIAL_SCAN_BATCH;
   try {
     for (;;) {
-      const status = module._rdp_scan_batch(context, 512);
+      const batchStarted = performance.now();
+      const status = module._rdp_scan_batch(context, tripletBudget);
+      const batchElapsed = performance.now() - batchStarted;
       emitProgress();
       if (status === 1) break;
       if (status === 3) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await yieldToWorkerQueue();
         if (module._rdp_reconcile(context) !== 1) {
           throw engineError("The discovery signals could not be reconciled into event hypotheses.");
         }
@@ -1191,7 +1353,13 @@ async function runScan(request: Extract<WorkerRequest, { type: "scan" }>): Promi
       }
       if (status === 2) throw new Error("The scan was cancelled.");
       if (status < 0) throw engineError("The scan failed.");
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      // Status zero means the complete budget was consumed. Round-boundary
+      // status four can return early, so it must not distort the throughput
+      // estimate used for the next full slice.
+      if (status === 0) {
+        tripletBudget = nextScanBatchBudget(tripletBudget, batchElapsed);
+      }
+      await yieldToWorkerQueue();
     }
     return parseJson(module._rdp_get_results_json(context), "The scan returned no results.");
   } finally {
@@ -1206,13 +1374,17 @@ async function reidentifyLaterEvents(eventId: number): Promise<ScanResults> {
     throw engineError("Later events could not be prepared for re-identification.");
   }
   scanActive = true;
-  emitProgress();
+  lastProgressEmission = Number.NEGATIVE_INFINITY;
+  emitProgress(true);
+  let tripletBudget = INITIAL_SCAN_BATCH;
   try {
     for (;;) {
-      const status = module._rdp_scan_batch(context, 512);
+      const batchStarted = performance.now();
+      const status = module._rdp_scan_batch(context, tripletBudget);
+      const batchElapsed = performance.now() - batchStarted;
       emitProgress();
       if (status === 3) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await yieldToWorkerQueue();
         if (module._rdp_reconcile(context) !== 1) {
           throw engineError("The rebuilt signals could not be reconciled into event hypotheses.");
         }
@@ -1221,7 +1393,10 @@ async function reidentifyLaterEvents(eventId: number): Promise<ScanResults> {
       }
       if (status === 2) throw new Error("Re-identification was cancelled.");
       if (status < 0) throw engineError("Re-identification failed.");
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (status === 0) {
+        tripletBudget = nextScanBatchBudget(tripletBudget, batchElapsed);
+      }
+      await yieldToWorkerQueue();
     }
     return parseJson<ScanResults>(
       module._rdp_get_results_json(context),
@@ -1277,6 +1452,19 @@ scope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => 
         result = parseJson(
           module._rdp_get_event_trees_json(context, request.eventId),
           "Regional tree data was not returned.",
+        );
+        break;
+      case "event-phylpro":
+        if (!module || !context) throw new Error("The engine has not been initialised.");
+        result = parseJson(
+          module._rdp_get_event_phylpro_json(
+            context,
+            request.eventId,
+            request.windowSites,
+            request.gapMode === "strip-any-missing-column" ? 1 : 0,
+            request.includeSelf ? 1 : 0,
+          ),
+          "PHYLPRO review data were not returned.",
         );
         break;
       case "set-review-state": {

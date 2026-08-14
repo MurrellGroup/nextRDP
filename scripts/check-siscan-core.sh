@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-binary="$(mktemp "${PWD}/wasm/.rdp-bootscan-core-check.XXXXXX")"
+binary="$(mktemp "${PWD}/wasm/.rdp-siscan-core-check.XXXXXX")"
 trap 'unlink "$binary" 2>/dev/null || true' EXIT
 
 g++ -std=c++20 -O2 -Wall -Wextra -Wpedantic \
   -Iwasm/src \
   -Iwasm/include \
-  scripts/verify-bootscan-core.cpp \
+  scripts/verify-siscan-core.cpp \
   wasm/src/alignment.cpp \
   wasm/src/bootscan.cpp \
   wasm/src/burt_confidence.cpp \

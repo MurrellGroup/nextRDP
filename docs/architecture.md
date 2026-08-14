@@ -6,6 +6,11 @@ The React interface owns workflow state and presentation. A module worker owns t
 alignment, cyclic working alignment, scan cursor, event list, and exports. The main thread transfers
 the input `ArrayBuffer` rather than copying it and receives compact JSON summaries.
 
+Review inspectors are request-driven. Breakpoint rows, saved event-tree edges, and PHYLPRO curves
+cross the worker boundary only after the reviewer opens the relevant panel. PHYLPRO points are
+deterministically rebuilt from the immutable alignment and current event roles; no full profile or
+distance matrix is retained in project state.
+
 The worker advances 512 working combinations per batch and yields to its event loop between
 batches. This keeps progress and cancellation deterministic without placing numerical work on the
 DOM thread. At the end of a pass, the C++ core selects/reconciles one strongest event, calculates its
@@ -36,7 +41,7 @@ The primary catalogue has two schemes. Fully exploratory mode walks every valid 
 three active records. Automated query-vs-reference mode partitions those same records by their
 original sequence's saved reference-group ID (`0` means query), then lazily walks each cross-group
 reference pair with every query. Thus a fragment inherits its source sequence's role, same-origin
-    copies remain forbidden, and reference status never constrains which member the RDP/MaxChi/CHIMAERA/GENECONV/3SEQ kernels
+    copies remain forbidden, and reference status never constrains which member the RDP/MaxChi/CHIMAERA/GENECONV/SISCAN/3SEQ kernels
 or late consensus can identify as recombinant.
 
 ## Complexity and memory
@@ -73,6 +78,11 @@ or late consensus can identify as recombinant.
   cleared at 8192 entries. Larger states use the supplied constant-space `SiegmundDiscrete` path;
   no triplet can allocate the desktop four-dimensional table. The pre-wrap probability excursion
   is retained separately from the post-`CheckwrapC` boundary excursion without another profile pass.
+- SISCAN builds its direct and source-shaped WPGMA/cophenetic context once per affected cyclic
+  round in `O(N²L + N² log N)` and reuses it for every triplet's nearest-outlier lookup. Its seeded
+  Microsoft-CRT vertical-randomization bytes are one extensible flat prefix shared across windows,
+  triplets, plots, and later rounds. Per score, work is proportional to retained pattern sites times
+  the requested permutations; shortlist-replayed unchanged triplets invoke no SISCAN work.
 - Probability: at most 169 log-space binomial recurrence steps after long-tract scaling.
 - Round signal deduplication: expected constant-time hashed bucket lookup over canonical original
   triplet, recombinant, and breakpoints, followed by exact collision comparison.
@@ -89,6 +99,11 @@ or late consensus can identify as recombinant.
   `K = min(panel candidates, 100)`. Column-state loading makes the full weighted JC family
   `O(K²L_region R)`; omitted original candidates use cached anchor-relative JC affinity. Raw and
   collapsed four-decimal path levels are rank-coded once and reused by every analytical consumer.
+- PHYLPRO event review: eligible-column construction is `O(NL)` on demand. The supplied ordinary
+  all-pairs rolling matrix is reduced to the three displayed target-to-context rows, making profile
+  work `O(NL)` and scratch distance memory `O(N)` instead of `O(N²L)`/`O(N²)`. The complete profile
+  is evaluated in the worker; at most about 2,048 regular display samples plus ends, minima, and
+  breakpoint-nearest points cross to the interface.
 - Role consensus: nine fixed metrics over three roles after distance/tree matrices exist.
 - Mapped late-matrix scoring: constant score work per retained candidate after the same six
   distance/tree matrix families exist. Detected-region matching builds valid/difference prefixes in
@@ -180,6 +195,8 @@ or late consensus can identify as recombinant.
 - 3SEQ retains walk/probability buffers and an exact-tail cache across triplets. All three target
   walks reuse the equality vectors; only the on-demand review plot rereads the selected original
   triplet, and its union coordinate grid is downsampled before transfer.
+- SISCAN retains its round context, random prefix, category buffers, permutation scores, and Z-score
+  vectors. Erasure invalidates only the context whose eligible working rows changed.
 - Six tree families built once per event and reused by all role hypotheses and metrics.
 - One compact site-major retained/bootstrap weight matrix per region; no sampled alignment copies.
 - Canonical split keys for bootstrap support rather than repeatedly parsing tree strings; the
@@ -198,7 +215,8 @@ or late consensus can identify as recombinant.
 Project import does not round-trip the saved alignment through FASTA or another lossy wrapper. The
 worker transfers each saved name/normalized sequence through a record-oriented C ABI, restores
 signals with their discovery method, method-specific BootScan support/binomial trace,
-MaxChi/CHIMAERA peak trace, GENECONV fragment/KA trace, or 3SEQ walk/probability trace, correction factors, and fragment
+MaxChi/CHIMAERA peak trace, GENECONV fragment/KA trace, SISCAN outlier/category/Z/probability trace,
+or 3SEQ walk/probability trace, correction factors, and fragment
 provenance, then replays events in order.
 Every tract/fragment state needed by a later saved anchor is rebuilt before that anchor’s evidence.
 Manual role/breakpoint/group edits, rejected calls, decisions, query/reference assignments and
@@ -209,7 +227,7 @@ through the changed call and their supporting signals are restored. Signal IDs a
 event anchors are remapped, and the stale tail is deliberately left for the next cyclic scan to
 rediscover. This prevents pre-correction evidence from being replayed as current state.
 For a completed snapshot, the saved cumulative triplet count, scan-round count, BootScan/cache,
-MaxChi, CHIMAERA, GENECONV, and 3SEQ workload
+MaxChi, CHIMAERA, GENECONV, SISCAN, and 3SEQ workload
 counters, and terminal reason are authoritative. Event replay updates only the current working
 round's processed/total counts; it cannot manufacture extra historical work.
 V11 constrained signals must still contain three distinct originals in the saved one-query/two-
@@ -221,8 +239,8 @@ the event holding a pending rebuild marker) can be changed; revisiting an earlie
 still allowed and creates a new downstream invalidation point. The same boundary rejects final
 alignment variants unless the scan is complete, every event is decided, and no rebuild is pending.
 
-The emitted schema is `org.rdp-web.project/v1alpha18`; the import path accepts `v1alpha1` through
-`v1alpha18`. Pre-v17 projects restore primary BootScan disabled while retaining their older
+The emitted schema is `org.rdp-web.project/v1alpha19`; the import path accepts `v1alpha1` through
+`v1alpha19`. Pre-v19 projects restore SISCAN discovery and confirmation disabled. Pre-v17 projects restore primary BootScan disabled while retaining their older
 optional BootScan corroboration setting. Pre-v11 projects restore the fully exploratory scheduler. Projects through
 `v1alpha9` restore MaxChi disabled, v10/v11 restore CHIMAERA disabled, and every pre-v13 project
 restores GENECONV disabled. Every pre-v14 project restores 3SEQ disabled, and v14 projects reject
@@ -246,7 +264,7 @@ analysis is written to browser storage, and no sequence data leaves the tab.
 
 The checked-in Pages workflow runs only for a manual dispatch or a push to the repository's actual
 default branch. It restores the locked npm graph under Node 20, provisions Emscripten 5.0.1, checks
-the strict TypeScript contract plus linked BootScan/cache and supplied-source event-tree cores,
+the strict TypeScript contract plus linked BootScan/cache, SISCAN, and supplied-source event-tree cores,
 builds the single-worker C++/WASM target and Vite application, then
 uploads only `dist/` through the official Pages artifact/deployment path.
 The wrappers use the current Node-24-generation action releases; hidden-file inclusion is explicit

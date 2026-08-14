@@ -22,6 +22,8 @@ import type {
   EventAlignmentView,
   EventEdit,
   EventTreeView,
+  EventPhylproView,
+  PhylproGapMode,
   ReconciledEvent,
   ReviewState,
   ScanResults,
@@ -30,6 +32,7 @@ import type {
 } from "../lib/types";
 import { EventAlignmentInspector } from "./EventAlignmentInspector";
 import { EventTreeInspector } from "./EventTreeInspector";
+import { EventPhylproInspector } from "./EventPhylproInspector";
 import { SignalPlot } from "./SignalPlot";
 
 interface ReviewStepProps {
@@ -43,6 +46,12 @@ interface ReviewStepProps {
     rowLimit: number,
   ) => Promise<EventAlignmentView>;
   onGetEventTrees: (eventId: number) => Promise<EventTreeView>;
+  onGetEventPhylpro: (
+    eventId: number,
+    windowSites: number,
+    gapMode: PhylproGapMode,
+    includeSelf: boolean,
+  ) => Promise<EventPhylproView>;
   onReviewState: (eventId: number, state: ReviewState) => void;
   onUpdateEvent: (eventId: number, edit: EventEdit) => Promise<void>;
   onUpdateEventGroup: (
@@ -154,6 +163,7 @@ export function ReviewStep({
   onGetPlot,
   onGetEventAlignment,
   onGetEventTrees,
+  onGetEventPhylpro,
   onReviewState,
   onUpdateEvent,
   onUpdateEventGroup,
@@ -177,6 +187,15 @@ export function ReviewStep({
   const [treeView, setTreeView] = useState<EventTreeView | null>(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState("");
+  const [phylproOpen, setPhylproOpen] = useState(false);
+  const [phylproView, setPhylproView] = useState<EventPhylproView | null>(null);
+  const [phylproLoading, setPhylproLoading] = useState(false);
+  const [phylproError, setPhylproError] = useState("");
+  const [phylproWindowSites, setPhylproWindowSites] = useState(60);
+  const [phylproGapMode, setPhylproGapMode] = useState<PhylproGapMode>(
+    "ignore-missing-pairwise",
+  );
+  const [phylproIncludeSelf, setPhylproIncludeSelf] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState("");
   const [editingGroup, setEditingGroup] = useState(false);
@@ -258,6 +277,9 @@ export function ReviewStep({
     setTreesOpen(false);
     setTreeView(null);
     setTreeError("");
+    setPhylproOpen(false);
+    setPhylproView(null);
+    setPhylproError("");
   }, [selected?.id]);
 
   useEffect(() => {
@@ -327,6 +349,58 @@ export function ReviewStep({
     selected?.minorParent,
     selected?.recombinant,
     treesOpen,
+  ]);
+
+  useEffect(() => {
+    if (!phylproOpen || !selected) return;
+    if (!Number.isInteger(phylproWindowSites) || phylproWindowSites < 10 || phylproWindowSites > 5000) {
+      setPhylproLoading(false);
+      setPhylproView(null);
+      setPhylproError("Choose a PHYLPRO window between 10 and 5,000 sites.");
+      return;
+    }
+    let live = true;
+    setPhylproLoading(true);
+    setPhylproView(null);
+    setPhylproError("");
+    // Changing a numeric window can produce several intermediate values. Wait
+    // briefly so a large alignment does not queue redundant O(L*N) profiles.
+    const timer = window.setTimeout(() => {
+      onGetEventPhylpro(
+        selected.id,
+        phylproWindowSites,
+        phylproGapMode,
+        phylproIncludeSelf,
+      )
+        .then((value) => {
+          if (live) setPhylproView(value);
+        })
+        .catch((caught: unknown) => {
+          if (!live) return;
+          setPhylproError(
+            caught instanceof Error ? caught.message : "PHYLPRO review data were not returned.",
+          );
+        })
+        .finally(() => {
+          if (live) setPhylproLoading(false);
+        });
+    }, 180);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    onGetEventPhylpro,
+    phylproGapMode,
+    phylproIncludeSelf,
+    phylproOpen,
+    phylproWindowSites,
+    selected?.beginning,
+    selected?.ending,
+    selected?.id,
+    selected?.majorParent,
+    selected?.minorParent,
+    selected?.recombinant,
   ]);
 
   const counts = useMemo(
@@ -488,6 +562,7 @@ export function ReviewStep({
   const chimaeraRecheck = selected.chimaeraTripletRecheck;
   const geneconvRecheck = selected.geneconvTripletRecheck;
   const threeSeqRecheck = selected.threeSeqTripletRecheck;
+  const siscanRecheck = selected.siscanTripletRecheck;
   const geneconvRecheckRecombinantName = geneconvRecheck.recombinantLocal === null
     ? null
     : [selected.recombinantName, selected.majorParentName, selected.minorParentName][geneconvRecheck.recombinantLocal];
@@ -502,6 +577,7 @@ export function ReviewStep({
   const geneconvDiscovery = anchor?.geneconvDiscovery ?? null;
   const threeSeqDiscovery = anchor?.threeSeqDiscovery ?? null;
   const bootscanDiscovery = anchor?.bootscanDiscovery ?? null;
+  const siscanDiscovery = anchor?.siscanDiscovery ?? null;
   const chimaeraParentOneLocal = chimaeraDiscovery
     ? ([1, 2, 0] as const)[chimaeraDiscovery.targetLocal]
     : null;
@@ -1144,6 +1220,72 @@ export function ReviewStep({
             </section>
           ) : null}
 
+          {siscanDiscovery && anchor ? (
+            <section className="maxchi-recheck-card">
+              <header>
+                <div>
+                  <span className="eyebrow">Anchor discovery trace</span>
+                  <h3>SISCAN sister-pair permutation switch</h3>
+                </div>
+                <span className="maxchi-status is-hit">
+                  {results.correction === "bonferroni" ? "Corrected SISCAN hit" : "Uncorrected SISCAN hit"}
+                </span>
+              </header>
+              <div className="maxchi-recheck-grid">
+                <div>
+                  <span>Background sister pair</span>
+                  <strong>{maxChiDiscoveryPairLabel(siscanDiscovery.globalPair)}</strong>
+                  <small>Closest pair across the full triplet</small>
+                </div>
+                <div>
+                  <span>Tract sister pair</span>
+                  <strong>{maxChiDiscoveryPairLabel(siscanDiscovery.candidatePair)}</strong>
+                  <small>{siscanDiscovery.windowsInRegion} consecutive pair-switch window{siscanDiscovery.windowsInRegion === 1 ? "" : "s"}</small>
+                </div>
+                <div>
+                  <span>Nearest outlier</span>
+                  <strong>{sequences[siscanDiscovery.outlierSequence]?.name ?? `Sequence ${siscanDiscovery.outlierSequence + 1}`}</strong>
+                  <small>GetSSOL on the round-cached source WPGMA context</small>
+                </div>
+                <div>
+                  <span>Maximum Z</span>
+                  <strong>{roleScore(siscanDiscovery.maximumZ)}</strong>
+                  <small>{siscanDiscovery.selectedScoreFamily} score {siscanDiscovery.selectedScore}</small>
+                </div>
+                <div>
+                  <span>Normal tail P</span>
+                  <strong>{pValue(siscanDiscovery.normalTailPValue)}</strong>
+                  <small>Supplied NormalZ approximation</small>
+                </div>
+                <div>
+                  <span>Region / window adjusted</span>
+                  <strong>{pValue(siscanDiscovery.regionLengthAdjustedPValue)} / {pValue(siscanDiscovery.windowAdjustedPValue)}</strong>
+                  <small>Shrunken length, then alignment/window opportunity factor</small>
+                </div>
+                <div>
+                  <span>Project corrected</span>
+                  <strong>{pValue(siscanDiscovery.correctedPValue)}</strong>
+                  <small>{results.correction === "bonferroni" ? `${anchor.correctionTests.toLocaleString()} initial scan-plan opportunities` : "Project correction disabled"}</small>
+                </div>
+                <div>
+                  <span>Permutation work</span>
+                  <strong>{siscanDiscovery.permutationDraws.toLocaleString()}</strong>
+                  <small>{siscanDiscovery.informativeSites.toLocaleString()} retained variable-pattern sites</small>
+                </div>
+              </div>
+              <footer>
+                <span>SSXoverC → GetSSOL → Get3Score/GetPScores2 → DoPerms3 → MakeZValue2/DoSums → FindMaxZ → ShrinkRegionC</span>
+                <span>{results.siscanWindowSites}/{results.siscanStepSites} sites · {results.siscanScanPermutations}/{results.siscanPValuePermutations} scan/final permutations · seed {results.siscanRandomSeed}</span>
+              </footer>
+              <p className="maxchi-scope-note">
+                The browser retains the supplied QuickCheckB control-flow quirk and one seeded
+                MakeVRand-style flat random prefix. The WPGMA context and random prefix are shared
+                across triplets; prior-event erasure invalidates only the state-dependent context.
+                The displayed P-value stages remain separate so native differences can be localized.
+              </p>
+            </section>
+          ) : null}
+
           {threeSeqDiscovery && anchor ? (
             <section className="maxchi-recheck-card">
               <header>
@@ -1362,6 +1504,75 @@ export function ReviewStep({
               This is the supplied TSXOver(1) two-orientation Findall shape, including the
               inverse-interval list copy for each qualifying call. It corroborates the representative
               triplet without moving reconciled coordinates and remains native-golden unvalidated.
+            </p>
+          </section>
+
+          <section className={`maxchi-recheck-card${siscanRecheck.profileAvailable ? "" : " is-unavailable"}`}>
+            <header>
+              <div>
+                <span className="eyebrow">Nearest fourth sequence · fixed event bounds · secondary corroboration</span>
+                <h3>SISCAN fixed-region recheck</h3>
+              </div>
+              <span className={`maxchi-status${siscanRecheck.sourceRecheckHit ? " is-hit" : ""}`}>
+                {siscanRecheck.representativeSkipped
+                  ? "Representative skipped"
+                  : siscanRecheck.profileAvailable
+                    ? siscanRecheck.sourceRecheckHit ? "Corrected hit" : "No corrected hit"
+                    : siscanRecheck.status === "not-requested" ? "Not requested" : "Profile unavailable"}
+              </span>
+            </header>
+            {siscanRecheck.profileAvailable ? (
+              <>
+                <div className="maxchi-recheck-grid">
+                  <div>
+                    <span>Nearest outlier</span>
+                    <strong>{siscanRecheck.outlierSequence === null ? "—" : sequences[siscanRecheck.outlierSequence]?.name ?? `Sequence ${siscanRecheck.outlierSequence + 1}`}</strong>
+                    <small>Source WPGMA cophenetic selection</small>
+                  </div>
+                  <div>
+                    <span>Scored sister pair</span>
+                    <strong>{maxChiDiscoveryPairLabel(siscanRecheck.scoredPair)}</strong>
+                    <small>Background pair {maxChiDiscoveryPairLabel(siscanRecheck.globalPair)}</small>
+                  </div>
+                  <div>
+                    <span>Maximum Z</span>
+                    <strong>{roleScore(siscanRecheck.maximumZ)}</strong>
+                    <small>{siscanRecheck.selectedScoreFamily} score {siscanRecheck.selectedScore}</small>
+                  </div>
+                  <div>
+                    <span>Normal / region P</span>
+                    <strong>{pValue(siscanRecheck.normalTailPValue)} / {pValue(siscanRecheck.regionLengthAdjustedPValue)}</strong>
+                    <small>Before alignment/window and project factors</small>
+                  </div>
+                  <div>
+                    <span>Window-adjusted P</span>
+                    <strong>{pValue(siscanRecheck.windowAdjustedPValue)}</strong>
+                    <small>Fixed reconciled event region</small>
+                  </div>
+                  <div>
+                    <span>Project corrected</span>
+                    <strong>{pValue(siscanRecheck.correctedPValue)}</strong>
+                    <small>{siscanRecheck.bonferroniApplied ? `${siscanRecheck.correctionTests.toLocaleString()} initial scan-plan opportunities` : "Correction disabled"}</small>
+                  </div>
+                </div>
+                <footer>
+                  <span>{siscanRecheck.informativeSites.toLocaleString()} retained sites · {siscanRecheck.permutationDraws.toLocaleString()} vertical-permutation draws</span>
+                  <span>GetSSOL → Get3Score/GetPScores2 → DoPerms3P → MakeZValue2 → DoSums</span>
+                </footer>
+              </>
+            ) : (
+              <p>
+                {siscanRecheck.representativeSkipped
+                  ? "This finalized-list row is the event representative; its triplet result is shown once in the representative evidence."
+                  : siscanRecheck.status === "not-requested"
+                    ? "SISCAN confirmation was disabled for this analysis."
+                    : "No eligible distinct-origin fourth sequence or usable fixed-region variable-pattern profile remained."}
+              </p>
+            )}
+            <p className="maxchi-scope-note">
+              This source-shaped confirmation scores the already reconciled bounds and cannot move
+              the event. It is enabled by default to match the ordinary RDP5 confirmation workflow;
+              native saved-output comparison is still required.
             </p>
           </section>
 
@@ -1686,8 +1897,10 @@ export function ReviewStep({
                         ? "GENECONV Karlin–Altschul fragment envelope"
                       : plottedSignal?.method === "3SEQ"
                           ? "Target-specific hypergeometric random walks"
-                          : plottedSignal?.method === "BOOTSCAN"
+                      : plottedSignal?.method === "BOOTSCAN"
                             ? "Strict closest-pair bootstrap support"
+                          : plottedSignal?.method === "SISCAN"
+                            ? "SISCAN sister-pair permutation Z scores"
                           : "Information-rich sliding window"}
                 </h3>
               </div>
@@ -1702,6 +1915,8 @@ export function ReviewStep({
                         ? `${plottedSignal.threeSeqDiscovery?.informationRichSites ?? plottedSignal.informativeSites} information-rich sites`
                         : plottedSignal?.method === "BOOTSCAN"
                           ? `${results.bootscanWindowSites}/${results.bootscanStepSites} sites · ${results.bootscanBootstrapReplicates} replicates`
+                        : plottedSignal?.method === "SISCAN"
+                          ? `${results.siscanWindowSites}/${results.siscanStepSites} sites · ${results.siscanScanPermutations}/${results.siscanPValuePermutations} permutations`
                         : `${results.windowSites} information-rich sites`}
               </span>
             </div>
@@ -1740,6 +1955,42 @@ export function ReviewStep({
                 onClick={() => setAlignmentOpen(true)}
               >
                 <GitCompareArrows size={16} /> Open alignment context
+              </button>
+            </section>
+          )}
+
+          {phylproOpen ? (
+            <EventPhylproInspector
+              event={selected}
+              alignmentLength={alignmentLength}
+              view={phylproView}
+              loading={phylproLoading}
+              error={phylproError}
+              windowSites={phylproWindowSites}
+              gapMode={phylproGapMode}
+              includeSelf={phylproIncludeSelf}
+              onWindowSites={setPhylproWindowSites}
+              onGapMode={setPhylproGapMode}
+              onIncludeSelf={setPhylproIncludeSelf}
+              onClose={() => setPhylproOpen(false)}
+            />
+          ) : (
+            <section className="alignment-launch-card">
+              <div>
+                <span className="eyebrow">PHYLPRO breakpoint review</span>
+                <h3>Compare left/right phylogenetic-profile correlations</h3>
+                <p>
+                  Lazily run the supplied PHYLPRO distance-regression calculation for the current
+                  recombinant and parents. It is a diagnostic profile: RDP5 does not implement a
+                  PHYLPRO significance test, so no synthetic p-value or discovery event is added.
+                </p>
+              </div>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setPhylproOpen(true)}
+              >
+                <GitCompareArrows size={16} /> Open PHYLPRO profile
               </button>
             </section>
           )}
@@ -2055,7 +2306,7 @@ export function ReviewStep({
                 <span className="eyebrow">Late native consensus · active primary-RDP recheck</span>
                 <h3>FinalTrim and ConsensusOK membership</h3>
               </div>
-              <span className="fidelity-badge">OKSeq 0–18 · five late rechecks</span>
+              <span className="fidelity-badge">OKSeq 0–18 · six late rechecks</span>
             </div>
             <p className="evidence-method-note">
               The supplied list-build and selected-role paths now drive grouping: duplicate cleanup and the
@@ -2074,7 +2325,8 @@ export function ReviewStep({
               separate values, a fused FastRecCheckChim pass across all three target rotations, and
               the ordinary six-track GENECONV KA fragment pass with its active overlap rule. The
               supplied TSXOver(1) 3SEQ Findall pass evaluates both walk orientations and retains
-              its inverse-interval list copies.
+              its inverse-interval list copies. A fixed-region SISCAN pass retains the nearest
+              WPGMA outlier, vertical-permutation Z score, and every probability-adjustment stage.
               These late rechecks do not change reconciled event coordinates; they are separate from
               the active discovery scheduler. The MaxChi and CHIMAERA results remain
               visibly related-method evidence rather than two independent confirmations. The
@@ -2100,6 +2352,7 @@ export function ReviewStep({
                 <span>CHIMAERA</span>
                 <span>GENECONV</span>
                 <span>3SEQ</span>
+                <span>SISCAN</span>
               </div>
               <div className="late-matrix-list">
                 {currentHypothesis.distanceCorrelationEvidence
@@ -2114,6 +2367,7 @@ export function ReviewStep({
                     const chimaera = evidence.postGroupChimaeraRecheck;
                     const geneconv = evidence.postGroupGeneconvRecheck;
                     const threeSeq = evidence.postGroupThreeSeqRecheck;
+                    const siscan = evidence.postGroupSiscanRecheck;
                     const checkpointSummary = match.status === "complete-active-rff0"
                       ? `Beginning L/C/R ${roleScore(match.checkpointMatches[0])} / ${roleScore(match.checkpointMatches[4])} / ${roleScore(match.checkpointMatches[1])}; ending L/C/R ${roleScore(match.checkpointMatches[2])} / ${roleScore(match.checkpointMatches[5])} / ${roleScore(match.checkpointMatches[3])}; raw class ${match.rawBreakpointMatchClass}; ${match.topologyFiltered ? "rejected by the ConsensusOK topology check" : "topology-consistent"}${match.topologyDistanceFallback ? " with bounded JC fallback" : ""}; smoothing half-window ${match.smoothingHalfWindow}`
                       : "CalcMatchY unavailable: insufficient variable sites or the supplied three-alignment-length fragment bound was reached";
@@ -2212,7 +2466,22 @@ export function ReviewStep({
                         ? "The 3SEQ Findall recheck was requested, but no target retained four information-rich sites."
                         : threeSeq.status === "representative-skipped"
                           ? "The supplied loop skips the role representative itself."
-                          : "This sequence was not in the finalized distance list, so no late 3SEQ recheck was requested.";
+                        : "This sequence was not in the finalized distance list, so no late 3SEQ recheck was requested.";
+                    const siscanLabel = siscan.status === "representative-skipped"
+                      ? "rep"
+                      : siscan.status === "not-requested" ? "—"
+                      : siscan.profileAvailable
+                        ? siscan.sourceRecheckHit ? "hit" : "none"
+                        : "n/a";
+                    const siscanSummary = siscan.status === "complete-active-unvalidated"
+                      ? `Fixed-region SISCAN recheck: nearest outlier ${siscan.outlierSequence === null ? "unavailable" : siscan.outlierSequence + 1}; background/scored pair ${siscan.globalPair}/${siscan.scoredPair ?? "none"}; ${siscan.informativeSites} retained sites; ${siscan.permutationDraws} vertical-permutation draws; maximum Z ${roleScore(siscan.maximumZ)}; normal-tail P ${siscan.normalTailPValue.toExponential(3)}; region-adjusted P ${siscan.regionLengthAdjustedPValue.toExponential(3)}; window-adjusted P ${siscan.windowAdjustedPValue.toExponential(3)}; corrected P ${siscan.correctedPValue.toExponential(3)}${siscan.bonferroniApplied ? ` across ${siscan.correctionTests.toLocaleString()} initial scan-plan opportunities` : " with project correction disabled"} (${siscan.sourceRecheckHit ? "source recheck cutoff passed" : "cutoff not passed"}). This corroboration does not move event coordinates.`
+                      : siscan.status === "representative-skipped"
+                        ? "The supplied loop skips the role representative itself."
+                        : siscan.status === "not-requested"
+                          ? "This sequence was not in the finalized distance list, or SISCAN confirmation was disabled."
+                          : siscan.status === "outlier-unavailable"
+                            ? "No eligible distinct-origin fourth sequence remained for the SISCAN recheck."
+                            : "The fixed event region did not retain a usable SISCAN variable-pattern profile.";
                     return (
                       <div key={evidence.sequenceIndex}>
                         <span title={evidence.sequenceName}>
@@ -2298,6 +2567,12 @@ export function ReviewStep({
                           title={threeSeqSummary}
                         >
                           {threeSeqLabel}
+                        </strong>
+                        <strong
+                          className={siscan.sourceRecheckHit ? "membership-yes" : siscan.profileAvailable ? "membership-no" : "is-unavailable"}
+                          title={siscanSummary}
+                        >
+                          {siscanLabel}
                         </strong>
                       </div>
                     );

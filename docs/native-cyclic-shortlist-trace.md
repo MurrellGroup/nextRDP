@@ -23,6 +23,10 @@ alternate RDP implementation. No alternate RDP implementation was consulted.
   `XOverList` signal. It marks replacements already present in `AnalysisListX` or `BanTriplet`, then
   creates only new triplets that retain two anchor members and substitute the third. Its threshold
   is the probability of the signal it is trying to improve.
+- `Module3.bas::DoRDP` calls `CheckDrop`/`DropSeqs` after the new fragment rows have completed their
+  inner/outer follow-up scans and before the loop can add another event's fragments.
+  `Module2.bas::DropSeqs` removes a row when its usable size is too small or `NumRecsI=0`, moves the
+  last row into the vacancy, and rewrites daughter/major/minor row indices held by `XOverList`.
 
 These structures have two related jobs: retain summaries of useful signals and avoid repeating
 method work that has already been shown irrelevant or acted upon.
@@ -59,30 +63,52 @@ set:
    sequence state.
 4. A triplet containing no dirty row replays its retained signal summary. The absence of a retained
    summary is also definitive: the same triplet and same fixed correction factor previously
-   produced no threshold-passing signal, so its stable method kernels can be skipped.
+   produced no threshold-passing signal, so every method kernel is skipped permanently. This
+   clean-negative rule applies even when 3SEQ enters its later split mode.
 5. Support-bearing summaries remain eligible when their exact working rows were not modified. The
    selected event's durable support records remain separate; replay simply reproduces what a fresh
    scan of the unchanged bytes would emit. Replayed summaries re-enter in current schedule order,
    preserving strongest-first deterministic tie behavior.
 
 The one method boundary is 3SEQ. Its first post-erasure pass enables the supplied
-`FindSubSeqTS2` / `CheckSplit3Seq` behavior, so first-round 3SEQ summaries are not reused. Unchanged
-triplets rerun 3SEQ once while reusing the other stable methods. Later rounds may reuse 3SEQ too,
-because the post-erasure mode is then unchanged.
+`FindSubSeqTS2` / `CheckSplit3Seq` behavior. Only an unchanged triplet that was already
+signal-bearing receives that one-time 3SEQ refresh while its other stable method summaries replay.
+An unchanged clean triplet is never rerun. Later rounds may reuse 3SEQ too, because the
+post-erasure mode is then unchanged.
+
+## Fragment drop and index repair
+
+Each retained fragment records the event that created it. At the end of the immediately following
+complete round, nonempty triplet summaries identify the exact working rows that participated in a
+detected signal. A just-created fragment absent from that set is removed before event selection can
+add any newer fragment.
+
+Removal follows the supplied swap-with-last ordering instead of shifting every later row. A single
+old-to-new map then updates:
+
+- exact working-triplet provenance attached to live signals;
+- current-round `XOverList`-equivalent signal summaries;
+- carried `BestXOList`-equivalent summaries; and
+- dirty-row state used for cache invalidation.
+
+BootScan's row-indexed pair cache and SISCAN's working-alignment tree context are invalidated and
+rebuilt lazily after compaction. Original sequence identities and event provenance do not change.
 
 This is an exact state-based reuse rule, not a probabilistic cache. Manual correction/rejection
 rebuilds clear the shortlist and begin with a full fresh pass.
 
 ## Diagnostics and regression boundary
 
-Progress now reports `tripletKernelEvaluations`, `tripletSummariesReused`, `cachedSignalsReused`,
-and `methodScansSkipped` separately from scheduled/cumulative triplets. The production Pages
+Progress now reports `tripletKernelEvaluations`, `tripletSummariesReused`, `cleanTripletsPruned`,
+`cachedSignalsReused`, `methodScansSkipped`, `invalidScheduleTripletsSkipped`, and
+`fragmentSequencesPruned` separately from scheduled/cumulative triplets. The production Pages
 verification includes a deterministic two-event WASM scan that asserts:
 
 - at least two cyclic events and three rounds;
 - an unchanged initial correction factor despite fragment-expanded later schedules;
 - cached signal replay and skipped method work; and
-- fewer kernel evaluations than scheduled cumulative triplets.
+- clean-negative pruning, fragment removal, and fewer kernel evaluations than scheduled cumulative
+  triplets.
 
 On that fixture, 476 scheduled triplets require 280 triplet-kernel evaluations; 196 unchanged
 triplet summaries are reused and 196 RDP method scans are skipped. With all five current discovery
@@ -95,6 +121,12 @@ full-rescan builds produced identical event roles, breakpoints, detection rounds
 order, signal triplets, and p-values. The complete selected-result digest matched across all 22
 events and 422 retained signals. This comparison is a scheduler regression, not a substitute for
 authorized native RDP5 golden output.
+
+The Session 23 ten-sequence regression specifically exercises Darren's new requirements: 162
+unchanged clean triplets are pruned, 168 method calls are skipped, 18 invalid same-origin
+combinations bypass the ABI batch budget, and two event-free fragments are swap-compacted. The
+selected roles, breakpoints, support order, and p-values retain digest
+`5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa`.
 
 ## Remaining fidelity boundary
 

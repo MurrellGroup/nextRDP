@@ -1,7 +1,7 @@
 {
   "name": "rdp-wasm",
   "private": true,
-  "version": "0.20.0-session-20",
+  "version": "0.23.0-session-23",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -14,7 +14,10 @@
     "check:source": "node scripts/check-source-contract.mjs && node scripts/check-source-balance.mjs",
     "check:types": "tsc --noEmit",
     "check:bootscan-core": "bash scripts/check-bootscan-core.sh",
+    "check:cyclic-pruning-core": "bash scripts/check-cyclic-pruning-core.sh",
+    "check:siscan-core": "bash scripts/check-siscan-core.sh",
     "check:tree-core": "bash scripts/check-tree-core.sh",
+    "check:phylpro-core": "bash scripts/check-phylpro-core.sh",
     "verify:pages": "node scripts/verify-pages-output.mjs",
     "build": "npm run build:wasm && npm run build:web && npm run verify:pages",
     "preview": "vite preview"

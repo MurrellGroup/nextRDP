@@ -12,9 +12,11 @@ import type {
   DatasetSummary,
   EventAlignmentView,
   EventTreeView,
+  EventPhylproView,
   EventEdit,
   ReviewState,
   ScanOptions,
+  PhylproGapMode,
   ScanProgress,
   ScanResults,
   SequenceAnalysisState,
@@ -44,6 +46,13 @@ const initialOptions: ScanOptions = {
   bootscanBootstrapReplicates: 100,
   bootscanSupportCutoff: 0.7,
   bootscanRandomSeed: 3,
+  siscanPrimaryEnabled: false,
+  siscanSecondaryEnabled: true,
+  siscanWindowSites: 200,
+  siscanStepSites: 20,
+  siscanScanPermutations: 100,
+  siscanPValuePermutations: 1000,
+  siscanRandomSeed: 3,
   polishBreakpoints: true,
   maskedSequenceIndices: [],
   disabledSequenceIndices: [],
@@ -63,8 +72,11 @@ const initialProgress: ScanProgress = {
   cumulativeTriplets: 0,
   tripletKernelEvaluations: 0,
   tripletSummariesReused: 0,
+  cleanTripletsPruned: 0,
   cachedSignalsReused: 0,
   methodScansSkipped: 0,
+  invalidScheduleTripletsSkipped: 0,
+  fragmentSequencesPruned: 0,
   scanRound: 1,
   fixedEventCount: 0,
   signalCount: 0,
@@ -95,6 +107,15 @@ const initialProgress: ScanProgress = {
   bootscanPairProfileCacheEvictions: 0,
   bootscanPairProfileCacheBytes: 0,
   bootscanPairProfileCachePeakBytes: 0,
+  siscanProfilesScanned: 0,
+  siscanWindowsScored: 0,
+  siscanCandidateRegionsScored: 0,
+  siscanCandidatesFound: 0,
+  siscanPermutationDraws: 0,
+  siscanContextBuilds: 0,
+  siscanContextPairComparisons: 0,
+  siscanContextTreeMerges: 0,
+  siscanRandomValuesGenerated: 0,
   cycleTermination: "not-started",
   fraction: 0,
 };
@@ -404,6 +425,17 @@ export function App() {
                 bootscanSupportCutoff:
                   restored.results.bootscanSupportCutoff ?? 0.7,
                 bootscanRandomSeed: restored.results.bootscanRandomSeed ?? 3,
+                siscanPrimaryEnabled:
+                  restored.results.siscanPrimaryEnabled ?? false,
+                siscanSecondaryEnabled:
+                  restored.results.siscanSecondaryEnabled ?? false,
+                siscanWindowSites: restored.results.siscanWindowSites ?? 200,
+                siscanStepSites: restored.results.siscanStepSites ?? 20,
+                siscanScanPermutations:
+                  restored.results.siscanScanPermutations ?? 100,
+                siscanPValuePermutations:
+                  restored.results.siscanPValuePermutations ?? 1000,
+                siscanRandomSeed: restored.results.siscanRandomSeed ?? 3,
                 polishBreakpoints: restored.results.polishBreakpoints ?? true,
                 maskedSequenceIndices: [...restoredMask],
                 disabledSequenceIndices: [...restoredDisabled],
@@ -437,8 +469,11 @@ export function App() {
                 cumulativeTriplets: restored.results.cumulativeTriplets,
                 tripletKernelEvaluations: 0,
                 tripletSummariesReused: 0,
+                cleanTripletsPruned: 0,
                 cachedSignalsReused: 0,
                 methodScansSkipped: 0,
+                invalidScheduleTripletsSkipped: 0,
+                fragmentSequencesPruned: 0,
                 scanRound: restored.results.scanRounds,
                 fixedEventCount: 0,
                 signalCount: restored.results.signals.length,
@@ -477,6 +512,19 @@ export function App() {
                 bootscanPairProfileCacheBytes: 0,
                 bootscanPairProfileCachePeakBytes:
                   restored.results.bootscanPairProfileCachePeakBytes ?? 0,
+                siscanProfilesScanned: restored.results.siscanProfilesScanned ?? 0,
+                siscanWindowsScored: restored.results.siscanWindowsScored ?? 0,
+                siscanCandidateRegionsScored:
+                  restored.results.siscanCandidateRegionsScored ?? 0,
+                siscanCandidatesFound: restored.results.siscanCandidatesFound ?? 0,
+                siscanPermutationDraws: restored.results.siscanPermutationDraws ?? 0,
+                siscanContextBuilds: restored.results.siscanContextBuilds ?? 0,
+                siscanContextPairComparisons:
+                  restored.results.siscanContextPairComparisons ?? 0,
+                siscanContextTreeMerges:
+                  restored.results.siscanContextTreeMerges ?? 0,
+                siscanRandomValuesGenerated:
+                  restored.results.siscanRandomValuesGenerated ?? 0,
                 cycleTermination: restored.results.cycleTermination,
                 fraction: 1,
               }
@@ -769,6 +817,16 @@ export function App() {
     return client.current.eventTrees(eventId);
   }, []);
 
+  const getEventPhylpro = useCallback(async (
+    eventId: number,
+    windowSites: number,
+    gapMode: PhylproGapMode,
+    includeSelf: boolean,
+  ): Promise<EventPhylproView> => {
+    if (!client.current) throw new Error("The analysis worker is not available.");
+    return client.current.eventPhylpro(eventId, windowSites, gapMode, includeSelf);
+  }, []);
+
   const setEventReviewState = async (eventId: number, state: ReviewState) => {
     const previous = results;
     if (!previous) return;
@@ -1007,7 +1065,7 @@ export function App() {
                     : "Checkpoint current"}
               </span>
             ) : null}
-            <span className="session-pill">Win95 edition · session 20</span>
+            <span className="session-pill">Win95 edition · session 23</span>
           </div>
         </div>
       </header>
@@ -1109,6 +1167,7 @@ export function App() {
             onGetPlot={getPlot}
             onGetEventAlignment={getEventAlignment}
             onGetEventTrees={getEventTrees}
+            onGetEventPhylpro={getEventPhylpro}
             onReviewState={setEventReviewState}
             onUpdateEvent={updateEvent}
             onUpdateEventGroup={updateEventGroup}
@@ -1145,7 +1204,7 @@ export function App() {
       <footer className="app-statusbar" aria-live="polite">
         <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
         <span>{filename || "No alignment loaded"}</span>
-        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.20"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.23"}</span>
       </footer>
     </div>
   );

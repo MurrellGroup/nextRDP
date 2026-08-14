@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.23.0-session-23
+
+- Implemented Darren's permanent clean-triplet rule: when an exact working triplet produces no
+  signal on its first complete screen, later cyclic passes skip every enabled discovery kernel.
+  The one-time post-erasure 3SEQ split refresh is restricted to previously signal-bearing
+  unchanged triplets.
+- Ported the supplied `DoRDP`/`DropSeqs` fragment lifecycle. A fragment created by one event gets
+  one complete follow-up screen; if it participates in no detected signal, it is deleted before
+  another event adds rows. Swap-with-last compaction remaps signal and shortlist working indices.
+- Excluded invalid same-origin fragment combinations from the worker batch budget while retaining
+  deterministic schedule traversal, progress accounting, and cancellation boundaries.
+- Made erasure maintain valid-site summaries and state fingerprints incrementally, changed active
+  row refresh from `O(NL)` to `O(N)`, delayed dense fragment allocation until it passes retention
+  gates, and added collision-safe fingerprint prefiltering to exact duplicate checks.
+- Replaced repeated prior-event tract marking in breakpoint polishing and breakpoint-context work
+  with inclusive difference-array unions, reducing those stages from `O(EL)` to `O(E + L)` without
+  changing coordinates or missing-data masks.
+- Throttled routine progress JSON/WASM/worker/React traffic to at most once per 500 ms. Added
+  adaptive batches targeting 40 ms worker slices plus `scheduler.yield()` with a timer fallback.
+- Enabled safe release `-O3`, LTO, and WebAssembly SIMD; deliberately did not enable fast-math.
+- Added a linked cyclic-pruning regression to local checks and GitHub Pages Actions. Its fixture
+  exercises clean-negative reuse, same-origin bypass, and fragment drop/remap while retaining the
+  exact Session 22 selected-result digest.
+- Advanced engine/package version to `0.23.0-session-23`. Project schema remains
+  `org.rdp-web.project/v1alpha19` because these changes add transient telemetry and scheduling
+  shortcuts, not new saved analytical state.
+
+## 0.22.0-session-22
+
+- Added the supplied PHYLPRO selected-event review path from `FindSubSeqPP`, `PXoverD`,
+  `MakePDstMat`, `UpdatePDstMat`, and `PPRegression`: polymorphic-column mapping after the chosen
+  gap policy, paired rolling half-windows, Hamming-distance vectors, optional self observation, and
+  source Pearson/zero-variance behavior.
+- Kept PHYLPRO lazy and diagnostic-only. The supplied RDP5 workflow has no implemented PHYLPRO
+  significance calculation, so this route emits no p-value, discovery signal, breakpoint change,
+  or cyclic event-order effect.
+- Replaced the supplied all-pairs working matrix with only the recombinant, major-parent, and
+  minor-parent target rows consumed by the ordinary plot. Coefficients are unchanged while rolling
+  work falls from `O(LN²)` to `O(LN)` and scratch distance memory from `O(N²)` to `O(N)`.
+- Added complete-window handling for linear analyses and response thinning after full evaluation,
+  always retaining profile ends, all three minima, and breakpoint-nearest points.
+- Confirmed the supplied `Match(66/68/72/85)` assignments are the intended per-column resets for
+  RDP's encoded A/C/G/T values; the browser's fresh state set is equivalent. Explicitly repaired the
+  separate reversed `RevSeq` compact/original lookup when disabled rows are not a trailing block.
+  That repair and the manual/source column-map divergence are visible in docs/UI.
+- Added a typed C/WASM/worker/client endpoint and Windows 95 PHYLPRO inspector with adjustable
+  window, gap policy, and self inclusion, plus role curves, event highlighting, minima, context,
+  and kernel telemetry.
+- Added a deterministic brute-force PHYLPRO regression across circular/linear topology, both gap
+  modes, self policy, disabled context, planted mosaic boundaries, and oversized windows. The
+  linked public API and production Pages WASM smoke tests now exercise the lazy endpoint too.
+- Added PHYLPRO to source/ABI/Actions gates and advanced engine/package version to
+  `0.22.0-session-22`. Project schema remains `org.rdp-web.project/v1alpha19` because the transient
+  profile is reproducible from already-saved alignment/event state and request options.
+
+## 0.21.0-session-21
+
+- Added the supplied ordinary SISCAN path: `SSXoverC`, nearest-outlier `GetSSOL`, source-shaped
+  WPGMA/cophenetic context, `Get3Score`/`GetPScores2` categories, Microsoft-CRT MakeVRand flat
+  prefix, `DoPerms3`, population-variance `MakeZValue2`, `DoSums`, `FindMaxZ`, and
+  `ShrinkRegionC` boundary construction.
+- Preserved the default gap-stripped one/two/three-variable mode and the supplied `QuickCheckB`
+  missing-braces fast-screen quirk. Primary discovery defaults off; fixed-region representative
+  and finalized-list confirmation defaults on, matching the ordinary RDP5 workflow.
+- Added a round-wide cached direct/WPGMA context and reusable seeded random prefix. Event erasure
+  invalidates only state-dependent context, while unchanged exact triplets continue to use the
+  XOverList/BestXOList-style shortlist.
+- Pruned disabled rows before direct-pair scoring and WPGMA merging, and regression-tested both
+  disabled and same-origin-fragment fourth-sequence rejection.
+- Added SISCAN to cyclic priority after CHIMAERA and before 3SEQ, plus source roles, review plots,
+  progress/work counters, anchor/representative/final-list review evidence, project restore, and
+  expanded CSV diagnostics. Corrected CSV method classification so SISCAN support cannot fall
+  through as RDP support.
+- Made the compact three-pair SISCAN review plot preserve signed extrema by selecting the
+  greatest-absolute eligible partition/summed Z at each pair/window; full 15-plus-9 manual plotting
+  remains an explicit boundary.
+- Added a focused deterministic SISCAN regression for tract, outlier, roles, probability chain,
+  exact seed-3 Microsoft-CRT bytes, cached replay, fixed-region confirmation, plotting, cyclic
+  invalidation, and same-context restart. New analyses reset BootScan/SISCAN cache telemetry while
+  retaining the reusable SISCAN random prefix. The gate runs in GitHub Pages Actions before the
+  production Emscripten smoke tests.
+- Completed `v1alpha19` round-tripping for the SISCAN WPGMA build/comparison/merge and random-value
+  counters instead of resetting those four audit metrics on project import.
+- Advanced the engine/package version to `0.21.0-session-21` and project schema to
+  `org.rdp-web.project/v1alpha19`; imports remain compatible through `v1alpha1` and restore SISCAN
+  disabled for older schemas.
+
 ## 0.20.0-session-20
 
 - Traced the automatic six-region event-tree workflow through the supplied `TestMoveInTree`,

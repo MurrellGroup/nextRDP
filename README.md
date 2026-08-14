@@ -4,10 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 20 source checkpoint — supplied event-tree calculation path.** This archive contains
-> source only. Six-region event trees now follow the supplied Clearcut/SEQBOOT2/collapse/ranked-
-> distance path used by reconciliation. Primary BootScan caching, the Windows 95 skin, and graceful
-> cyclic stop remain intact.
+> **Session 23 source checkpoint — cyclic pruning and browser throughput.** This archive contains
+> source only. Clean unchanged triplets are permanently pruned, event-free fragment rows are
+> `DropSeqs`-compacted and reindexed after one follow-up round, routine progress is limited to one
+> update per 500 ms, and the worker adapts its batch size toward responsive 40 ms slices.
 
 ## What this checkpoint contains
 
@@ -70,20 +70,33 @@ core runs in WebAssembly.
   circular support-region discovery, and separate bootstrap-support, raw `MakeScoresBS` binomial,
   and project-corrected probabilities. Its bounded 64 MiB pair-profile cache reuses shared
   pair/window/bootstrap distances across triplets and is invalidated after every cyclic erasure.
-- Bounded 512-triplet worker batches, reusable scan buffers, and method-aware plot
+- A seventh independently labelled discovery stream for the supplied SISCAN workflow. It preserves
+  nearest-fourth-sequence `GetSSOL` selection on a round-cached source WPGMA/cophenetic context,
+  gap-stripped one/two/three-variable pattern categories, the supplied `QuickCheckB` fast-screen
+  control-flow quirk, Microsoft-CRT `MakeVRand` flat-prefix vertical permutations, pair-switch
+  region construction, `ShrinkRegionC` bounds, and distinct normal-tail, region-, window-, and
+  project-adjusted probabilities. Primary discovery is optional; fixed-region confirmation is on
+  by default. The WPGMA context is built once per affected cyclic round, the random prefix survives
+  round invalidation, and unchanged triplets also benefit from the shared XOverList-style shortlist.
+- Adaptive worker batches targeting roughly 40 ms, reusable scan buffers, progress
+  serialization/posting/rendering limited to once every 500 ms, and method-aware plot
   downsampling that forces both breakpoints, the selected method peak, and applicable profile maxima
   into the browser payload. CHIMAERA displays only its selected target/parent-one trace; GENECONV
   displays a three-colour `-log10(raw KA P)` inner/outer fragment envelope; 3SEQ displays all three
-  signed target-specific random walks on a zero-aware axis. Later-round
+  signed target-specific random walks on a zero-aware axis; SISCAN displays three signed,
+  pair-associated curves selected from the strongest eligible partition/summed Z category at each
+  window. Later-round
   reconstructions are labelled when the exact historical erased/fragment profile was not serialized.
 - Graceful batch-boundary stopping during primary or cyclic discovery. An unfinished round's
   transient signals are discarded, previously completed events are retained, ordinary evidence
   finalization runs, and Review receives a normal result marked `user-stopped`.
 - Combined strongest-first cyclic detection: scan all eligible triplets in the supplied
-  RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
+  RDP/GENECONV/BootScan/MaxChi/CHIMAERA/SISCAN/3SEQ method-major order, reconcile the best event, infer its co-recombinant group, erase the event
   tract, then retain XOverList-style summaries for unchanged exact working triplets. Triplets that
-  touch erased rows or new fragments run fresh kernels; unchanged triplets replay signals and skip
-  stable method work. 3SEQ refreshes once when its post-erasure split mode first activates.
+  touch erased rows or new fragments run fresh kernels; unchanged signal-bearing triplets replay
+  their compact summaries. An unchanged triplet that was clean on its first full screen never runs
+  a discovery kernel again. The one-time 3SEQ post-erasure split refresh applies only to a
+  previously signal-bearing triplet, so it cannot defeat that clean-negative rule.
 - The source `MakeMCCorrection` factor is fixed from the initial scan plan while each later round's
   actual fragment-expanded workload remains visible separately. GENECONV review distinguishes raw
   `GCCalcPValP2` probability from the RDP5 `XOverList`-equivalent project-corrected value and makes
@@ -92,7 +105,10 @@ core runs in WebAssembly.
   those methods as closely related rather than independent confirmation.
 - Source-shaped fragment re-entry below the supplied 100,000-site cutoff. Erased tracts become
   gap-padded working sequences with original/event provenance; same-origin copies cannot share a
-  triplet, short/duplicate fragments are omitted, and a visible 256-fragment cap bounds browser cost.
+  triplet, short/duplicate fragments are omitted, and a visible 256-fragment cap bounds browser
+  cost. A new fragment receives one complete follow-up pass; if it participates in no signal it is
+  removed before another event adds rows, using supplied `DropSeqs` swap-with-last compaction and
+  exact remapping of every live shortlist/signal working index.
 - Event hypotheses use the supplied detectable-signal rule: two shared original sequence identities
   and greater than 30% symmetric tract overlap, including fragment-assisted signals.
 - Follow-up RDP profile checks of every masked (but not disabled) sequence, retaining trace-like
@@ -139,10 +155,11 @@ core runs in WebAssembly.
   The event representative triplet and every finalized nonrepresentative distance-list row are
   rechecked. The scan uses rolling match totals, so its strongest-peak pass is linear in variable
   sites rather than linear in both sites and window width.
-- Source-shaped CHIMAERA, GENECONV, and 3SEQ late corroboration over those same representative and
+- Source-shaped CHIMAERA, GENECONV, SISCAN, and 3SEQ late corroboration over those same representative and
   finalized-list triplets. `FastRecCheckChim` rotates all three targets, ordinary `GCXoverD` retains
   its best six-track KA fragment, and `TSXOver(1)` evaluates both split walk orientations plus the
-  supplied inverse-parent/inverse-interval list copy. These records keep their own probability
+  supplied inverse-parent/inverse-interval list copy. SISCAN retains the nearest WPGMA outlier and
+  full fixed-region vertical-permutation probability chain. These records keep their own probability
   scopes and never move a reconciled event.
 - Six Jukes–Cantor event trees using the supplied single-precision Clearcut NJ path, Microsoft-CRT
   `SEQBOOT2` ten-replicate weights, retained-base-tree support pseudocount, VB-rounded percentage,
@@ -174,10 +191,17 @@ core runs in WebAssembly.
   It compares whole-tract and both breakpoint pairs, labels bootstrap support and retained-fragment
   leaves, optionally collapses branches below 50%, and transfers compact saved edge lists rather
   than rebuilding trees or moving distance matrices to the interface.
+- An on-demand PHYLPRO event inspector mapped from supplied `FindSubSeqPP`, `PXoverD`,
+  `MakePDstMat`/`UpdatePDstMat`, and `PPRegression`. It correlates left/right Hamming-distance
+  vectors for the recombinant and both parents, supports the two supplied gap policies and optional
+  self inclusion, and labels the active polymorphic-column map. Only those three target rows are
+  rolled, preserving their coefficients while reducing ordinary plot work from `O(LN²)` to
+  `O(LN)`. The profile is diagnostic only: supplied RDP5 implements no PHYLPRO significance test,
+  so it emits no p-value or discovery signal.
 - A batched erase/fragment/re-scan cycle that re-identifies later events after a correction or
   rejection. Core/API guards enforce review order; mid-repair project reload drops the stale tail,
   remaps retained signal anchors, and resumes at the changed event.
-- Reloadable project JSON (`v1alpha18`, accepting `v1alpha1`–`v1alpha18`), expanded event-level CSV,
+- Reloadable project JSON (`v1alpha19`, accepting `v1alpha1`–`v1alpha19`), expanded event-level CSV,
   full, enabled-only, and masked/disabled-only curation FASTA directly from the loaded dataset,
   accepted-group sequence removal,
   accepted-tract column removal, tract-masking FASTA, and event-ordered mosaic-fragment FASTA.
@@ -188,13 +212,13 @@ core runs in WebAssembly.
   dataset/settings replacement warn until that checkpoint is downloaded.
 - A GitHub Pages Actions workflow that installs locked JavaScript dependencies, provisions a pinned
   Emscripten toolchain, checks the C ABI/worker/version/schema contract, TypeScript, the linked
-  BootScan/cache core, and the supplied-source event-tree core, builds the
+  BootScan/cache core, supplied-source SISCAN, event-tree, and PHYLPRO cores, builds the
   compatibility WASM target and Vite site, validates the deployment artifact, and publishes it
   without a separate hosting service.
 - A responsive, accessible React interface that requires no application server.
 
 This is **not yet a parity-validated RDP5 replacement**. The fully exploratory and automated
-query-vs-reference RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ workflows now reach
+query-vs-reference RDP/GENECONV/BootScan/MaxChi/CHIMAERA/SISCAN/3SEQ workflows now reach
 an end-to-end reviewed-event result and alignment variants, including the active late list-build and
 selected-role cleanup paths. MaxChi and CHIMAERA exploratory discovery are active in source, but
 their indexing, smoothing/destruction basins, preliminary role assignment, and cross-method event
@@ -202,9 +226,14 @@ order still require native golden comparison before either can be called parity 
 MaxChi manual-doublet/permutation, CHIMAERA permutation/full late-event-reconstruction, and
 GENECONV permutation/manual-pair/alternative-indel/full late-event-reconstruction modes are not yet
 represented. The ordinary ignored-indel KA GENECONV path is source-shaped active but unvalidated.
-The ordinary 3SEQ exact/random-walk and primary BootScan distance-mode paths are likewise
-source-shaped active but unvalidated. BootScan tree/similarity/permutation/manual modes and literal
-full edge-warning/catalogue behavior remain open. Later
+The ordinary 3SEQ exact/random-walk, primary BootScan distance-mode, and SISCAN paths are likewise
+source-shaped active but unvalidated. SISCAN random/most-distant outlier, alternative category/gap,
+and manual modes remain open. BootScan tree/similarity/permutation/manual modes and literal
+full edge-warning/catalogue behavior remain open. The PHYLPRO event-review profile is active and
+host-regression-tested but remains native-unvalidated; its explicit compact context map repairs the
+supplied `RevSeq` direction, while complete-window linear behavior is a documented adaptation. The
+source's encoded A/C/G/T counter reset is preserved, not treated as a defect. It never participates
+in exploratory discovery. Later
 cyclic rounds now retain the supplied `FindSubSeqTS2` inclusive position map and
 `CheckSplit3Seq`/`SubPVal` missing-run trim, reverse-orientation retry, and corrected-P re-gate.
 The supplied two-orientation `TSXOver(1)` representative/finalized-list recheck is also active;
@@ -230,8 +259,10 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [3SEQ discovery trace](docs/native-threeseq-discovery-trace.md), the
 [cyclic-shortlist trace](docs/native-cyclic-shortlist-trace.md), and the
 [BootScan discovery trace](docs/native-bootscan-discovery-trace.md), and the
+[SISCAN source trace](docs/native-siscan-discovery-trace.md), and the
 [event-tree kernel trace](docs/native-event-tree-kernel-trace.md), and the
-[Session 20 handoff](docs/session-20-handoff.md) before interpreting results or starting the next phase.
+[PHYLPRO review trace](docs/native-phylpro-review-trace.md), and the
+[Session 23 handoff](docs/session-23-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 
@@ -310,9 +341,9 @@ The generated files belong in `public/wasm/`:
 | `.github/workflows/` | Locked GitHub Pages build, artifact validation, and deployment |
 | `src/` | React workflow, worker client, review plots, and exports |
 | `src/workers/` | Isolated WASM bridge and bounded scan scheduler |
-| `wasm/src/` | Alignment readers, RDP/GENECONV/BootScan/MaxChi/CHIMAERA/3SEQ discovery and active rechecks, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
+| `wasm/src/` | Alignment readers, RDP/GENECONV/BootScan/MaxChi/CHIMAERA/SISCAN/3SEQ discovery and active rechecks, PHYLPRO review, BURT/BenHMM confidence, phylogenetics, reconciliation, trace checks, and exports |
 | `wasm/include/` | Stable C ABI consumed by the worker |
-| `scripts/` | Explicit WASM build entry point and Pages artifact verifier |
+| `scripts/` | Explicit WASM build entry point, host numerical regressions, and Pages artifact verifier |
 | `docs/` | Workflow, fidelity, architecture, and validation handoff |
 | `package-lock.json` | Reproducible dependency graph used by `npm ci` and Actions |
 

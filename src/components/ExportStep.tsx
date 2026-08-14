@@ -80,7 +80,7 @@ export function ExportStep({
             {results.events.length} events across {results.scanRounds} discovery rounds · {results.analysisMode === "query-reference" ? "query vs reference" : "fully exploratory"} · {results.workingFragmentSequenceCount} working fragments · {results.signals.length} retained signals · {accepted} accepted{referenceRecombinantCount > 0 ? ` · ${referenceRecombinantCount} reference-recombinant call${referenceRecombinantCount === 1 ? "" : "s"}` : ""}
           </span>
         </div>
-        <span className="fidelity-badge">Session 20 snapshot</span>
+        <span className="fidelity-badge">Session 23 snapshot</span>
       </div>
 
       <div className="export-grid">
@@ -92,7 +92,8 @@ export function ExportStep({
             <p>
               Reloadable JSON with the alignment, analysis scheme and reference groups, method-specific
               discovery traces, supplied-source ranked event-tree provenance, three role hypotheses,
-              correlation evidence, groups, edits, and review state.
+              correlation evidence, groups, edits, and review state. Event PHYLPRO profiles remain
+              reproducible on demand from the saved alignment, roles, breakpoints, and review options.
             </p>
           </div>
           <button
@@ -267,19 +268,23 @@ export function ExportStep({
           This snapshot completes the manual’s detectable, distance-correlation, and bootstrap-tree
           evidence sets, exposes original-alignment breakpoint windows, and produces the
           sequence-curation subsets plus accepted-event alignment variants. Source-shaped six-track
-          GENECONV, primary BootScan, MCXoverF MaxChi, target-rotated CHIMAERA, and target-rotated 3SEQ exploratory
+          GENECONV, primary BootScan, MCXoverF MaxChi, target-rotated CHIMAERA, SISCAN, and target-rotated 3SEQ exploratory
           discovery now run beside RDP in every cyclic triplet screen. GENECONV retains the ordinary supplied ignored-indel
           profile, mismatch penalties, bounded source Newton/KA parameters, raw and project-corrected
           probabilities, and stable overlap selection. Primary BootScan retains seeded strict
           closest-pair bootstrap support, bounded pair-profile reuse, and distinct support,
           raw-binomial, and project-corrected probability scopes. CHIMAERA retains its information-rich binary profile, raw peak, grown window,
-          tract side, breakpoint optimization, and probability scopes. 3SEQ retains all three
+          tract side, breakpoint optimization, and probability scopes. SISCAN retains the nearest
+          WPGMA fourth sequence, default variable-pattern categories, cached Microsoft-CRT flat
+          permutation prefix, pair-switch region, Z score, and every probability-adjustment stage.
+          3SEQ retains all three
           information-rich ±1 walks, exact finite hypergeometric tails where bounded, the supplied
           Siegmund fallback, CheckwrapC boundaries, method-specific Dunn–Šidák correction, and
           later-round CheckSplit3Seq missing-run trimming with SubPVal re-probability. The
           FastRecCheckMC2 and three-target FastRecCheckChim paths separately corroborate representative
           triplets and finalized distance lists. The ordinary six-track GENECONV kernel also
-          corroborates those rows with its stable best KA fragment, while the supplied TSXOver(1)
+          corroborates those rows with its stable best KA fragment; fixed-region SISCAN preserves
+          its outlier and probability chain; and the supplied TSXOver(1)
           Findall path tests both 3SEQ walk orientations and retains its inverse-interval copies.
           None of these rechecks moves
           reconciled coordinates. MaxChi and

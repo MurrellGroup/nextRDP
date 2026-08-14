@@ -10,16 +10,16 @@ first runtime checkpoint must use a disposable, resource-limited environment and
 1. Configure TypeScript with strict checking and resolve every diagnostic.
 2. Compile the C++ target with Emscripten warnings enabled.
 3. Confirm every generated export matches `rdp_api.h` and the worker module interface, especially
-   the `v1alpha15` analysis-scheme/reference-group/method-aware
-   signal/MaxChi/CHIMAERA/GENECONV/3SEQ-discovery/event restore argument order,
-   co-recombinant group pointers, and bounded signal-plot/event-alignment/event-tree JSON entry
+   the `v1alpha19` analysis-scheme/reference-group/method-aware
+   signal/MaxChi/CHIMAERA/GENECONV/BootScan/SISCAN/3SEQ-discovery/event restore argument order,
+   co-recombinant group pointers, and bounded signal-plot/event-alignment/event-tree/event-PHYLPRO JSON entry
    points.
 4. Check the production bundle contains relative URLs and both `.mjs` and `.wasm` assets.
 5. Load the smallest three-sequence fixture before any multi-event or production input.
 
 The GitHub Pages workflow encodes steps 1–4 as remote gates: `npm ci`, a header/CMake/worker
-ABI-version-schema check, strict TypeScript checking, linked BootScan/cache and event-tree core
-regressions, the single-worker Emscripten/Vite build, and
+ABI-version-schema check, strict TypeScript checking, linked BootScan/cache, SISCAN, event-tree, and
+PHYLPRO/brute-force core regressions, the single-worker Emscripten/Vite build, and
 `scripts/verify-pages-output.mjs`. The artifact verifier requires
 top-level `index.html`, `.nojekyll`, `wasm/rdp-core.mjs`, and a nonempty binary with the WebAssembly
 magic header; it rejects root-relative HTML assets and symbolic/hard links. This workflow has not
@@ -44,7 +44,7 @@ cursor order, per-round correction, emitted signal roles, and saved assignments.
   loop, query inner loop, exact cross-group record-triplet total, and the distinct
   `choose(RefNum, 2) × QNum` correction.
 - Same-group reference pairs, query/query pairs, three-reference triples, and triples containing no
-  query; assert none enters RDP, MaxChi, CHIMAERA, GENECONV, or 3SEQ discovery.
+  query; assert none enters RDP, MaxChi, CHIMAERA, GENECONV, SISCAN, or 3SEQ discovery.
 - Documented `REF-A<name>`/`REF-B<name>` FASTA prefixes, mixed case and separators, ungrouped `REF`
   records, explicit numeric edits, and all-queries reset. Compare the editable browser mapping with
   native prompts; do not treat heuristic auto-group differences as numerical-kernel mismatches.
@@ -458,6 +458,56 @@ implementation as an oracle.
 - Keep tree, similarity, alternative substitution-model, permutation, manual, and full late
   catalogue modes outside parity claims until their supplied paths are separately implemented.
 
+## SISCAN discovery, confirmation, and caches
+
+- Capture native `MakeDistanceBakB` direct/tree matrices and `GetSSOL` outlier choices for unique,
+  tied, missing, disabled, and post-erasure fragment cases. Verify the browser never selects a
+  same-origin fragment as its own fourth sequence.
+- Compare `Get3Score`, `GetPScores2`, `SetUpSiScan` category conversions, partition groups, and
+  summed groups for every one-, two-, and three-variable pattern plus gaps and ambiguity states.
+- Compare seed-3 and nondefault `MakeVRand` bytes, including the initial discarded CRT draw and flat
+  prefix indexing. Verify 100-permutation scan windows and 1,000-permutation final regions consume
+  the same prefix without triplet-local regeneration.
+- Exercise the `QuickCheckB` missing-braces control-flow quirk, exact-end linear window exclusion,
+  global-pair ties, pair-switch run grouping, `ShrinkRegionC` boundaries, and all role geometries.
+- Compare observed counts, permutation means, population variances, partition/summed Z scores,
+  `FindMaxZ` selection, zero-variance exits, source `NormalZ`, region-length adjustment,
+  alignment/window adjustment, and frozen project correction. Include values near desktop
+  underflow and compare each stage rather than only the final P-value.
+- Confirm fixed-region representative and finalized-list results use reconciled bounds, nearest
+  outlier, final permutation count, and cannot move roles or coordinates.
+- Assert one WPGMA context build per affected cyclic round, deterministic prefix reuse across
+  unchanged triplets and plots, state-context invalidation after erasure, and full method bypass for
+  XOverList/BestXOList-style replayed triplets.
+- Compare all native 15 partition-category and 9 summed-category plot traces. The current compact
+  browser review keeps only the signed greatest-absolute eligible Z for each sister pair/window;
+  full manual-plot parity remains open.
+- Confirm `v1alpha19` saves/restores method code 6, settings, discovery/recheck evidence, and all
+  workload/cache counters; pre-v19 imports must restore SISCAN disabled.
+- Keep random/most-distant outlier, alternative gap/category, full 15-plus-9 plotting, and manual
+  SISCAN modes outside parity claims until separately implemented and validated.
+
+## PHYLPRO event-review parity corpus
+
+- Capture native `FindSubSeqPP` maps for enabled/masked/disabled subsets, gaps, ambiguity codes,
+  invariant columns, and a disabled row in the middle of input order. Confirm that encoded
+  `Match(66/68/72/85)` counters reset A/C/G/T per column, then record literal and corrected
+  compact-context output so the documented `RevSeq` direction defect remains distinguishable.
+- Compare `MakePDstMat` first left/right matrices and every `UpdatePDstMat` transition for even and
+  odd eligible-column counts, total windows 10, 59, 60, 61, and above profile length, circular
+  boundaries, and all three role orderings.
+- Compare `PPRegression` sums and single-precision coefficients with self excluded/included, one
+  missing observation, constant left/right rows, zero variance, perfectly negative/positive
+  correlation, equal minima, and values near float-rounding boundaries.
+- Confirm the three-row optimized kernel matches the corresponding rows of native all-pairs output
+  point-for-point. Confirm display thinning retains both profile ends, all role minima, and samples
+  nearest both current event breakpoints without changing full-profile telemetry.
+- For a linear analysis, validate the browser's deliberate complete-window behavior separately
+  from the supplied literal circular wrap path. Do not call this adaptation native parity.
+- Confirm opening/changing/closing PHYLPRO cannot add a signal, alter a p-value, move a breakpoint,
+  dirty the saved analytical state, or change cyclic event order. No permutation/significance
+  output may appear until a supplied implemented route exists.
+
 ## Workflow acceptance
 
 - File data never leave the browser.
@@ -482,7 +532,7 @@ implementation as an oracle.
   are equal (`FastRecCheckP` requires `EN != BE`); a manually entered/restored equal-endpoint
   circular event must still traverse the full alignment for erasure and accepted-event exports.
 - Reloading a `v1alpha15` project reproduces analysis scheme, every reference-group assignment,
-  settings, signal methods, MaxChi, CHIMAERA, GENECONV, and 3SEQ discovery traces,
+  settings, signal methods, MaxChi, CHIMAERA, GENECONV, SISCAN, and 3SEQ discovery traces,
   per-signal correction factors, cumulative triplets/rounds, all method workload counters, fragment
   provenance, event anchors, edits, decisions, and any pending invalidation marker. Assert that
   replaying saved events does not increase the authoritative cumulative count, and that the saved
@@ -492,7 +542,7 @@ implementation as an oracle.
 - Loading `v1alpha1`–`v1alpha10` projects supplies exploratory query/reference defaults. Projects
   through `v1alpha9` keep MaxChi disabled, and every `v1alpha1`–`v1alpha11` project keeps CHIMAERA
   disabled; every pre-v13 project also keeps GENECONV disabled, and every pre-v14 project keeps
-  3SEQ disabled, preserving saved discovery
+  3SEQ disabled; every pre-v19 project also keeps SISCAN disabled, preserving saved discovery
   semantics. All older schemas deterministically rebuild the current evidence tier.
 - Sequence-state fixtures distinguish enabled, masked, and disabled rows: only enabled rows affect
   primary triplet/correction counts; masked rows receive trace and late set evidence; disabled rows
@@ -507,8 +557,8 @@ implementation as an oracle.
   original alignment rather than stale working-fragment rows.
 - Profiles longer than 2,000 points retain the nearest samples for both breakpoints, the selected
   method peak, and each applicable maximum. CHIMAERA retains only its target/parent-one trace;
-  GENECONV retains the three inner/outer KA fragment envelopes; 3SEQ retains all three signed
-  target walks plus their extrema.
+  GENECONV retains the three inner/outer KA fragment envelopes; SISCAN retains all three pair Z
+  traces; 3SEQ retains all three signed target walks plus their extrema.
   First-round input-row signals are labelled exact; erased or
   fragment-assisted later-round signals are labelled original-alignment reconstructions.
 - Event JSON, on-demand alignment JSON, CSV, and review badges agree on both uncertain boundaries,

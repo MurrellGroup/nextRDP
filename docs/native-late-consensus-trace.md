@@ -91,15 +91,15 @@ retains that mixed-matrix comparison rather than substituting `FMatSmall`.
 ## Post-group method rechecks
 
 The native recheck block begins at line 25000. The primary-RDP branch can emit widened-threshold
-records, while the four other discovery methods currently represented in the browser retain
+records, while the six other discovery methods currently represented in the browser retain
 bounded, non-coordinate-changing corroboration from their supplied ordinary statistics:
 
 | Supplied lines | Native behavior | Port treatment |
 | --- | --- | --- |
 | 25008–25015 | Temporarily widen `LowestProb` to at least `LowP * 100000` and the corrected project threshold | `post_group_local_cutoff = min(1, max(project cutoff, best local P * 100000))` |
-| 25087–25214 | For every role list, skip its own representative and rerun the event's originating program against the other two representatives | finalized `consensus_lists`; the RDP path calls `triplet_signals(..., enforce_cutoff=false)`, while MaxChi, CHIMAERA, GENECONV, and 3SEQ retain their separate bounded evidence records |
+| 25087–25214 | For every role list, skip its own representative and rerun the event's originating program against the other two representatives | finalized `consensus_lists`; the RDP path calls `triplet_signals(..., enforce_cutoff=false)`, while BootScan, MaxChi, CHIMAERA, GENECONV, SISCAN, and 3SEQ retain their separate bounded evidence records |
 | 25137–25139 | Dispatch `XOver` when `ProgramFlag = 0` | primary RDP profile/candidate path; no substitute implementation is used |
-| 25220–25353 | On the selected list, run enabled programs other than the event's originating method | `FastRecCheckMC2`-shaped MaxChi, three-target `FastRecCheckChim`, ordinary six-track `GCXoverD`, and three-rotation/two-orientation `TSXOver(1)` corroboration are retained without inserting new events; full native dispatcher/event reconstruction and unported families remain pending |
+| 25220–25353 | On the selected list, run enabled programs other than the event's originating method | distance-mode BootScan, `FastRecCheckMC2`-shaped MaxChi, three-target `FastRecCheckChim`, ordinary six-track `GCXoverD`, fixed-region SISCAN, and three-rotation/two-orientation `TSXOver(1)` corroboration are retained without inserting new events; full native dispatcher/event reconstruction and unported families remain pending |
 | 26092–26120 | Copy emitted records back into the persistent event catalogue | compact per-sequence recheck evidence records emitted/candidate/overlap counts and the best tract/probabilities; the ordinary cyclic scan remains the authoritative global signal catalogue |
 
 The browser distinguishes four things that the native global `XOverList` representation combines:
@@ -114,7 +114,7 @@ the browser does not offload alignment records to an external exclude file. Ever
 already considered in memory, while the existing masked-sequence trace path remains separately
 auditable.
 
-## MaxChi, CHIMAERA, GENECONV, and 3SEQ corroboration addendum
+## BootScan, MaxChi, CHIMAERA, GENECONV, SISCAN, and 3SEQ corroboration addendum
 
 The browser now applies the supplied `FastRecCheckMC2` statistic to the representative event triplet
 and to finalized nonrepresentative distance-list rows. This is intentionally narrower than calling
@@ -139,6 +139,18 @@ orientation gate, forces split evaluation of both Findall orientations, applies 
 correction branch, and accounts for the inverse-parent/inverse-interval list copy per accepted
 orientation. It remains non-coordinate-changing audit evidence rather than global event-catalogue
 reconstruction.
+
+Session 21 adds the supplied fixed-region SISCAN route. It chooses the nearest eligible fourth
+sequence from the round-wide source WPGMA context, scores the already reconciled region with the
+final permutation count and shared MakeVRand prefix, and retains normal-tail, region-, window-, and
+project-adjusted probabilities. It cannot move event coordinates. See
+[`native-siscan-discovery-trace.md`](native-siscan-discovery-trace.md).
+
+Session 22 adds PHYLPRO only as the supplied graphical event-review diagnostic. It is not inserted
+into this post-group dispatcher or the global event catalogue because the supplied RDP5 route has
+no implemented PHYLPRO significance test. Its three current-role curves and explicit source repairs
+are traced separately in
+[`native-phylpro-review-trace.md`](native-phylpro-review-trace.md).
 
 ## Matrix correspondence and bounded performance
 

@@ -1,8 +1,8 @@
 The generated Emscripten module is written here by scripts/build-wasm.sh.
 
-Session 20 adds the supplied event-tree calculation path and keeps the
-supplied native projects read-only.
-The source exports lazy breakpoint-alignment and six-region event-tree review endpoints.
+Session 23 includes the supplied event-tree, SISCAN, and PHYLPRO calculation paths,
+plus cyclic clean-triplet/fragment pruning, and keeps the supplied native projects read-only.
+The source exports lazy breakpoint-alignment, six-region event-tree, and PHYLPRO review endpoints.
 Six-region event trees now use source-shaped single-precision Clearcut NJ,
 Microsoft-CRT SEQBOOT2 resampling, retained-base-tree support pseudocounts,
 50% node collapse, and the midpoint-rooted ultrametric rank matrices consumed by
@@ -27,6 +27,13 @@ Source-shaped primary BootScan discovery is active with seeded SEQBOOT2 weights,
 strict closest-pair votes, MakeScoresBS binomial probabilities, and a bounded
 64 MiB shared pair/window/bootstrap profile cache. The cache avoids recalculating
 pair work across triplets in one round and is invalidated after cyclic erasure.
+Source-shaped SISCAN discovery and fixed-region confirmation retain the nearest
+source-WPGMA outlier, Microsoft-CRT vertical-permutation prefix, signed Z profiles,
+and distinct probability scopes. Its context is built once per affected round.
+Lazy selected-event PHYLPRO review retains the intended FindSubSeqPP/PXoverD
+left/right distance-correlation route for the three current roles. It updates only
+those target rows in O(L*N), and deliberately emits no p-value or discovery signal
+because the supplied RDP5 significance test is not implemented.
 Fully exploratory and automated one-query/two-cross-group-reference schedules are
 active; the latter uses a lazy catalogue and preserves the supplied group-pair x
 query correction separately from exact record-triplet progress.
@@ -34,5 +41,9 @@ The separate BootScan, MaxChi, three-target CHIMAERA, ordinary six-track GENECON
 and two-orientation 3SEQ event/list corroboration paths remain active and share one
 prepared triplet pass without changing reconciled coordinates.
 CheckEnds uncertainty and BURT/BenHMM statistical confidence are active in source.
-The linked host regression covers primary BootScan discovery, cache reuse,
-cyclic reconciliation, and plot output. Authorized native golden validation remains pending.
+The linked host regressions cover primary BootScan discovery/cache, SISCAN,
+event trees, PHYLPRO target rows against brute-force recomputation, cyclic
+reconciliation, exact selected-result digest, clean-negative reuse, DropSeqs-style
+fragment compaction/reindexing, and plot output. Routine browser statistics are
+limited to once per 500 ms and release WASM uses LTO/SIMD. Authorized native golden
+validation remains pending.

@@ -45,8 +45,8 @@ const methods = [
   },
   {
     name: "SISCAN",
-    description: "Sister-scanning permutation test; secondary by default.",
-    state: "queued",
+    description: "Source WPGMA nearest-outlier sister scan with seeded vertical permutations; secondary by default.",
+    state: "ready",
   },
   {
     name: "3SEQ",
@@ -113,6 +113,22 @@ export function SettingsStep({
       options.bootscanSupportCutoff <= 1 &&
       Number.isInteger(options.bootscanRandomSeed) &&
       options.bootscanRandomSeed > 0
+    )) &&
+    (!(options.siscanPrimaryEnabled || options.siscanSecondaryEnabled) || (
+      Number.isInteger(options.siscanWindowSites) &&
+      options.siscanWindowSites >= 5 &&
+      options.siscanWindowSites <= 5000 &&
+      Number.isInteger(options.siscanStepSites) &&
+      options.siscanStepSites >= 1 &&
+      options.siscanStepSites <= Math.floor(options.siscanWindowSites / 2) &&
+      Number.isInteger(options.siscanScanPermutations) &&
+      options.siscanScanPermutations >= 10 &&
+      options.siscanScanPermutations <= 1000 &&
+      Number.isInteger(options.siscanPValuePermutations) &&
+      options.siscanPValuePermutations >= options.siscanScanPermutations &&
+      options.siscanPValuePermutations <= 10000 &&
+      Number.isInteger(options.siscanRandomSeed) &&
+      options.siscanRandomSeed > 0
     ));
   const set = <Key extends keyof ScanOptions>(key: Key, value: ScanOptions[Key]) => {
     onChange({ ...options, [key]: value });
@@ -227,7 +243,7 @@ export function SettingsStep({
                 <span className="eyebrow">Primary methods</span>
                 <h2>Signal detection panel</h2>
               </div>
-              <span className="fidelity-badge">RDP + GENECONV + BootScan + MaxChi + CHIMAERA + 3SEQ discovery</span>
+              <span className="fidelity-badge">RDP + GENECONV + BootScan + MaxChi + CHIMAERA + SISCAN + 3SEQ</span>
             </div>
             <div className="method-grid">
               {methods.map((method) => (
@@ -246,6 +262,7 @@ export function SettingsStep({
                           (method.name === "CHIMAERA" && !options.chimaeraEnabled) ||
                           (method.name === "GENECONV" && !options.geneconvEnabled) ||
                           (method.name === "BOOTSCAN" && !options.bootscanPrimaryEnabled) ||
+                          (method.name === "SISCAN" && !options.siscanPrimaryEnabled) ||
                           (method.name === "3SEQ" && !options.threeSeqEnabled)
                           ? "Available · disabled for this scan"
                           : "Included in event discovery"
@@ -458,6 +475,105 @@ export function SettingsStep({
                 onChange={(event) => set("bootscanRandomSeed", Number(event.target.value))}
               />
               <small>The supplied default is 3, using the Microsoft 15-bit rand sequence.</small>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.siscanPrimaryEnabled}
+                onChange={(event) => set("siscanPrimaryEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Discover events with SISCAN</strong>
+                <small>
+                  Runs the supplied exploratory SSXoverC path in each cyclic pass. This is off by
+                  default, matching RDP5, because the permutation scan is deliberately intensive.
+                </small>
+              </span>
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={options.siscanSecondaryEnabled}
+                onChange={(event) => set("siscanSecondaryEnabled", event.target.checked)}
+              />
+              <span>
+                <strong>Use SISCAN for confirmation</strong>
+                <small>
+                  RDP5 default: score representative and final-list tracts with the nearest fourth
+                  sequence and full-region vertical permutations, without moving their boundaries.
+                </small>
+              </span>
+            </label>
+            <label className="field">
+              <span>SISCAN window</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="5"
+                  max="5000"
+                  step="1"
+                  value={options.siscanWindowSites}
+                  disabled={!options.siscanPrimaryEnabled && !options.siscanSecondaryEnabled}
+                  onChange={(event) => set("siscanWindowSites", Number(event.target.value))}
+                />
+                <span>nucleotide sites</span>
+              </div>
+              <small>The supplied default is 200; gaps are stripped from pattern scoring.</small>
+            </label>
+            <label className="field">
+              <span>SISCAN step</span>
+              <div className="input-suffix">
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, Math.floor(options.siscanWindowSites / 2))}
+                  step="1"
+                  value={options.siscanStepSites}
+                  disabled={!options.siscanPrimaryEnabled && !options.siscanSecondaryEnabled}
+                  onChange={(event) => set("siscanStepSites", Number(event.target.value))}
+                />
+                <span>sites</span>
+              </div>
+              <small>The supplied default is 20.</small>
+            </label>
+            <label className="field">
+              <span>SISCAN scan permutations</span>
+              <input
+                type="number"
+                min="10"
+                max="1000"
+                step="10"
+                value={options.siscanScanPermutations}
+                disabled={!options.siscanPrimaryEnabled && !options.siscanSecondaryEnabled}
+                onChange={(event) => set("siscanScanPermutations", Number(event.target.value))}
+              />
+              <small>The source uses 100 for sliding-window screening.</small>
+            </label>
+            <label className="field">
+              <span>SISCAN final p-value permutations</span>
+              <input
+                type="number"
+                min={Math.max(10, options.siscanScanPermutations)}
+                max="10000"
+                step="100"
+                value={options.siscanPValuePermutations}
+                disabled={!options.siscanPrimaryEnabled && !options.siscanSecondaryEnabled}
+                onChange={(event) => set("siscanPValuePermutations", Number(event.target.value))}
+              />
+              <small>The supplied full-region default is 1000.</small>
+            </label>
+            <label className="field">
+              <span>SISCAN random seed</span>
+              <input
+                type="number"
+                min="1"
+                max="4294967295"
+                step="1"
+                value={options.siscanRandomSeed}
+                disabled={!options.siscanPrimaryEnabled && !options.siscanSecondaryEnabled}
+                onChange={(event) => set("siscanRandomSeed", Number(event.target.value))}
+              />
+              <small>Default 3; the flat Microsoft-CRT template is cached and reused.</small>
             </label>
             <label className="settings-toggle">
               <input
