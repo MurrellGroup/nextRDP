@@ -37,16 +37,6 @@ std::string periodic_mutant(const std::string& source, std::size_t period) {
   return sequence;
 }
 
-bool is_source_support(double value) {
-  constexpr std::array<double, 11> allowed{
-      0.09, 0.18, 0.27, 0.36, 0.45, 0.55,
-      0.64, 0.73, 0.82, 0.91, 1.00,
-  };
-  return std::any_of(allowed.begin(), allowed.end(), [value](double expected) {
-    return std::abs(value - expected) < 1e-12;
-  });
-}
-
 }  // namespace
 
 int main() {
@@ -86,9 +76,9 @@ int main() {
   std::iota(positions.begin(), positions.end(), 1);
   const std::vector<std::uint32_t> sequences{0, 1, 2, 3, 4, 5};
   const auto evidence = rdp::build_tree_region_evidence(
-      parsed.alignment, sequences, positions, 10, 3);
+      parsed.alignment, sequences, positions, 0, 3);
   const auto repeated = rdp::build_tree_region_evidence(
-      parsed.alignment, sequences, positions, 10, 3);
+      parsed.alignment, sequences, positions, 0, 3);
 
   if (!evidence.usable ||
       !evidence.source_clearcut_float_nj ||
@@ -97,7 +87,7 @@ int main() {
       !evidence.source_parent_rank_collapse ||
       !evidence.source_seqboot2_bootstrap ||
       !evidence.source_bootstrap_pseudocount ||
-      evidence.bootstrap_random_seed != 3) {
+      evidence.bootstrap_random_seed != 3 || evidence.bootstrap_replicates != 0) {
     return fail("the supplied-source event-tree provenance is missing");
   }
   if (evidence.topology_node_count != 11 || evidence.topology_root != 10 ||
@@ -112,6 +102,7 @@ int main() {
       evidence.collapsed_distance_rank_levels > 15) {
     return fail("rank-coded tree matrices have invalid dimensions or levels");
   }
+  bool found_positive_rank = false;
   for (std::size_t first_index = 0; first_index < sequences.size(); ++first_index) {
     for (std::size_t second_index = 0; second_index < sequences.size(); ++second_index) {
       const std::size_t index = first_index * sequences.size() + second_index;
@@ -120,52 +111,21 @@ int main() {
         if (value != 0.0) return fail("a ranked tree-matrix diagonal is nonzero");
       } else {
         const double thousandths = value * 1000.0;
-        if (value <= 0.0 || std::abs(thousandths - std::round(thousandths)) > 1e-12) {
-          return fail("an analytical tree distance is not a positive 1/1000 rank");
+        if (value < 0.0 || std::abs(thousandths - std::round(thousandths)) > 1e-12) {
+          return fail("an analytical tree distance is not a non-negative 1/1000 rank");
         }
+        found_positive_rank |= value > 0.0;
+      }
+      if (value != evidence.raw_tree_distances[index]) {
+        return fail("the active zero-replicate path did not copy the raw rank matrix");
       }
       if (value != repeated.collapsed_tree_distances[index]) {
         return fail("identical source seeds did not reproduce the tree matrix");
       }
     }
   }
-  for (std::size_t first_index = 0; first_index + 2 < sequences.size(); ++first_index) {
-    for (std::size_t second_index = first_index + 1;
-         second_index + 1 < sequences.size();
-         ++second_index) {
-      for (std::size_t third_index = second_index + 1;
-           third_index < sequences.size();
-           ++third_index) {
-        std::array<double, 3> raw_distances{
-            evidence.tree(first_index, second_index, false),
-            evidence.tree(first_index, third_index, false),
-            evidence.tree(second_index, third_index, false),
-        };
-        std::sort(raw_distances.begin(), raw_distances.end());
-        if (raw_distances[1] != raw_distances[2]) {
-          return fail("the TreeMidP/UltraTreeDistP matrix is not ultrametric");
-        }
-      }
-    }
-  }
-  for (std::size_t first_index = 0; first_index < sequences.size(); ++first_index) {
-    for (std::size_t second_index = first_index + 1;
-         second_index < sequences.size();
-         ++second_index) {
-      const double collapsed = evidence.tree(first_index, second_index, true);
-      bool found_original_rank = false;
-      for (std::size_t raw_first = 0; raw_first < sequences.size(); ++raw_first) {
-        for (std::size_t raw_second = raw_first + 1;
-             raw_second < sequences.size();
-             ++raw_second) {
-          found_original_rank |=
-              collapsed == evidence.tree(raw_first, raw_second, false);
-        }
-      }
-      if (!found_original_rank) {
-        return fail("CollapseNodes-style promotion compressed or invented a rank");
-      }
-    }
+  if (!found_positive_rank) {
+    return fail("Tree2ArrayP2 emitted no positive analytical rank");
   }
   if (!(evidence.jc(0, 1) < evidence.jc(0, 2)) ||
       !(evidence.jc(2, 3) < evidence.jc(2, 4))) {
@@ -179,64 +139,9 @@ int main() {
     if (std::abs(edge.length * 100000.0 - std::round(edge.length * 100000.0)) > 1e-8) {
       return fail("a displayed branch bypassed five-decimal source serialization");
     }
-    if (edge.internal && !is_source_support(edge.bootstrap_support)) {
-      return fail("an internal branch bypassed the replicate-zero pseudocount percentage");
+    if (edge.internal && (edge.bootstrap_support != 1.0 || edge.collapsed)) {
+      return fail("the zero-replicate path applied bootstrap collapse metadata");
     }
-  }
-
-  bool exercised_parent_rank_collapse = false;
-  for (std::uint32_t fixture = 1; fixture <= 32 && !exercised_parent_rank_collapse; ++fixture) {
-    const std::string ancestor = pseudo_random_sequence(120, 0x9e3779b9U ^ fixture);
-    std::vector<std::string> star_sequences(6, ancestor);
-    std::uint32_t mutation_state = 0x85ebca6bU * fixture;
-    constexpr std::string_view bases = "ACGT";
-    for (std::size_t sequence = 0; sequence < star_sequences.size(); ++sequence) {
-      for (char& base : star_sequences[sequence]) {
-        mutation_state = mutation_state * 1664525U + 1013904223U;
-        if ((mutation_state >> 24U) >= 48U) continue;
-        const std::size_t current = bases.find(base);
-        base = bases[(current + 1U + ((mutation_state >> 16U) % 3U)) & 3U];
-      }
-    }
-    auto star = rdp::build_alignment(
-        "FASTA",
-        {"star-0", "star-1", "star-2", "star-3", "star-4", "star-5"},
-        std::move(star_sequences));
-    if (!star.ok()) return fail(star.error);
-    std::vector<std::size_t> star_positions(120);
-    std::iota(star_positions.begin(), star_positions.end(), 1);
-    const auto weak = rdp::build_tree_region_evidence(
-        star.alignment, sequences, star_positions, 10, 3);
-    const bool edge_collapsed = std::any_of(
-        weak.topology_edges.begin(),
-        weak.topology_edges.end(),
-        [](const rdp::TreeTopologyEdge& edge) { return edge.collapsed; });
-    if (!edge_collapsed) continue;
-    if (weak.raw_tree_distances == weak.collapsed_tree_distances) {
-      return fail("a weak source node was labelled collapsed without parent-rank promotion");
-    }
-    for (std::size_t first_index = 0; first_index < sequences.size(); ++first_index) {
-      for (std::size_t second_index = first_index + 1;
-           second_index < sequences.size();
-           ++second_index) {
-        const double collapsed = weak.tree(first_index, second_index, true);
-        bool retained_rank = false;
-        for (std::size_t raw_first = 0; raw_first < sequences.size(); ++raw_first) {
-          for (std::size_t raw_second = raw_first + 1;
-               raw_second < sequences.size();
-               ++raw_second) {
-            retained_rank |= collapsed == weak.tree(raw_first, raw_second, false);
-          }
-        }
-        if (!retained_rank) {
-          return fail("CollapseNodes promotion invented or recompressed a weak-node rank");
-        }
-      }
-    }
-    exercised_parent_rank_collapse = true;
-  }
-  if (!exercised_parent_rank_collapse) {
-    return fail("the deterministic weak-tree corpus did not exercise parent-rank promotion");
   }
 
   const auto one_site = rdp::build_tree_region_evidence(
@@ -251,8 +156,8 @@ int main() {
 
   std::cout
       << "Event-tree core verified: Microsoft-CRT SEQBOOT2 weights, supplied Clearcut-shaped "
-         "float NJ, replicate-zero support, 50% collapse, five-decimal branch serialization, "
-         "and midpoint-rooted ultrametric analytical ranks ("
+         "float NJ, zero-replicate raw-tree copy, five-decimal branch serialization, "
+         "and Tree2ArrayP2 midpoint analytical ranks ("
       << evidence.supported_internal_branches << '/' << evidence.internal_branches
       << " internal branches supported).\n";
   return 0;

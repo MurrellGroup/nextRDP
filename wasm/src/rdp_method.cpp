@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -35,7 +36,10 @@ constexpr double kMinimumProbability = 1e-300;
 constexpr double kDistanceCorrelationCutoff = 0.05;
 constexpr std::size_t kCorrelationFlankInformativeSites = 60;
 constexpr std::size_t kEventTreeFlankInformativeSites = 20;
-constexpr std::size_t kEventTreeBootstrapReplicates = 10;
+// RDP 5.93's active TestMoveInTreeAlt call passes Reps=0.  Its Reps=0 branch
+// copies the six raw ranked trees into the nominally "collapsed" matrices;
+// the older ten-replicate call remains commented out in the supplied source.
+constexpr std::size_t kEventTreeBootstrapReplicates = 0;
 constexpr std::size_t kEventTreeSequenceCap = 100;
 constexpr std::size_t kWorkingFragmentSequenceCap = 256;
 constexpr std::size_t kFragmentReentryAlignmentLengthLimit = 100000;
@@ -753,7 +757,11 @@ PhylogeneticRegions build_phylogenetic_regions(
   regions[1] = forward_region(alignment, beginning, boundaries[1]);
   regions[2] = forward_region(alignment, after_ending, boundaries[3]);
   regions[3] = forward_region(alignment, boundaries[2], ending);
-  regions[5] = forward_region(alignment, beginning, ending);
+  // vQuickDist treats BPos3 and EPos3 as inclusive coordinates.  The earlier
+  // half-open tract made every event-tree inside matrix one site short and
+  // put that endpoint into the outside matrix instead.  A one-site distance
+  // change is enough to alter Clearcut's join order on near-tied panels.
+  regions[5] = forward_region(alignment, beginning, after_ending);
 
   std::vector<std::uint8_t> inside(alignment.length + 1, 0);
   for (const std::size_t coordinate : regions[5]) {
@@ -915,42 +923,65 @@ template <typename JcDistance, typename TreeDistance>
 std::vector<std::uint32_t> source_involved_sequences(
     const std::array<std::uint32_t, 3>& representatives,
     const std::vector<std::uint32_t>& panel,
-    JcDistance jc_distance,
-    TreeDistance tree_distance) {
+    JcDistance overlap_distance,
+    TreeDistance filter_distance) {
   std::vector<std::uint32_t> involved(
       representatives.begin(), representatives.end());
+
+  // Installed MakeDoneThis3 first finds the global min/max representative
+  // distances in each region.  It marks a candidate when any anchor distance
+  // lies outside those bounds, then performs a second pass that re-admits the
+  // candidate when any anchor distance lies strictly inside the bounds.  The
+  // two region flags are independent and MakePhPrScore retains a sequence
+  // when either flag is clear.
+  std::array<double, 2> minimum{
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity(),
+  };
+  std::array<double, 2> maximum{};
+  for (const std::uint32_t first : representatives) {
+    for (const std::uint32_t second : representatives) {
+      const auto [outside, inside] = filter_distance(first, second);
+      if (std::isfinite(outside)) {
+        minimum[0] = std::min(minimum[0], outside);
+        maximum[0] = std::max(maximum[0], outside);
+      }
+      if (std::isfinite(inside)) {
+        minimum[1] = std::min(minimum[1], inside);
+        maximum[1] = std::max(maximum[1], inside);
+      }
+    }
+  }
+
   for (const std::uint32_t candidate : panel) {
     if (std::find(representatives.begin(), representatives.end(), candidate) !=
         representatives.end()) {
       continue;
     }
-    bool invalid = false;
-    bool outside_too_close = false;
-    bool inside_too_close = false;
+    bool invalid_overlap = false;
+    std::array<bool, 2> done{};
+    std::array<std::array<double, 2>, 3> candidate_distances{};
     for (std::size_t role = 0; role < representatives.size(); ++role) {
       const std::uint32_t anchor = representatives[role];
-      const std::uint32_t other_one =
-          representatives[kSourceCompRoles[role][0]];
-      const std::uint32_t other_two =
-          representatives[kSourceCompRoles[role][1]];
-      const auto [jc_outside, jc_inside] = jc_distance(anchor, candidate);
-      const auto [tree_outside, tree_inside] = tree_distance(anchor, candidate);
-      if (!std::isfinite(jc_outside) || !std::isfinite(jc_inside) ||
-          jc_outside >= 10.0 || jc_inside >= 10.0 ||
-          !std::isfinite(tree_outside) || !std::isfinite(tree_inside)) {
-        invalid = true;
+      const auto overlap = overlap_distance(anchor, candidate);
+      const auto filtered = filter_distance(anchor, candidate);
+      candidate_distances[role] = {filtered.first, filtered.second};
+      if (!std::isfinite(overlap.first) || !std::isfinite(overlap.second) ||
+          overlap.first >= 10.0 || overlap.second >= 10.0 ||
+          !std::isfinite(filtered.first) || !std::isfinite(filtered.second)) {
+        invalid_overlap = true;
         break;
       }
-      const auto [outside_one, inside_one] = tree_distance(anchor, other_one);
-      const auto [outside_two, inside_two] = tree_distance(anchor, other_two);
-      outside_too_close = outside_too_close ||
-          tree_outside < std::min(outside_one, outside_two);
-      inside_too_close = inside_too_close ||
-          tree_inside < std::min(inside_one, inside_two);
+      if (filtered.first < minimum[0] || filtered.first > maximum[0]) done[0] = true;
+      if (filtered.second < minimum[1] || filtered.second > maximum[1]) done[1] = true;
     }
-    // MakeDoneThis keeps a candidate when it lies inside the representative
-    // subtree in either the outside or inside matrix.
-    if (!invalid && (!outside_too_close || !inside_too_close)) {
+    if (invalid_overlap) continue;
+
+    for (const auto& distances : candidate_distances) {
+      if (distances[0] > minimum[0] && distances[0] < maximum[0]) done[0] = false;
+      if (distances[1] > minimum[1] && distances[1] < maximum[1]) done[1] = false;
+    }
+    if (!done[0] || !done[1]) {
       involved.push_back(candidate);
     }
   }
@@ -1732,8 +1763,209 @@ const char* role_metric_name(RoleMetricKind kind) {
     case RoleMetricKind::tree_subdist: return "TreeSubDist";
     case RoleMetricKind::triplet_score: return "TrpScore";
     case RoleMetricKind::three_set_support: return "ThreeSetSupport";
+    case RoleMetricKind::ssdist: return "SSDist";
+    case RoleMetricKind::outside_unique: return "OUIndexA";
+    case RoleMetricKind::outlier_check: return "OuCheck";
+    case RoleMetricKind::rcompat_outside: return "RCompatOutside";
+    case RoleMetricKind::rcompat_inside: return "RCompatInside";
+    case RoleMetricKind::visrd_dmax: return "dMax(VisRD)";
+    case RoleMetricKind::simple_dist: return "SimScore";
+    case RoleMetricKind::simple_dist_b: return "SimScoreB";
+    case RoleMetricKind::cross_phpr_rcompat: return "PhPr+RCompatOutside";
+    case RoleMetricKind::cross_ou_sim: return "OuCheck+SimScore";
+    case RoleMetricKind::cross_tree_subphpr_simdist:
+      return "TreeSubPhPr+SimScoreB";
+    case RoleMetricKind::cross_rcompat_trp: return "RCompatInside+TrpScore";
   }
   return "Unknown";
+}
+
+std::array<double, 3> source_visrd_dmax(
+    const Alignment& original_alignment,
+    const Alignment& analysis_alignment,
+    const std::array<std::uint32_t, 3>& representatives,
+    const std::vector<std::uint32_t>& included_sequences,
+    std::size_t beginning,
+    std::size_t ending) {
+  std::array<double, 3> result{};
+  if (analysis_alignment.length == 0 || included_sequences.size() < 4) {
+    return result;
+  }
+
+  // MakeIdenticals stores only parsimony-informative columns in
+  // IdenticalR: at least two different nucleotide states must each occur in
+  // two or more of the originally loaded sequences. CalcMaxD continues to
+  // use that map after TraceSub fragment rows have been appended.
+  std::vector<std::size_t> informative_coordinates(1, 0);
+  std::vector<std::size_t> informative_prefix(original_alignment.length + 1, 0);
+  for (std::size_t coordinate = 1;
+       coordinate <= original_alignment.length;
+       ++coordinate) {
+    std::array<std::size_t, 5> counts{};
+    for (std::size_t sequence = 0;
+         sequence < original_alignment.sequence_count();
+         ++sequence) {
+      const std::uint8_t state = original_alignment.at(sequence, coordinate - 1);
+      if (state >= 1 && state <= 4) ++counts[state];
+    }
+    std::size_t repeated_states = 0;
+    for (std::size_t state = 1; state <= 4; ++state) {
+      if (counts[state] >= 2) ++repeated_states;
+    }
+    if (repeated_states >= 2) informative_coordinates.push_back(coordinate);
+    informative_prefix[coordinate] = informative_coordinates.size() - 1;
+  }
+  const std::size_t informative_count = informative_coordinates.size() - 1;
+  if (informative_count == 0) return result;
+
+  beginning = std::min(beginning, original_alignment.length);
+  ending = std::min(ending, original_alignment.length);
+  const std::size_t before_beginning = beginning > 0
+      ? informative_prefix[beginning - 1]
+      : informative_prefix[beginning];
+  const std::size_t after_ending = ending < original_alignment.length
+      ? informative_prefix[ending + 1]
+      : informative_prefix[ending];
+  const std::size_t mapped_beginning = informative_prefix[beginning];
+  const std::size_t mapped_ending = informative_prefix[ending];
+
+  const auto split_scores = [](std::uint8_t first,
+                               std::uint8_t second,
+                               std::uint8_t third,
+                               std::uint8_t fourth) {
+    std::array<float, 3> score{};
+    if (first == 0 || second == 0 || third == 0 || fourth == 0) return score;
+    if (first == second) {
+      if (first != third) {
+        if (third == fourth) score[0] = 1.0F;
+        else if (fourth != first) score[0] = 0.5F;
+      }
+    } else if (first == third) {
+      if (first != fourth) score[1] = fourth == second ? 1.0F : 0.5F;
+    } else if (first == fourth) {
+      score[2] = second == third ? 1.0F : 0.5F;
+    } else if (second == third) {
+      if (second != fourth) score[2] = 0.5F;
+    } else if (third == fourth) {
+      if (second != fourth) score[0] = 0.5F;
+    } else if (second == fourth) {
+      score[1] = 0.5F;
+    }
+    return score;
+  };
+
+  std::array<float, 3> distance_totals{};
+  std::array<std::size_t, 3> distance_counts{};
+  for (std::size_t first_index = 0;
+       first_index + 3 < included_sequences.size();
+       ++first_index) {
+    const std::uint32_t first = included_sequences[first_index];
+    for (std::size_t second_index = first_index + 1;
+         second_index + 2 < included_sequences.size();
+         ++second_index) {
+      const std::uint32_t second = included_sequences[second_index];
+      for (std::size_t third_index = second_index + 1;
+           third_index + 1 < included_sequences.size();
+           ++third_index) {
+        const std::uint32_t third = included_sequences[third_index];
+        for (std::size_t fourth_index = third_index + 1;
+             fourth_index < included_sequences.size();
+             ++fourth_index) {
+          const std::uint32_t fourth = included_sequences[fourth_index];
+          std::array<bool, 3> contains_representative{};
+          for (std::size_t role = 0; role < representatives.size(); ++role) {
+            const std::uint32_t representative = representatives[role];
+            contains_representative[role] = first == representative ||
+                second == representative || third == representative ||
+                fourth == representative;
+          }
+          if (std::none_of(
+                  contains_representative.begin(),
+                  contains_representative.end(),
+                  [](bool contains) { return contains; })) {
+            continue;
+          }
+
+          std::array<float, 3> outside{};
+          std::array<float, 3> inside{};
+          const auto add_range = [&](std::size_t first_informative,
+                                     std::size_t last_informative,
+                                     std::array<float, 3>& totals) {
+            first_informative = std::max<std::size_t>(1, first_informative);
+            last_informative = std::min(last_informative, informative_count);
+            if (first_informative > last_informative) return;
+            for (std::size_t informative = first_informative;
+                 informative <= last_informative;
+                 ++informative) {
+              const std::size_t offset = informative_coordinates[informative] - 1;
+              const auto scores = split_scores(
+                  analysis_alignment.at(first, offset),
+                  analysis_alignment.at(second, offset),
+                  analysis_alignment.at(third, offset),
+                  analysis_alignment.at(fourth, offset));
+              totals[0] = static_cast<float>(totals[0] + scores[0]);
+              totals[1] = static_cast<float>(totals[1] + scores[1]);
+              totals[2] = static_cast<float>(totals[2] + scores[2]);
+            }
+          };
+
+          if (mapped_beginning < mapped_ending) {
+            add_range(1, before_beginning, outside);
+            add_range(after_ending, informative_count, outside);
+            add_range(mapped_beginning, mapped_ending, inside);
+          } else {
+            add_range(after_ending, before_beginning, outside);
+            add_range(1, mapped_ending, inside);
+            add_range(mapped_beginning, informative_count, inside);
+          }
+
+          const float outside_sum = static_cast<float>(
+              static_cast<float>(outside[0] + outside[1]) + outside[2]);
+          if (outside_sum > 0.0F) {
+            for (float& score : outside) score = static_cast<float>(score / outside_sum);
+            const float inside_sum = static_cast<float>(
+                static_cast<float>(inside[0] + inside[1]) + inside[2]);
+            if (inside_sum > 0.0F) {
+              for (float& score : inside) score = static_cast<float>(score / inside_sum);
+            } else {
+              outside.fill(0.0F);
+              inside.fill(0.0F);
+            }
+          } else {
+            outside.fill(0.0F);
+            inside.fill(0.0F);
+          }
+
+          // CMaxD2P3's d3 is assigned from integer division (1 / 3), so the
+          // actual sentinel is zero. Preserve its consequent skip rule.
+          if (inside[0] == 0.0F && inside[1] == 0.0F) continue;
+          const float first_difference = std::abs(inside[0] - outside[0]);
+          const float second_difference = std::abs(inside[1] - outside[1]);
+          const float third_difference = std::abs(inside[2] - outside[2]);
+          const float distance = static_cast<float>(
+              static_cast<float>(first_difference + second_difference) +
+              third_difference);
+          for (std::size_t role = 0; role < representatives.size(); ++role) {
+            if (!contains_representative[role]) continue;
+            distance_totals[role] = static_cast<float>(
+                distance_totals[role] + distance);
+            ++distance_counts[role];
+          }
+        }
+      }
+    }
+  }
+
+  if (std::any_of(
+          distance_counts.begin(), distance_counts.end(),
+          [](std::size_t count) { return count == 0; })) {
+    return result;
+  }
+  for (std::size_t role = 0; role < result.size(); ++role) {
+    result[role] = static_cast<double>(static_cast<float>(
+        distance_totals[role] / static_cast<float>(distance_counts[role])));
+  }
+  return result;
 }
 
 std::string fasta_name(std::string_view value) {
@@ -4945,6 +5177,146 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     if (sequence >= alignment_.sequence_count()) tree_candidates.push_back(sequence);
   }
   sort_unique(tree_candidates);
+
+  // TestMoveInTreeAlt does not pass every mutable row straight to Clearcut.
+  // CheckMatrixX first removes a row when it has too few sites comparable to
+  // any of the three representatives on either side of the event.  It then
+  // resolves any remaining pairwise holes by repeatedly removing the row(s)
+  // with the smallest summed representative coverage.  This is particularly
+  // important after cyclic erasure: retained TraceSub fragments usually have
+  // useful data on only one side of a later event.  Including them changed the
+  // native 25,25,24,25-leaf panels for the first four Dataset0 events into
+  // 25,26,27,27-leaf trees even when the NJ and Tree2ArrayP2 kernels were
+  // otherwise byte-for-byte equivalent.
+  const std::size_t source_min_sequence_size = std::max<std::size_t>(
+      50,
+      static_cast<std::size_t>(std::nearbyint(
+          static_cast<double>(analysis_alignment.length) / 100.0)));
+  const std::size_t source_inside_minimum = std::min<std::size_t>(
+      20,
+      static_cast<std::size_t>(std::nearbyint(
+          static_cast<double>(
+              phylogenetic_regions[5].empty()
+                  ? 0
+                  : phylogenetic_regions[5].size() - 1) /
+          2.0)));
+  const auto comparable_sites = [&](
+                                    std::uint32_t first,
+                                    std::uint32_t second,
+                                    const std::vector<std::size_t>& positions) {
+    std::size_t comparable = 0;
+    for (const std::size_t coordinate : positions) {
+      if (coordinate < 1 || coordinate > analysis_alignment.length) continue;
+      if (analysis_alignment.at(first, coordinate - 1) != 0 &&
+          analysis_alignment.at(second, coordinate - 1) != 0) {
+        ++comparable;
+      }
+    }
+    return comparable;
+  };
+  const auto coverage_pair = [&](std::uint32_t first, std::uint32_t second) {
+    return std::array<std::size_t, 2>{
+        comparable_sites(first, second, phylogenetic_regions[4]),
+        comparable_sites(first, second, phylogenetic_regions[5]),
+    };
+  };
+  std::vector<std::uint8_t> tree_row_removed(
+      analysis_alignment.sequence_count(), 0);
+  for (const std::uint32_t candidate : tree_candidates) {
+    for (const std::uint32_t representative : representatives) {
+      if (candidate == representative) continue;
+      const auto coverage = coverage_pair(representative, candidate);
+      if (coverage[0] < source_min_sequence_size ||
+          coverage[1] < source_inside_minimum) {
+        tree_row_removed[candidate] = 1;
+        break;
+      }
+    }
+  }
+
+  struct MissingTreePair {
+    std::uint32_t first = 0;
+    std::uint32_t second = 0;
+    bool outside = false;
+    bool inside = false;
+  };
+  std::vector<MissingTreePair> missing_tree_pairs;
+  std::vector<std::size_t> outside_coverage_totals(
+      analysis_alignment.sequence_count(), 0);
+  std::vector<std::size_t> inside_coverage_totals(
+      analysis_alignment.sequence_count(), 0);
+  const auto representative_coverage_total = [&](
+                                                  std::uint32_t candidate,
+                                                  std::size_t side) {
+    std::size_t total = 0;
+    for (const std::uint32_t representative : representatives) {
+      total += coverage_pair(representative, candidate)[side];
+    }
+    return total;
+  };
+  for (std::size_t first_index = 0;
+       first_index + 1 < tree_candidates.size();
+       ++first_index) {
+    const std::uint32_t first = tree_candidates[first_index];
+    if (tree_row_removed[first] != 0) continue;
+    for (std::size_t second_index = first_index + 1;
+         second_index < tree_candidates.size();
+         ++second_index) {
+      const std::uint32_t second = tree_candidates[second_index];
+      if (tree_row_removed[second] != 0) continue;
+      const auto coverage = coverage_pair(first, second);
+      const bool missing_outside = coverage[0] < source_min_sequence_size;
+      const bool missing_inside = coverage[1] < source_inside_minimum;
+      if (!missing_outside && !missing_inside) continue;
+      missing_tree_pairs.push_back(
+          {first, second, missing_outside, missing_inside});
+      if (missing_outside) {
+        outside_coverage_totals[first] +=
+            representative_coverage_total(first, 0);
+        outside_coverage_totals[second] +=
+            representative_coverage_total(second, 0);
+      }
+      if (missing_inside) {
+        inside_coverage_totals[first] +=
+            representative_coverage_total(first, 1);
+        inside_coverage_totals[second] +=
+            representative_coverage_total(second, 1);
+      }
+    }
+  }
+  while (std::any_of(
+      missing_tree_pairs.begin(), missing_tree_pairs.end(),
+      [&](const MissingTreePair& pair) {
+        return tree_row_removed[pair.first] == 0 &&
+            tree_row_removed[pair.second] == 0;
+      })) {
+    std::size_t minimum = std::numeric_limits<std::size_t>::max();
+    std::vector<std::uint32_t> remove;
+    for (const std::uint32_t candidate : tree_candidates) {
+      if (tree_row_removed[candidate] != 0) continue;
+      for (const std::size_t total : {
+               inside_coverage_totals[candidate],
+               outside_coverage_totals[candidate]}) {
+        if (total == 0 || total > minimum) continue;
+        if (total < minimum) {
+          minimum = total;
+          remove.clear();
+        }
+        remove.push_back(candidate);
+      }
+    }
+    sort_unique(remove);
+    if (remove.empty()) break;
+    for (const std::uint32_t candidate : remove) {
+      tree_row_removed[candidate] = 1;
+      outside_coverage_totals[candidate] = 0;
+      inside_coverage_totals[candidate] = 0;
+    }
+  }
+  std::erase_if(tree_candidates, [&](std::uint32_t candidate) {
+    return candidate >= tree_row_removed.size() ||
+        tree_row_removed[candidate] != 0;
+  });
   const std::vector<std::uint32_t> tree_sequences = select_tree_sequences(
       analysis_alignment, tree_candidates, representatives);
   event.tree_panel_sequences = tree_sequences.size();
@@ -5433,12 +5805,29 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
       evidence.positive_support = evidence.overlap_eligible &&
           (evidence.acceptable_affinity || evidence.strong_correlation_override) &&
           evidence.aggregate_score > evidence.aggregate_target;
+      // Immediately after MakeRList, Module4 resolves a nominal inversion in
+      // favour of ordinary correlation whenever any non-inverted RCorr entry
+      // for the same role/candidate exceeds 0.83.  Only candidates whose
+      // remaining support is wholly inverted reach StripDupInv as inversions.
+      // Treating every mixed-polarity row as inverse-only discarded exactly
+      // the extra RList members used by native RCompat.
+      bool inverse_contradicted_by_direct_support = false;
+      for (std::size_t pair = 0; pair < 3; ++pair) {
+        if (evidence.inversion_codes[pair] == 0 &&
+            evidence.correlations[pair] > 0.83) {
+          inverse_contradicted_by_direct_support = true;
+          break;
+        }
+      }
       evidence.stripped_inverse_only = evidence.inverse_support &&
-          !evidence.positive_support && sequence != hypothesis.presumed_recombinant;
+          !evidence.positive_support &&
+          !inverse_contradicted_by_direct_support &&
+          sequence != hypothesis.presumed_recombinant;
       // MakeRList temporarily admits inverse-only rows, but the active
       // StripDupInv call removes them before the co-recombinant lists proceed.
       evidence.significant = sequence == hypothesis.presumed_recombinant ||
-          evidence.positive_support;
+          evidence.positive_support ||
+          (evidence.inverse_support && inverse_contradicted_by_direct_support);
       if (evidence.significant) {
         hypothesis.distance_correlation_set.push_back(evidence.sequence);
       }
@@ -5579,6 +5968,23 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
           }
           return left.sequence < right.sequence;
         });
+  }
+
+  // RCompat is evaluated immediately after StripDupInv and before FinalTrim
+  // or ConsensusOK mutate the three lists. Preserve that exact list family;
+  // the later distance-correlation sets are intentionally overwritten with
+  // the final erasure groups for reporting and ModSeqNumY.
+  std::array<std::vector<std::uint32_t>, 3> native_rcompat_lists;
+  std::array<int, 3> native_rcompat_inversion_penalties{};
+  for (std::size_t role = 0; role < 3; ++role) {
+    native_rcompat_lists[role] =
+        event.role_hypotheses[role].distance_correlation_set;
+    native_rcompat_inversion_penalties[role] = std::any_of(
+        event.role_hypotheses[role].distance_evidence.begin(),
+        event.role_hypotheses[role].distance_evidence.end(),
+        [](const DistanceCorrelationEvidence& evidence) {
+          return evidence.stripped_inverse_only;
+        }) ? 1 : 0;
   }
 
   // The active first FinalTrim stage copies the direct-polarity correlations,
@@ -7271,7 +7677,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   }
 
   event.role_consensus = {};
-  constexpr std::size_t metric_count = 9;
+  event.role_consensus.rcompat_lists = native_rcompat_lists;
+  constexpr std::size_t metric_count = 17;
   std::array<std::array<bool, 3>, metric_count> metric_valid{};
   std::array<RoleMetricEvidence, metric_count> metrics;
   metrics[0].kind = RoleMetricKind::phpr;
@@ -7303,6 +7710,30 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   // records it for later classifiers but does not give it a standalone vote.
   metrics[8].weight = 0.0;
   metrics[8].higher_is_recombinant = true;
+  metrics[9].kind = RoleMetricKind::ssdist;
+  metrics[9].weight = 5.0;
+  metrics[9].higher_is_recombinant = true;
+  metrics[10].kind = RoleMetricKind::outside_unique;
+  metrics[10].weight = 5.0;
+  metrics[10].higher_is_recombinant = true;
+  metrics[11].kind = RoleMetricKind::outlier_check;
+  metrics[11].weight = 5.0;
+  metrics[11].higher_is_recombinant = true;
+  metrics[12].kind = RoleMetricKind::rcompat_outside;
+  metrics[12].weight = 20.0;
+  metrics[12].higher_is_recombinant = false;
+  metrics[13].kind = RoleMetricKind::rcompat_inside;
+  metrics[13].weight = 20.0;
+  metrics[13].higher_is_recombinant = false;
+  metrics[14].kind = RoleMetricKind::visrd_dmax;
+  metrics[14].weight = 30.0;
+  metrics[14].higher_is_recombinant = true;
+  metrics[15].kind = RoleMetricKind::simple_dist;
+  metrics[15].weight = 0.0;
+  metrics[15].higher_is_recombinant = true;
+  metrics[16].kind = RoleMetricKind::simple_dist_b;
+  metrics[16].weight = 0.0;
+  metrics[16].higher_is_recombinant = true;
 
   const auto jc_distance = [&](std::uint32_t first, std::uint32_t second) {
     return std::pair{
@@ -7322,16 +7753,393 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         tree_evidence[5].tree(first, second, true),
     };
   };
-  const std::vector<std::uint32_t> raw_involved = source_involved_sequences(
-      representatives, tree_sequences, jc_distance, raw_tree_distance);
-  const std::vector<std::uint32_t> collapsed_involved = source_involved_sequences(
-      representatives, tree_sequences, jc_distance, collapsed_tree_distance);
+  // Module3 builds DoneThis once from FMatSmall/SMatSmall (the direct
+  // outside/inside matrices) and reuses that exact inclusion mask for the
+  // FMat/SMat, FAMat/SAMat, and FCMat/SCMat MakePhPrScore calls.  Building
+  // separate masks from each tree matrix changes which background sequences
+  // enter the correlations and can reverse the selected recombinant.
+  std::vector<std::uint32_t> involved = source_involved_sequences(
+      representatives, tree_sequences, jc_distance, jc_distance);
+  // The VB caller applies two further guards after MakeDoneThis3 and before
+  // every MakePhPrScore call.  A background sequence is removed when it is
+  // more than 60% different from any representative, provided all three
+  // comparisons contain at least one valid site.  SubValid/SubDiffs cover the
+  // recombinant tract; PermValid/PermDiffs cover the complete working row.
+  // Omitting this caller-side guard leaves MakePhPrScore with a different
+  // population even when MakeDoneThis3 itself is reproduced exactly.
+  const auto mismatch_guard = [&](std::uint32_t candidate, bool tract_only) {
+    std::array<std::size_t, 3> valid{};
+    std::array<std::size_t, 3> differences{};
+    for (std::size_t role = 0; role < representatives.size(); ++role) {
+      for (std::size_t offset = 0; offset < analysis_alignment.length; ++offset) {
+        const std::size_t coordinate = offset + 1;
+        if (tract_only && !coordinate_in_tract(
+                coordinate, event.beginning, event.ending, event.wraps_origin)) {
+          continue;
+        }
+        const std::uint8_t first = analysis_alignment.at(representatives[role], offset);
+        const std::uint8_t second = analysis_alignment.at(candidate, offset);
+        if (first == 0 || second == 0) continue;
+        ++valid[role];
+        if (first != second) ++differences[role];
+      }
+    }
+    if (std::any_of(valid.begin(), valid.end(), [](std::size_t sites) {
+          return sites == 0;
+        })) {
+      return false;
+    }
+    for (std::size_t role = 0; role < representatives.size(); ++role) {
+      if (static_cast<double>(differences[role]) /
+              static_cast<double>(valid[role]) > 0.6) {
+        return true;
+      }
+    }
+    return false;
+  };
+  std::erase_if(involved, [&](std::uint32_t candidate) {
+    if (std::find(representatives.begin(), representatives.end(), candidate) !=
+        representatives.end()) {
+      return false;
+    }
+    return mismatch_guard(candidate, true) || mismatch_guard(candidate, false);
+  });
+  event.role_consensus.involved_sequences = involved;
+
+  // MakeSSDistB is a separate statistic from MakePhPrScore's SubScore.  It
+  // bins the squared outside/inside displacement by the outside tree rank,
+  // averages within each rank, and sums those rank means for every anchor.
+  std::vector<std::uint32_t> ssdist_background;
+  ssdist_background.reserve(involved.size());
+  for (const std::uint32_t sequence : involved) {
+    if (std::find(representatives.begin(), representatives.end(), sequence) ==
+        representatives.end()) {
+      ssdist_background.push_back(sequence);
+    }
+  }
+  float distance_totals[2]{};
+  for (std::size_t first = 0; first + 1 < ssdist_background.size(); ++first) {
+    for (std::size_t second = first + 1; second < ssdist_background.size(); ++second) {
+      const auto distances = jc_distance(
+          ssdist_background[first], ssdist_background[second]);
+      distance_totals[0] += static_cast<float>(distances.first);
+      distance_totals[1] += static_cast<float>(distances.second);
+    }
+  }
+  if (distance_totals[1] > 0.0F) {
+    const float scale = distance_totals[0] / distance_totals[1];
+    for (std::size_t role = 0; role < representatives.size(); ++role) {
+      std::map<long, std::pair<float, std::size_t>> rank_scores;
+      for (const std::uint32_t sequence : ssdist_background) {
+        const auto distances = jc_distance(representatives[role], sequence);
+        const long rank = std::lrint(
+            raw_tree_distance(representatives[role], sequence).first * 1000.0);
+        float displacement = std::abs(
+            static_cast<float>(distances.first) -
+            static_cast<float>(distances.second));
+        displacement *= scale;
+        displacement *= displacement;
+        auto& bin = rank_scores[rank];
+        bin.first += displacement;
+        ++bin.second;
+      }
+      for (const auto& [rank, bin] : rank_scores) {
+        (void)rank;
+        if (bin.second > 0) {
+          metrics[9].scores[role] +=
+              static_cast<double>(bin.first) / static_cast<double>(bin.second);
+        }
+      }
+      metric_valid[9][role] = true;
+    }
+  }
+
+  // OUIndexA and MakeOUCheck both use MakeINList's outside/inside closest-pair
+  // permutation. They are undefined when the closest pair does not change.
+  if (distinct_closest_pairs) {
+    const std::size_t no = in_list[0];
+    const std::size_t pi = in_list[1];
+    const std::size_t ni = in_list[2];
+    if (metrics[9].scores[no] > metrics[9].scores[pi] &&
+        metrics[9].scores[no] > metrics[9].scores[ni]) {
+      metrics[10].scores[no] = 1.0;
+    } else if (metrics[9].scores[no] < metrics[9].scores[pi] &&
+               metrics[9].scores[no] < metrics[9].scores[ni]) {
+      metrics[10].scores[pi] = 1.0;
+      metrics[10].scores[ni] = 1.0;
+    }
+    metric_valid[10].fill(true);
+
+    for (const std::uint32_t sequence : tree_sequences) {
+      const double outside_no = raw_tree_distance(
+          representatives[no], sequence).first;
+      if (!(outside_no > raw_tree_distance(
+                representatives[no], representatives[pi]).first &&
+            outside_no < raw_tree_distance(
+                representatives[no], representatives[ni]).first)) {
+        continue;
+      }
+      const double inside_pi = raw_tree_distance(
+          representatives[pi], sequence).second;
+      const double inside_no = raw_tree_distance(
+          representatives[no], sequence).second;
+      if (inside_pi < inside_no) {
+        metrics[11].scores[no] += 1.0;
+        metrics[11].scores[pi] -= 1.0;
+        metrics[11].scores[ni] -= 1.0;
+      } else if (inside_pi > inside_no) {
+        metrics[11].scores[no] -= 1.0;
+        metrics[11].scores[pi] += 1.0;
+        metrics[11].scores[ni] -= 1.0;
+      } else if (inside_pi > raw_tree_distance(
+                     representatives[no], representatives[pi]).second) {
+        metrics[11].scores[no] -= 1.0;
+        metrics[11].scores[pi] -= 1.0;
+        metrics[11].scores[ni] += 1.0;
+      }
+    }
+    metric_valid[11].fill(true);
+  }
+  // MakeRCompat counts how many distinct tree-rank categories separate each
+  // proposed recombinant group from its nearby non-group sequences.  The
+  // desktop decision tree first tries the raw tree with the final RList, then
+  // only on a three-way tie falls back through the collapsed tree and the
+  // pre-final-trim list.  Port that fallback order instead of treating the
+  // four arrays as independent votes.
+  const auto rcompat_scores = [&]<typename Distance>(
+                                  const std::array<std::vector<std::uint32_t>, 3>& lists,
+                                  Distance distance) {
+    std::array<double, 3> scores{};
+    const std::size_t category_limit = tree_sequences.empty()
+        ? 0
+        : tree_sequences.size() - 1;
+    for (std::size_t role = 0; role < representatives.size(); ++role) {
+      const auto& group = lists[role];
+      if (group.empty()) continue;
+      const long group_last = static_cast<long>(group.size()) - 1;
+      double limit_distance = 0.0;
+      for (std::size_t first = 0; first + 1 < group.size(); ++first) {
+        for (std::size_t second = first + 1; second < group.size(); ++second) {
+          limit_distance = std::max(
+              limit_distance, distance(group[first], group[second]));
+        }
+      }
+
+      std::vector<std::uint8_t> done(analysis_alignment.sequence_count(), 0);
+      const std::uint32_t parent_one =
+          representatives[kSourceCompRoles[role][0]];
+      const std::uint32_t parent_two =
+          representatives[kSourceCompRoles[role][1]];
+      if (parent_one < done.size()) done[parent_one] = 1;
+      if (parent_two < done.size()) done[parent_two] = 1;
+      std::vector<std::uint32_t> non_group;
+      for (const std::uint32_t member : group) {
+        for (const std::uint32_t candidate : tree_sequences) {
+          if (candidate >= done.size() || done[candidate] != 0) continue;
+          const auto sites = candidate < overlap_sites.size()
+              ? overlap_sites[candidate]
+              : breakpoint_overlap_sites(analysis_alignment, candidate, layout);
+          if (sites[0] <= 10 && sites[1] <= 10) continue;
+          if (!(distance(member, candidate) < limit_distance)) continue;
+          if (std::find(group.begin(), group.end(), candidate) != group.end()) continue;
+          done[candidate] = 1;
+          non_group.push_back(candidate);
+        }
+      }
+
+      long recombinant_categories = 0;
+      for (const std::uint32_t member : group) {
+        std::vector<std::uint8_t> categories(category_limit + 1, 0);
+        const auto add_category = [&](double value) {
+          const long category = static_cast<long>(value * 1000.0 + 0.0000001);
+          if (category >= 0 && static_cast<std::size_t>(category) <= category_limit) {
+            categories[static_cast<std::size_t>(category)] = 1;
+          }
+        };
+        for (const std::uint32_t candidate : non_group) {
+          add_category(distance(member, candidate));
+        }
+        if (distance(member, parent_one) < limit_distance) {
+          for (const std::uint32_t other : group) {
+            add_category(distance(other, parent_one));
+          }
+        }
+        if (distance(member, parent_two) < limit_distance) {
+          for (const std::uint32_t other : group) {
+            add_category(distance(other, parent_two));
+          }
+        }
+        recombinant_categories = std::max<long>(
+            recombinant_categories,
+            std::accumulate(categories.begin(), categories.end(), 0L));
+      }
+
+      if (std::any_of(group.begin(), group.end(), [&](std::uint32_t member) {
+            return distance(member, parent_one) < limit_distance;
+          })) {
+        non_group.push_back(parent_one);
+      }
+      if (std::any_of(group.begin(), group.end(), [&](std::uint32_t member) {
+            return distance(member, parent_two) < limit_distance;
+          })) {
+        non_group.push_back(parent_two);
+      }
+      sort_unique(non_group);
+
+      long background_categories = 0;
+      for (const std::uint32_t candidate : non_group) {
+        std::vector<std::uint8_t> categories(category_limit + 1, 0);
+        for (const std::uint32_t member : group) {
+          const long category = static_cast<long>(
+              distance(candidate, member) * 1000.0 + 0.0000001);
+          if (category >= 0 && static_cast<std::size_t>(category) <= category_limit) {
+            categories[static_cast<std::size_t>(category)] = 1;
+          }
+        }
+        const long count = std::accumulate(categories.begin(), categories.end(), 0L) - 1;
+        background_categories = std::max(background_categories, count);
+      }
+      long score = recombinant_categories;
+      if (!non_group.empty()) score = std::min(score, background_categories);
+      score = std::min(score, group_last);
+      scores[role] = static_cast<double>(std::max(0L, score));
+    }
+    return scores;
+  };
+  const auto all_equal = [](const std::array<double, 3>& values) {
+    return values[0] == values[1] && values[0] == values[2];
+  };
+  const auto select_rcompat_family = [&](bool inside) {
+    const auto raw_distance = [&](std::uint32_t first, std::uint32_t second) {
+      const auto pair = raw_tree_distance(first, second);
+      return inside ? pair.second : pair.first;
+    };
+    const auto collapsed_distance = [&](std::uint32_t first, std::uint32_t second) {
+      const auto pair = collapsed_tree_distance(first, second);
+      return inside ? pair.second : pair.first;
+    };
+    auto selected = rcompat_scores(native_rcompat_lists, raw_distance);
+    if (all_equal(selected)) {
+      selected = rcompat_scores(native_rcompat_lists, collapsed_distance);
+      if (all_equal(selected)) {
+        selected = rcompat_scores(consensus_rebuilt_lists, raw_distance);
+        if (all_equal(selected)) {
+          selected = rcompat_scores(consensus_rebuilt_lists, collapsed_distance);
+        }
+      }
+    }
+    for (std::size_t role = 0; role < selected.size(); ++role) {
+      if (selected[role] > 0.0) {
+        selected[role] += native_rcompat_inversion_penalties[role];
+      }
+    }
+    return selected;
+  };
+  metrics[12].scores = select_rcompat_family(false);
+  metrics[13].scores = select_rcompat_family(true);
+  metric_valid[12].fill(true);
+  metric_valid[13].fill(true);
+  std::vector<std::uint32_t> dmax_sequences;
+  dmax_sequences.reserve(analysis_alignment.sequence_count());
+  for (std::size_t sequence = 0;
+       sequence < analysis_alignment.sequence_count();
+       ++sequence) {
+    if (sequence < alignment_.sequence_count() &&
+        sequence_disabled(static_cast<std::uint32_t>(sequence))) {
+      continue;
+    }
+    dmax_sequences.push_back(static_cast<std::uint32_t>(sequence));
+  }
+  metrics[14].scores = source_visrd_dmax(
+      alignment_, analysis_alignment, representatives, dmax_sequences,
+      event.beginning, event.ending);
+  metric_valid[14].fill(true);
+
+  // SimpleDist compares the direct outside/inside distance change after
+  // scaling both matrices by background pairs that do not occur in any of the
+  // three current RLists. Preserve the DLL's Single accumulators and the
+  // source's asymmetric three-role formulas exactly.
+  std::vector<std::uint8_t> simple_dist_excluded(expanded_sequence_count, 0);
+  for (const auto& list : native_rcompat_lists) {
+    for (const std::uint32_t sequence : list) {
+      if (sequence < simple_dist_excluded.size()) {
+        simple_dist_excluded[sequence] = 1;
+      }
+    }
+  }
+  std::array<float, 2> simple_dist_totals{};
+  for (std::size_t first = 0; first + 1 < expanded_sequence_count; ++first) {
+    if (simple_dist_excluded[first] != 0) continue;
+    for (std::size_t second = first + 1;
+         second < expanded_sequence_count;
+         ++second) {
+      if (simple_dist_excluded[second] != 0) continue;
+      const float outside = static_cast<float>(source_direct_whole(
+          0, static_cast<std::uint32_t>(first),
+          static_cast<std::uint32_t>(second)));
+      if (outside < 3.0F) {
+        simple_dist_totals[0] = static_cast<float>(
+            simple_dist_totals[0] + outside);
+        simple_dist_totals[1] = static_cast<float>(
+            simple_dist_totals[1] + static_cast<float>(source_direct_whole(
+                1, static_cast<std::uint32_t>(first),
+                static_cast<std::uint32_t>(second))));
+      }
+    }
+  }
+  const double simple_dist_scale =
+      simple_dist_totals[0] > 0.0F && simple_dist_totals[1] > 0.0F
+      ? static_cast<double>(simple_dist_totals[0]) /
+          static_cast<double>(simple_dist_totals[1])
+      : 1.0;
+  const std::size_t no = in_list[0];
+  const std::size_t pi = in_list[1];
+  const std::size_t ni = in_list[2];
+  const auto outside_direct = [&](std::size_t first, std::size_t second) {
+    return source_direct_whole(
+        0, representatives[first], representatives[second]);
+  };
+  const auto inside_direct = [&](std::size_t first, std::size_t second) {
+    return source_direct_whole(
+        1, representatives[first], representatives[second]);
+  };
+  const auto assign_simple_dist = [&](std::size_t role,
+                                      double difference_zero,
+                                      double difference_one,
+                                      double difference_two) {
+    if (difference_zero < difference_one &&
+        difference_zero < difference_two) {
+      metrics[15].scores[role] += 1.0;
+    }
+    metrics[16].scores[role] =
+        difference_one + difference_two - difference_zero;
+  };
+  assign_simple_dist(
+      pi,
+      std::abs(outside_direct(no, ni) -
+          inside_direct(no, ni) * simple_dist_scale),
+      inside_direct(no, pi) * simple_dist_scale - outside_direct(no, pi),
+      outside_direct(pi, ni) - inside_direct(pi, ni) * simple_dist_scale);
+  assign_simple_dist(
+      no,
+      std::abs(outside_direct(pi, ni) -
+          inside_direct(pi, ni) * simple_dist_scale),
+      inside_direct(no, pi) * simple_dist_scale - outside_direct(no, pi),
+      inside_direct(no, ni) * simple_dist_scale - outside_direct(no, ni));
+  assign_simple_dist(
+      ni,
+      std::abs(outside_direct(no, pi) -
+          inside_direct(no, pi) * simple_dist_scale),
+      outside_direct(pi, ni) - inside_direct(pi, ni) * simple_dist_scale,
+      outside_direct(no, ni) - inside_direct(no, ni) * simple_dist_scale);
+  metric_valid[15].fill(true);
+  metric_valid[16].fill(true);
   const SourcePhylproScores jc_scores = source_phylpro_scores(
-      representatives, raw_involved, jc_distance);
+      representatives, involved, jc_distance);
   const SourcePhylproScores raw_tree_scores = source_phylpro_scores(
-      representatives, raw_involved, raw_tree_distance);
+      representatives, involved, raw_tree_distance);
   const SourcePhylproScores collapsed_tree_scores = source_phylpro_scores(
-      representatives, collapsed_involved, collapsed_tree_distance);
+      representatives, involved, collapsed_tree_distance);
 
   metrics[0].scores = jc_scores.primary;
   metrics[1].scores = raw_tree_scores.primary;
@@ -7428,7 +8236,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     }
     const auto [minimum, maximum] = std::minmax_element(
         metric.scores.begin(), metric.scores.end());
-    if (*maximum - *minimum <= 1e-9) {
+    if (*maximum - *minimum <= 1e-9 &&
+        metric.kind != RoleMetricKind::visrd_dmax) {
       event.role_consensus.metrics.push_back(metric);
       continue;
     }
@@ -7440,7 +8249,56 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     metric.informative = true;
     if (winners.size() == 1) metric.winning_role = static_cast<std::int8_t>(winners.front());
 
-    if (metric_index == 2) {
+    if (metric.kind == RoleMetricKind::visrd_dmax) {
+      const double total = std::accumulate(
+          metric.scores.begin(), metric.scores.end(), 0.0);
+      for (std::size_t role = 0; role < representatives.size(); ++role) {
+        const std::size_t other_one = kSourceCompRoles[role][0];
+        const std::size_t other_two = kSourceCompRoles[role][1];
+        double contribution = total > 0.0
+            ? metric.scores[role] / total * 20.0
+            : 0.0;
+        if (metric.scores[role] >= metric.scores[other_one] * 1.1 &&
+            metric.scores[role] >= metric.scores[other_two] * 1.1) {
+          contribution += 30.0;
+        } else if (metric.scores[role] >= metric.scores[other_one] &&
+                   metric.scores[role] >= metric.scores[other_two]) {
+          contribution += 20.0;
+        } else if (metric.scores[role] >= metric.scores[other_one] * 1.1 ||
+                   metric.scores[role] >= metric.scores[other_two] * 1.1) {
+          contribution += 10.0;
+        } else if (metric.scores[role] >= metric.scores[other_one] ||
+                   metric.scores[role] >= metric.scores[other_two]) {
+          contribution += 5.0;
+        }
+        metric.contributions[role] = contribution;
+      }
+    } else if (metric.kind == RoleMetricKind::ssdist) {
+      // MakeConsensusC deliberately withholds this prize when a role ties
+      // either comparator; it is not the usual shared-winner rule.
+      for (std::size_t role = 0; role < representatives.size(); ++role) {
+        const std::size_t other_one = (role + 1) % 3;
+        const std::size_t other_two = (role + 2) % 3;
+        if (metric.scores[role] == metric.scores[other_one] ||
+            metric.scores[role] == metric.scores[other_two]) {
+          continue;
+        }
+        if (metric.scores[role] >= metric.scores[other_one] &&
+            metric.scores[role] >= metric.scores[other_two]) {
+          metric.contributions[role] = 5.0;
+        } else if (metric.scores[role] > metric.scores[other_one] ||
+                   metric.scores[role] > metric.scores[other_two]) {
+          metric.contributions[role] = 2.5;
+        }
+      }
+    } else if (metric.kind == RoleMetricKind::outlier_check) {
+      // OuCheck is a signed adjustment, not a ranking: positive evidence adds
+      // five and negative evidence subtracts five independently per role.
+      for (std::size_t role = 0; role < representatives.size(); ++role) {
+        if (metric.scores[role] > 0.0) metric.contributions[role] = 5.0;
+        else if (metric.scores[role] < 0.0) metric.contributions[role] = -5.0;
+      }
+    } else if (metric_index == 2) {
       // Native special case: the collapsed-tree anchor wins 20 points only
       // when removing that same role also maximises SubPhPr.
       if (metrics[3].informative || std::all_of(
@@ -7487,6 +8345,81 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     }
     event.role_consensus.metrics.push_back(metric);
   }
+
+  // The final MakeConsensusC block gives extra weight when independent
+  // diagnostics select the same role. Keep each cross-check explicit in the
+  // JSON evidence so its contribution can be compared directly with DScores.
+  const auto append_cross_metric = [&](RoleMetricKind kind,
+                                       const std::array<double, 3>& scores,
+                                       const std::array<double, 3>& contributions,
+                                       double weight) {
+    RoleMetricEvidence metric;
+    metric.kind = kind;
+    metric.scores = scores;
+    metric.contributions = contributions;
+    metric.weight = weight;
+    metric.higher_is_recombinant = true;
+    const auto winner = std::max_element(
+        contributions.begin(), contributions.end());
+    metric.informative = winner != contributions.end() && *winner > 0.0;
+    if (metric.informative &&
+        std::count(contributions.begin(), contributions.end(), *winner) == 1) {
+      metric.winning_role = static_cast<std::int8_t>(
+          std::distance(contributions.begin(), winner));
+    }
+    for (std::size_t role = 0; role < 3; ++role) {
+      event.role_consensus.votes[role] += contributions[role];
+    }
+    event.role_consensus.metrics.push_back(metric);
+  };
+  std::array<double, 3> phpr_rcompat_cross{};
+  std::array<double, 3> ou_sim_cross{};
+  std::array<double, 3> tree_subphpr_simdist_cross{};
+  std::array<double, 3> rcompat_trp_cross{};
+  for (std::size_t role = 0; role < 3; ++role) {
+    const std::size_t other_one = kSourceCompRoles[role][0];
+    const std::size_t other_two = kSourceCompRoles[role][1];
+    if (metric_valid[0][role] &&
+        metrics[0].scores[role] <= metrics[0].scores[other_one] &&
+        metrics[0].scores[role] <= metrics[0].scores[other_two] &&
+        !all_equal(metrics[12].scores) &&
+        metrics[12].scores[role] <= metrics[12].scores[other_one] &&
+        metrics[12].scores[role] <= metrics[12].scores[other_two]) {
+      phpr_rcompat_cross[role] = 10.0;
+    }
+    if (!all_equal(metrics[11].scores) &&
+        metrics[11].scores[role] >= metrics[11].scores[other_one] &&
+        metrics[11].scores[role] >= metrics[11].scores[other_two] &&
+        metrics[15].scores[role] == 1.0) {
+      ou_sim_cross[role] = 10.0;
+    }
+    if (metric_valid[4][role] &&
+        metrics[4].scores[role] >= metrics[4].scores[other_one] &&
+        metrics[4].scores[role] >= metrics[4].scores[other_two] &&
+        metrics[16].scores[role] >= metrics[16].scores[other_one] &&
+        metrics[16].scores[role] >= metrics[16].scores[other_two]) {
+      tree_subphpr_simdist_cross[role] = 5.0;
+    }
+    if (!all_equal(metrics[13].scores) &&
+        metrics[13].scores[role] <= metrics[13].scores[other_one] &&
+        metrics[13].scores[role] <= metrics[13].scores[other_two] &&
+        metrics[7].scores[role] >= metrics[7].scores[other_one] &&
+        metrics[7].scores[role] >= metrics[7].scores[other_two]) {
+      rcompat_trp_cross[role] = 10.0;
+    }
+  }
+  append_cross_metric(
+      RoleMetricKind::cross_phpr_rcompat,
+      metrics[12].scores, phpr_rcompat_cross, 10.0);
+  append_cross_metric(
+      RoleMetricKind::cross_ou_sim,
+      metrics[15].scores, ou_sim_cross, 10.0);
+  append_cross_metric(
+      RoleMetricKind::cross_tree_subphpr_simdist,
+      metrics[16].scores, tree_subphpr_simdist_cross, 5.0);
+  append_cross_metric(
+      RoleMetricKind::cross_rcompat_trp,
+      metrics[13].scores, rcompat_trp_cross, 10.0);
 
   const double total_votes = std::accumulate(
       event.role_consensus.votes.begin(), event.role_consensus.votes.end(), 0.0);
@@ -8289,7 +9222,8 @@ bool RdpScanner::finish_detection_round(std::string& error) {
   refresh_trace_evidence(event);
   refresh_role_hypotheses(event);
 
-  if (event.role_consensus.informative &&
+  constexpr bool kNativeRoleConsensusComplete = true;
+  if (kNativeRoleConsensusComplete && event.role_consensus.informative &&
       (event.role_consensus.recommended_recombinant != event.recombinant ||
        event.role_consensus.recommended_major_parent != event.major_parent ||
        event.role_consensus.recommended_minor_parent != event.minor_parent)) {
@@ -9327,7 +10261,7 @@ std::string RdpScanner::results_json() const {
          "\"canRepositionDetectedEvents\":true}},"
          "\"treeInspection\":{\"available\":true,"
          "\"source\":\"reconciliation-tree-panel\",\"regionCount\":6,"
-         "\"bootstrapCollapseCutoff\":0.5,\"payload\":\"on-demand-edge-lists\"},"
+         "\"bootstrapCollapseCutoff\":null,\"payload\":\"on-demand-edge-lists\"},"
          "\"phylproInspection\":{\"available\":true,"
          "\"status\":\"source-shaped-active-unvalidated\","
          "\"source\":\"original-alignment-current-event-roles\","
@@ -9866,13 +10800,13 @@ std::string RdpScanner::results_json() const {
         << ",\"subsampled\":" << (event.tree_panel_subsampled ? "true" : "false")
         << ",\"sequenceCap\":" << kEventTreeSequenceCap
         << ",\"njKernel\":\"supplied-clearcut-float\""
-           ",\"distanceEncoding\":\"source-midpoint-ultrametric-ranks\""
-           ",\"bootstrapGenerator\":\"microsoft-crt-seqboot2\""
-           ",\"bootstrapSupport\":\"base-tree-pseudocount\""
+           ",\"distanceEncoding\":\"source-tree2arrayp2-midpoint-ranks\""
+           ",\"bootstrapGenerator\":\"disabled-rdp-5.93-event-path\""
+           ",\"bootstrapSupport\":\"not-applied\""
            ",\"negativeBranchPolicy\":\"absolute-five-decimal-serialization\""
            ",\"analyticalBranchParsing\":\"four-decimal-clamped-complete-edge-repair\""
-           ",\"treeRooting\":\"source-midpoint-ultrametric\""
-           ",\"collapseEncoding\":\"parent-rank-promotion-no-recompression\""
+           ",\"treeRooting\":\"source-tree2arrayp2-midpoint\""
+           ",\"collapseEncoding\":\"unbootstrapped-raw-tree-copy\""
         << ",\"randomSeed\":" << options_.bootscan_random_seed
         << ",\"flankVariableSiteTarget\":" << kEventTreeFlankInformativeSites
         << ",\"regions\":[";
@@ -9901,7 +10835,26 @@ std::string RdpScanner::results_json() const {
           << ",\"usable\":" << (summary.usable ? "true" : "false") << '}';
     }
     out << "]},\"roleConsensus\":{\"method\":\"source-decision-tree-subset\","
-           "\"nativeWeightParity\":false,\"informative\":"
+           "\"nativeWeightParity\":false,\"involvedSequenceIndices\":[";
+    for (std::size_t sequence = 0;
+         sequence < event.role_consensus.involved_sequences.size(); ++sequence) {
+      if (sequence) out << ',';
+      out << event.role_consensus.involved_sequences[sequence];
+    }
+    out << "],\"rcompatListIndices\":[";
+    for (std::size_t role = 0;
+         role < event.role_consensus.rcompat_lists.size();
+         ++role) {
+      if (role) out << ',';
+      out << '[';
+      const auto& list = event.role_consensus.rcompat_lists[role];
+      for (std::size_t sequence = 0; sequence < list.size(); ++sequence) {
+        if (sequence) out << ',';
+        out << list[sequence];
+      }
+      out << ']';
+    }
+    out << "],\"informative\":"
         << (event.role_consensus.informative ? "true" : "false")
         << ",\"recommendedRole\":";
     if (event.role_consensus.recommended_role < 0) out << "null";
@@ -10446,7 +11399,7 @@ std::string RdpScanner::results_json() const {
          "\"Query-vs-reference progress counts every scheduled cross-group reference-record/query triplet; its supplied multiple-testing factor instead counts active reference-group pairs times unique query origins and remains capped independently.\","
          "\"Signal grouping implements the supplied RDP5 detectable-signal rule: two shared triplet sequences and greater than 30% symmetric tract overlap.\","
          "\"Each anchor sequence is treated in turn as the presumed recombinant; three paired six-value correlations use the supplied direct and five category-relabelled Pearson paths.\","
-         "\"Six Jukes-Cantor neighbour-joining trees are bootstrapped ten times, branches below 50 percent support are collapsed, and sequences in at least two of the three evidence sets form the co-recombinant group.\","
+         "\"Six Jukes-Cantor neighbour-joining trees use the active RDP 5.93 zero-replicate path, so the nominal collapsed-tree matrices copy the raw ranked trees; sequences in at least two of the three evidence sets form the co-recombinant group.\","
          "\"Masked rows skip primary triplets but retain secondary RDP and grouping evidence; disabled rows skip event evidence and remain only as bounded phylogenetic context. Trace checks retain structurally matching masked-row profiles even when their corrected p-values are not significant.\","
          "\"Role identification ports MakePhPrScore, leave-one-role-out scores, displacement scores, weighted MakeTrpScore ordering changes, and the corresponding supplied decision-tree contributions.\","
          "\"Manual co-recombinant group edits are preserved separately from the automatic two-of-three set and drive subsequent tract erasure and accepted-event alignment exports.\","
@@ -11213,15 +12166,15 @@ std::string RdpScanner::event_trees_json(
       << ",\"method\":\"neighbour-joining\""
          ",\"distance\":\"Jukes-Cantor\""
          ",\"njKernel\":\"supplied-clearcut-float\""
-         ",\"distanceEncoding\":\"source-midpoint-ultrametric-ranks\""
-         ",\"bootstrapGenerator\":\"microsoft-crt-seqboot2\""
-         ",\"bootstrapSupport\":\"base-tree-pseudocount\""
+         ",\"distanceEncoding\":\"source-tree2arrayp2-midpoint-ranks\""
+         ",\"bootstrapGenerator\":\"disabled-rdp-5.93-event-path\""
+         ",\"bootstrapSupport\":\"not-applied\""
          ",\"negativeBranchPolicy\":\"absolute-five-decimal-serialization\""
          ",\"analyticalBranchParsing\":\"four-decimal-clamped-complete-edge-repair\""
-         ",\"treeRooting\":\"source-midpoint-ultrametric\""
-         ",\"collapseEncoding\":\"parent-rank-promotion-no-recompression\""
+         ",\"treeRooting\":\"source-tree2arrayp2-midpoint\""
+         ",\"collapseEncoding\":\"unbootstrapped-raw-tree-copy\""
          ",\"displayRooting\":\"arbitrary-internal-node\""
-         ",\"bootstrapCollapseCutoff\":0.5"
+         ",\"bootstrapCollapseCutoff\":null"
       << ",\"bootstrapReplicates\":" << kEventTreeBootstrapReplicates
       << ",\"randomSeed\":" << options_.bootscan_random_seed
       << ",\"flankVariableSiteTarget\":" << kEventTreeFlankInformativeSites

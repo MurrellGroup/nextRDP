@@ -811,13 +811,13 @@ export interface TreePanelSummary {
   subsampled: boolean;
   sequenceCap: number;
   njKernel: "supplied-clearcut-float";
-  distanceEncoding: "source-midpoint-ultrametric-ranks";
-  bootstrapGenerator: "microsoft-crt-seqboot2";
-  bootstrapSupport: "base-tree-pseudocount";
+  distanceEncoding: "source-tree2arrayp2-midpoint-ranks";
+  bootstrapGenerator: "disabled-rdp-5.93-event-path";
+  bootstrapSupport: "not-applied";
   negativeBranchPolicy: "absolute-five-decimal-serialization";
   analyticalBranchParsing: "four-decimal-clamped-complete-edge-repair";
-  treeRooting: "source-midpoint-ultrametric";
-  collapseEncoding: "parent-rank-promotion-no-recompression";
+  treeRooting: "source-tree2arrayp2-midpoint";
+  collapseEncoding: "unbootstrapped-raw-tree-copy";
   randomSeed: number;
   flankVariableSiteTarget: number;
   regions: TreeRegionSummary[];
@@ -833,7 +833,19 @@ export interface RoleMetricEvidence {
     | "SubDist"
     | "TreeSubDist"
     | "TrpScore"
-    | "ThreeSetSupport";
+    | "ThreeSetSupport"
+    | "SSDist"
+    | "OUIndexA"
+    | "OuCheck"
+    | "RCompatOutside"
+    | "RCompatInside"
+    | "dMax(VisRD)"
+    | "SimScore"
+    | "SimScoreB"
+    | "PhPr+RCompatOutside"
+    | "OuCheck+SimScore"
+    | "TreeSubPhPr+SimScoreB"
+    | "RCompatInside+TrpScore";
   scores: [number, number, number];
   contributions: [number, number, number];
   weight: number;
@@ -845,6 +857,8 @@ export interface RoleMetricEvidence {
 export interface RoleConsensusEvidence {
   method: "source-decision-tree-subset";
   nativeWeightParity: false;
+  involvedSequenceIndices: number[];
+  rcompatListIndices: [number[], number[], number[]];
   informative: boolean;
   recommendedRole: number | null;
   recommendedRecombinant: number;
@@ -1095,15 +1109,15 @@ export interface EventTreeView {
   method: "neighbour-joining";
   distance: "Jukes-Cantor";
   njKernel: "supplied-clearcut-float";
-  distanceEncoding: "source-midpoint-ultrametric-ranks";
-  bootstrapGenerator: "microsoft-crt-seqboot2";
-  bootstrapSupport: "base-tree-pseudocount";
+  distanceEncoding: "source-tree2arrayp2-midpoint-ranks";
+  bootstrapGenerator: "disabled-rdp-5.93-event-path";
+  bootstrapSupport: "not-applied";
   negativeBranchPolicy: "absolute-five-decimal-serialization";
   analyticalBranchParsing: "four-decimal-clamped-complete-edge-repair";
-  treeRooting: "source-midpoint-ultrametric";
-  collapseEncoding: "parent-rank-promotion-no-recompression";
+  treeRooting: "source-tree2arrayp2-midpoint";
+  collapseEncoding: "unbootstrapped-raw-tree-copy";
   displayRooting: "arbitrary-internal-node";
-  bootstrapCollapseCutoff: number;
+  bootstrapCollapseCutoff: number | null;
   bootstrapReplicates: number;
   randomSeed: number;
   flankVariableSiteTarget: number;
@@ -1256,7 +1270,7 @@ export interface TreeInspectionStatus {
   available: true;
   source: "reconciliation-tree-panel";
   regionCount: 6;
-  bootstrapCollapseCutoff: number;
+  bootstrapCollapseCutoff: number | null;
   payload: "on-demand-edge-lists";
 }
 

@@ -16,7 +16,7 @@ single “run” operation. RDP Web uses the same staged shape.
 | Test all three recombinant roles | Each anchor rotates through recombinant position | Current roles are preserved until the weighted recommendation is applied |
 | Build detectable sets | Direct supporting signals plus iterative cross-role closure | Native event-network parity remains a golden-test item |
 | Build distance-correlation sets | Five regions; six-value Pearson; five relabellings; warnings; overlap; `MakeACOR`; `MakeRList`; `StripDupInv`; duplicate cleanup; nearest-nonrecombinant `OKSeq 6`; both expansions; active matrix `OKSeq` 7–14; selected pruning; `OKSeq 15`; `CalcMatchY` 17/18; complete CScore; all three `ConsensusOK` passes; shared selected-tree cleanup; primary-RDP finalized-list rechecks; MaxChi/CHIMAERA strongest-peak rechecks; ordinary six-track GENECONV; fixed-region SISCAN; and `TSXOver(1)` 3SEQ Findall for each finalized nonrepresentative | Source-only and unvalidated; full native method-stack event reconstruction and other method-family rechecks remain |
-| Build phylogenetic-correlation sets | Six JC families; supplied float Clearcut NJ; Microsoft-CRT `SEQBOOT2`; retained-base pseudocount; `TreeMidP`/`UltraTreeDistP`; below-50% parent-rank promotion; raw/collapsed `MakeTreeArrayXP2` rank distances; three tree pairs | Above 100 panel sequences, labelled JC fallback controls cost; source-shaped path and explicit writer/parser repair are host-regression-tested but still await native golden matrices |
+| Build phylogenetic-correlation sets | Six JC families; x87-compatible JC; literal packed float Clearcut NJ; Tree2ArrayP2 writer/parser/midpoint ranks; active zero-replicate raw-to-collapsed copy; three tree pairs | Above 100 panel sequences, labelled JC fallback controls cost; the installed 5.93 first-event matrices are runtime-traced, while broader native golden comparison remains open |
 | Form co-recombinant groups | Any original sequence present in at least two of the three evidence sets | Implemented, not native validated |
 | Identify recombinant and parents | Nine visible metrics; eight use mapped native full/half weights | Missing native method families keep full-weight parity false |
 | Examine masked relatives | Recheck every masked sequence against event parent representatives | Full native trace score remains pending |
@@ -59,7 +59,7 @@ single “run” operation. RDP Web uses the same staged shape.
   panel or cyclic discovery because supplied RDP5 provides no implemented significance test.
 - Polish detected breakpoints with BURT/BenHMM: enabled; disabling it preserves detected or
   manually edited coordinates and skips the HMM pass.
-- Event-specific tree bootstrap: ten replicates with branches below 50% support collapsed.
+- Event-specific trees: the active RDP 5.93 `TestMoveInTreeAlt` call passes zero bootstrap replicates, so its nominal collapsed matrices copy the raw ranked trees. The older ten-replicate call is commented out in the supplied source.
 - Synthetic fragment condition: alignment length below 100,000 sites; this port additionally
   exposes a 256-fragment retention cap.
 - Method panel: RDP, GENECONV, BOOTSCAN, MAXCHI, CHIMAERA, SISCAN, and 3SEQ retain their source method-major order;

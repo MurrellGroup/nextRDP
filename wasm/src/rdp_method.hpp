@@ -313,6 +313,18 @@ enum class RoleMetricKind : std::uint8_t {
   tree_subdist = 6,
   triplet_score = 7,
   three_set_support = 8,
+  ssdist = 9,
+  outside_unique = 10,
+  outlier_check = 11,
+  rcompat_outside = 12,
+  rcompat_inside = 13,
+  visrd_dmax = 14,
+  simple_dist = 15,
+  simple_dist_b = 16,
+  cross_phpr_rcompat = 17,
+  cross_ou_sim = 18,
+  cross_tree_subphpr_simdist = 19,
+  cross_rcompat_trp = 20,
 };
 
 struct RoleMetricEvidence {
@@ -327,6 +339,8 @@ struct RoleMetricEvidence {
 
 struct RoleConsensusEvidence {
   std::vector<RoleMetricEvidence> metrics;
+  std::vector<std::uint32_t> involved_sequences;
+  std::array<std::vector<std::uint32_t>, 3> rcompat_lists;
   std::array<double, 3> votes{};
   std::int8_t recommended_role = -1;
   std::uint32_t recommended_recombinant = 0;

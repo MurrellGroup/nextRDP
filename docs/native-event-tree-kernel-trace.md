@@ -4,10 +4,16 @@ This note records the Session 20 trace used to replace the generic event-tree he
 calculation path actually reached by RDP5's event reconciliation. Only the supplied VB, `DNA.dll`,
 `DNA5.dll`, and manual sources were inspected. No alternate RDP implementation was consulted.
 
+> **Installed-5.93 runtime correction.** Later DLL-boundary traces show that the active
+> `TestMoveInTreeAlt` call passes `Reps = 0`. The bootstrap-capable kernel described below remains
+> present, but its resampling and collapse stages are bypassed for current RDP event trees. The
+> desktop copies each raw Tree2ArrayP2 rank matrix directly into its nominal collapsed matrix. The
+> current browser path follows that observed call rather than the older/commented ten-replicate call.
+
 ## Active call path
 
-The supplied desktop tree kernel enters `Module3.bas::TestMoveInTree`. For the whole inside/outside
-event partition it:
+The supplied bootstrap-capable desktop kernel enters `Module3.bas::TestMoveInTree`. For a positive
+replicate count it:
 
 1. prepares the selected event-tree sequences and the inside/outside or breakpoint-flank
    subalignment;
@@ -25,9 +31,8 @@ event partition it:
 8. uses the raw and collapsed topology-distance matrices in the later phylogenetic-correlation and
    recombinant-role decisions.
 
-The manual describes six event subalignments: four short flanks around the two breakpoints and the
-whole inside/outside regions. It describes Jukes–Cantor distance, bootstrapped NJ, and collapse of
-branches below 50%, which agrees with this active source path.
+The manual describes six event subalignments and bootstrapped NJ with collapse below 50%. That
+description and the older source path do not match the installed 5.93 active zero-replicate call.
 
 There is a manual/source divergence worth making explicit. The later supplied VB path builds the
 whole inside/outside `FAMat`/`SAMat` through the bootstrapped tree kernel, but builds its four
@@ -93,10 +98,10 @@ parser defect; it is an explicit numerical-correctness fix, not hidden parity dr
 
 ## Deliberate browser bounds
 
-The existing event-tree panel cap remains 100 working sequences and the event workflow uses ten
-bootstrap replicates. The six matrices are built once per reconciled event and reused across all
-downstream role metrics. The lazy graphical endpoint transfers only the already-saved bounded edge
-lists; it does not rebuild a tree or copy alignment rows.
+The existing event-tree panel cap remains 100 working sequences and the current event workflow uses
+zero bootstrap replicates. The six matrices are built once per reconciled event and reused across
+all downstream role metrics. The lazy graphical endpoint transfers only the already-saved bounded
+edge lists; it does not rebuild a tree or copy alignment rows.
 
 ## Validation boundary
 

@@ -1843,7 +1843,7 @@ for (const pruningRegressionContract of [
 }
 if (!cyclicPruningCoreScript.includes('mktemp "${PWD}/wasm/.rdp-cyclic-pruning-core-check') ||
     !cyclicPruningCoreScript.includes("verify-cyclic-pruning-digest.mjs") ||
-    !cyclicPruningDigestVerifier.includes("4a2b5a14996b64b317b21eded4bfe270628e202872728d20c755382595b2a27f") ||
+    !cyclicPruningDigestVerifier.includes("5a68fbe96d81e69e1ae1a837dd9cc38f059f761385a2ed706f29f385305a3232") ||
     !packageSource.includes('"check:cyclic-pruning-core"') ||
     !pagesWorkflow.includes("npm run check:cyclic-pruning-core")) {
   fail("cyclic-pruning host regression is not wired into the local/Pages gates");
@@ -2295,28 +2295,28 @@ for (const treeContract of [
 }
 for (const treeResultContract of [
   "supplied-clearcut-float",
-  "source-midpoint-ultrametric-ranks",
-  "microsoft-crt-seqboot2",
-  "base-tree-pseudocount",
+  "source-tree2arrayp2-midpoint-ranks",
+  "disabled-rdp-5.93-event-path",
+  "not-applied",
   "negativeBranchesNormalized",
   "bootstrapRandomSeed",
   "flankVariableSiteTarget",
   "four-decimal-clamped-complete-edge-repair",
-  "source-midpoint-ultrametric",
-  "parent-rank-promotion-no-recompression",
+  "source-tree2arrayp2-midpoint",
+  "unbootstrapped-raw-tree-copy",
 ]) {
   if (!method.includes(treeResultContract) || !types.includes(treeResultContract)) {
     fail(`event-tree result/type contract is missing ${treeResultContract}`);
   }
 }
 if (!treeCoreVerifier.includes("expected_weights") ||
-    !treeCoreVerifier.includes("replicate-zero pseudocount") ||
-    !treeCoreVerifier.includes("midpoint-rooted ultrametric analytical ranks") ||
+    !treeCoreVerifier.includes("zero-replicate raw-tree copy") ||
+    !treeCoreVerifier.includes("Tree2ArrayP2 midpoint analytical ranks") ||
     !treeCoreScript.includes("wasm/src/phylogeny.cpp") ||
     !pagesWorkflow.includes("npm run check:tree-core")) {
   fail("event-tree host regression or Pages gate is incomplete");
 }
-if (!bootscanCoreVerifier.includes("source-midpoint-ultrametric-ranks") ||
+if (!bootscanCoreVerifier.includes("source-tree2arrayp2-midpoint-ranks") ||
     !bootscanCoreVerifier.includes("rdp_get_event_trees_json(handle, 0)") ||
     !bootscanCoreVerifier.includes("org.rdp-web.project/v1alpha19")) {
   fail("linked public-API regression does not cover Session 21 tree/schema output");

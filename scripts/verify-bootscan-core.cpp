@@ -244,10 +244,10 @@ int main() {
     destroy_context();
     return fail("primary BootScan evidence did not survive public result reconciliation");
   }
-  if (results.find("\"distanceEncoding\":\"source-midpoint-ultrametric-ranks\"") ==
+  if (results.find("\"distanceEncoding\":\"source-tree2arrayp2-midpoint-ranks\"") ==
           std::string::npos ||
       results.find("\"flankVariableSiteTarget\":20") == std::string::npos ||
-      results.find("\"collapseEncoding\":\"parent-rank-promotion-no-recompression\"") ==
+      results.find("\"collapseEncoding\":\"unbootstrapped-raw-tree-copy\"") ==
           std::string::npos) {
     destroy_context();
     return fail("supplied event-tree provenance did not survive public reconciliation");

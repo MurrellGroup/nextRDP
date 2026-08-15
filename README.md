@@ -10,6 +10,11 @@ core runs in WebAssembly.
 > final-RList erasure, exact active role-score rounding, and a graceful 64-round diagnostic ceiling.
 > Full desktop cyclic parity remains unclaimed.
 
+The current native-parity preview additionally reproduces the installed 5.93 zero-bootstrap
+event-tree call, its exact Clearcut/Tree2ArrayP2 matrices, and an expanded but still incomplete
+`MakeConsensusC` statistic set. Dataset0 currently yields 53 Web events versus 48 desktop events;
+this deployed checkpoint is intended for comparative testing, not parity-sensitive production use.
+
 ## What this checkpoint contains
 
 - The RDP5 dataset → settings → primary scan → event reconciliation → ordered review → export workflow.
@@ -178,10 +183,10 @@ core runs in WebAssembly.
   downstream role consensus; source-serialized five-decimal branches remain separate display data.
 - Iterative detectable-set closure and the manual's complete “present in at least two of three”
   co-recombinant group for every presumed-recombinant role.
-- An auditable source-decision-tree role recommendation: nine displayed metrics cover direct, raw-
-  tree and collapsed-tree PhylPro families, leave-one-role-out and displacement scores, weighted
-  triplet ordering changes, and three-set context. Eight voting methods use the supplied full/half
-  contribution weights; the unported native method families remain explicitly absent.
+- An auditable source-decision-tree role recommendation covering direct, raw-tree and collapsed-tree
+  PhylPro families, leave-one-role-out and displacement scores, RCompat, OU/list context, VisRD
+  `dMax`, SimpleDist, and the currently mapped combined prizes. Native weight parity remains
+  explicitly false while the traced RList/ListCorr dependencies are still being reconciled.
 - Ordered event review with accept/reject decisions, editable roles, breakpoints, and complete
   co-recombinant membership. The current and automatic groups remain separate and auditable.
 - An on-demand graphical breakpoint inspector derived from the original alignment. It prioritizes
@@ -197,9 +202,10 @@ core runs in WebAssembly.
   The supplied default-enabled “polish breakpoints” option is available in scan settings, retained
   in project checkpoints, and can be disabled to preserve the primary RDP coordinates.
 - An on-demand graphical tree inspector for the same six event regions used by reconciliation.
-  It compares whole-tract and both breakpoint pairs, labels bootstrap support and retained-fragment
-  leaves, optionally collapses branches below 50%, and transfers compact saved edge lists rather
-  than rebuilding trees or moving distance matrices to the interface.
+  It compares whole-tract and both breakpoint pairs, labels retained-fragment leaves, and transfers
+  compact saved edge lists rather than rebuilding trees or moving distance matrices to the
+  interface. The active RDP 5.93 event path requests zero bootstrap replicates, so no branch-support
+  collapse is presented for these trees.
 - An on-demand PHYLPRO event inspector mapped from supplied `FindSubSeqPP`, `PXoverD`,
   `MakePDstMat`/`UpdatePDstMat`, and `PPRegression`. It correlates left/right Hamming-distance
   vectors for the recombinant and both parents, supports the two supplied gap policies and optional

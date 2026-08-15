@@ -34,9 +34,10 @@ const selectedResult = {
 const digest = createHash("sha256")
   .update(JSON.stringify(selectedResult))
   .digest("hex");
-// Session 26 deliberately changes tract coordinates to the supplied CentreBP
-// midpoints before the deterministic snapshot is taken.
-const expected = "4a2b5a14996b64b317b21eded4bfe270628e202872728d20c755382595b2a27f";
+// The native-parity checkpoint adds the exact Clearcut/Tree2ArrayP2 event-tree
+// path and the currently mapped MakeConsensusC statistics before this
+// deterministic snapshot is taken.
+const expected = "5a68fbe96d81e69e1ae1a837dd9cc38f059f761385a2ed706f29f385305a3232";
 if (digest !== expected) {
   throw new Error(`Cyclic pruning changed selected analytical results (${digest}).`);
 }

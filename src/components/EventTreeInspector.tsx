@@ -211,7 +211,9 @@ function TreeFigure({
           <strong>{region.sites.toLocaleString()} sites</strong>
         </div>
         <small>
-          {region.supportedInternalBranches}/{region.internalBranches} internal branches ≥50% ·{" "}
+          {region.bootstrapReplicates > 0
+            ? `${region.supportedInternalBranches}/${region.internalBranches} internal branches ≥50%`
+            : `${region.internalBranches} internal branches · no bootstrap collapse`} ·{" "}
           {region.collapsedDistanceRankLevels} distance ranks
         </small>
       </header>
@@ -337,31 +339,34 @@ export function EventTreeInspector({
                 </button>
               ))}
             </div>
-            <label className="tree-collapse-toggle">
-              <input
-                type="checkbox"
-                checked={collapseWeak}
-                onChange={(change) => setCollapseWeak(change.target.checked)}
-              />
-              <span>Collapse branches below 50% bootstrap support</span>
-            </label>
+            {view.bootstrapReplicates > 0 ? (
+              <label className="tree-collapse-toggle">
+                <input
+                  type="checkbox"
+                  checked={collapseWeak}
+                  onChange={(change) => setCollapseWeak(change.target.checked)}
+                />
+                <span>Collapse branches below 50% bootstrap support</span>
+              </label>
+            ) : null}
           </div>
           <div className="tree-inspector-legend">
             <span className="role-recombinant">Recombinant</span>
             <span className="role-major-parent">Major parent</span>
             <span className="role-minor-parent">Minor parent</span>
             <span className="role-co-recombinant">Co-recombinant</span>
-            <span className="tree-weak-key">Bootstrap &lt;50%</span>
+            {view.bootstrapReplicates > 0 ? (
+              <span className="tree-weak-key">Bootstrap &lt;50%</span>
+            ) : null}
           </div>
           <div className="event-tree-pair">
             <TreeFigure region={selectedRegions[0]} leaves={view.leaves} collapseWeak={collapseWeak} />
             <TreeFigure region={selectedRegions[1]} leaves={view.leaves} collapseWeak={collapseWeak} />
           </div>
           <p className="tree-inspector-footnote">
-            <GitBranch size={13} /> Supplied Clearcut float NJ · {view.bootstrapReplicates}
-            {" "}Microsoft-CRT SEQBOOT2 replicates (seed {view.randomSeed}) · branch labels use the
-            desktop base-tree pseudocount percentages. Analysis uses the midpoint-rooted ultrametric
-            rank matrices; this drawing uses the saved five-decimal branch lengths. Opening this
+            <GitBranch size={13} /> Supplied Clearcut float NJ · active RDP 5.93 zero-replicate
+            event path · no bootstrap branch collapse. Analysis uses the desktop Tree2ArrayP2
+            midpoint rank matrices; this drawing uses the saved five-decimal branch lengths. Opening this
             panel transfers only the bounded edge list already produced for reconciliation, not
             distance matrices or alignment rows{view.subsampled
               ? ` · the closest ${view.sequenceCap} working sequences form this panel`

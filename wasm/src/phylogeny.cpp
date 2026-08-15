@@ -47,12 +47,20 @@ float source_jukes_cantor_distance(
     std::uint32_t comparable,
     std::uint32_t differences) {
   if (comparable == 0) return static_cast<float>(kSaturatedDistance);
-  const float valid = static_cast<float>(comparable);
-  const float identity = (valid - static_cast<float>(differences)) / valid;
-  if (!(identity > 0.25F)) return static_cast<float>(kSaturatedDistance);
-  const float argument = (4.0F * identity - 1.0F) / 3.0F;
-  if (!(argument > 0.0F)) return static_cast<float>(kSaturatedDistance);
-  const float corrected = -0.75F * std::log(argument);
+  // The installed 32-bit FinishDists path retains these intermediates in its
+  // x87 register stack despite the source-level float temporaries.  Computing
+  // in double and rounding only the stored matrix entry reproduces every one
+  // of the 600 captured Dataset0 outside/inside distances exactly.  Forcing
+  // source-level float rounding changes many entries by one to three ULPs and
+  // can change Clearcut's choice between near-tied joins.
+  const double valid = static_cast<double>(comparable);
+  const double identity =
+      (valid - static_cast<double>(differences)) / valid;
+  if (identity == 1.0) return 0.0F;
+  if (!(identity > 0.25)) return static_cast<float>(kSaturatedDistance);
+  const double argument = (4.0 * identity - 1.0) / 3.0;
+  if (!(argument > 0.0)) return static_cast<float>(kSaturatedDistance);
+  const float corrected = static_cast<float>(-0.75 * std::log(argument));
   return std::isfinite(corrected)
       ? corrected
       : static_cast<float>(kSaturatedDistance);
@@ -161,9 +169,6 @@ NjTree source_clearcut_neighbor_joining(
   NjTree tree;
   tree.leaf_count = leaf_count;
   if (leaf_count == 0) return tree;
-  // Clearcut emits a rooted binary Newick tree: n leaves plus n-1 internal
-  // nodes. The last two active clades each receive the full remaining
-  // distance, preserving NJ_decompose(..., NJ_LAST)'s observable quirk.
   const std::size_t node_capacity = leaf_count == 1 ? 1 : leaf_count * 2 - 1;
   tree.adjacency.resize(node_capacity);
   if (leaf_count == 1) {
@@ -171,132 +176,148 @@ NjTree source_clearcut_neighbor_joining(
     return tree;
   }
 
-  std::vector<float> distances = leaf_distances;
-  std::vector<std::size_t> active_nodes(leaf_count);
-  std::iota(active_nodes.begin(), active_nodes.end(), 0);
-  std::size_t next_node = leaf_count;
-  // Build Clearcut's packed-matrix r/r2 vectors in the same pair visitation
-  // order. NJ_init_r assigns r2 after completing each row, leaving the final
-  // calloc-initialised r2 entry at zero.
-  std::vector<float> row_sums(leaf_count, 0.0F);
-  std::vector<float> transformed_sums(leaf_count, 0.0F);
+  // Literal packed-matrix Clearcut NJ used by DNA5.dll. Keeping the moving
+  // value/r/r2 bases and mutation order matters even where a recomputed
+  // full-matrix implementation produces the same unrooted splits: the final
+  // two active clades determine Newick rooting, and Tree2ArrayP2 observes it.
+  const auto packed_cells = [](std::size_t size) {
+    return size * (size + 1) / 2;
+  };
+  const auto packed_index = [](std::size_t first,
+                               std::size_t second,
+                               std::size_t size) {
+    return first * (2 * size - first - 1) / 2 + second;
+  };
+  std::vector<float> distances(packed_cells(leaf_count), 0.0F);
   for (std::size_t first = 0; first + 1 < leaf_count; ++first) {
     for (std::size_t second = first + 1; second < leaf_count; ++second) {
-      const float value = distances[first * leaf_count + second];
-      row_sums[first] += value;
-      row_sums[second] += value;
+      distances[packed_index(first, second, leaf_count)] =
+          leaf_distances[first + second * leaf_count];
     }
-    transformed_sums[first] = row_sums[first] /
-        static_cast<float>(leaf_count - 2);
   }
-  while (active_nodes.size() > 2) {
-    const std::size_t count = active_nodes.size();
+  std::vector<float> row_sums(leaf_count, 0.0F);
+  std::vector<float> transformed_sums(leaf_count, 0.0F);
+  std::vector<std::size_t> active_nodes(leaf_count);
+  std::iota(active_nodes.begin(), active_nodes.end(), 0);
+  std::size_t value_base = 0;
+  std::size_t sum_base = 0;
+  std::size_t size = leaf_count;
+  std::size_t next_node = leaf_count;
+
+  std::size_t scan = 0;
+  for (std::size_t first = 0; first + 1 < size; ++first) {
+    ++scan;
+    for (std::size_t second = first + 1; second < size; ++second) {
+      const float value = distances[value_base + scan++];
+      row_sums[sum_base + first] += value;
+      row_sums[sum_base + second] += value;
+    }
+    transformed_sums[sum_base + first] =
+        row_sums[sum_base + first] / static_cast<float>(size - 2);
+  }
+
+  while (size > 2) {
     std::size_t best_first = 0;
     std::size_t best_second = 1;
-    float best_q = std::numeric_limits<float>::infinity();
-    for (std::size_t first = 0; first + 1 < count; ++first) {
-      for (std::size_t second = first + 1; second < count; ++second) {
-        const float q = distances[first * count + second] -
-            transformed_sums[first] - transformed_sums[second];
-        // NJ_min_transform uses a strict comparison while scanning rows and
-        // columns in order, so the first exactly tied pair remains selected.
-        if (q < best_q) {
-          best_q = q;
+    float best = std::numeric_limits<float>::infinity();
+    std::size_t position = 0;
+    for (std::size_t first = 0; first < size; ++first) {
+      ++position;
+      for (std::size_t second = first + 1; second < size; ++second) {
+        const float transformed =
+            distances[value_base + position++] -
+            (transformed_sums[sum_base + first] +
+             transformed_sums[sum_base + second]);
+        if (transformed < best) {
+          best = transformed;
           best_first = first;
           best_second = second;
         }
       }
     }
 
-    const std::size_t first_node = active_nodes[best_first];
-    const std::size_t second_node = active_nodes[best_second];
-    const float joined_distance = distances[best_first * count + best_second];
-    const float first_length = 0.5F *
-        (joined_distance + transformed_sums[best_first] -
-         transformed_sums[best_second]);
-    const float second_length = 0.5F *
-        (joined_distance + transformed_sums[best_second] -
-         transformed_sums[best_first]);
+    const auto at = [&](std::size_t first, std::size_t second) -> float& {
+      if (second < first) std::swap(first, second);
+      return distances[
+          value_base + packed_index(first, second, size)];
+    };
+    const float joined_distance = at(best_first, best_second);
+    const float first_length = joined_distance * 0.5F +
+        (transformed_sums[sum_base + best_first] -
+         transformed_sums[sum_base + best_second]) * 0.5F;
+    const float second_length = joined_distance * 0.5F +
+        (transformed_sums[sum_base + best_second] -
+         transformed_sums[sum_base + best_first]) * 0.5F;
     const std::size_t joined_node = next_node++;
-    add_source_edge(tree, joined_node, first_node, first_length);
-    add_source_edge(tree, joined_node, second_node, second_length);
+    add_source_edge(
+        tree, joined_node, active_nodes[best_first], first_length);
+    add_source_edge(
+        tree, joined_node, active_nodes[best_second], second_length);
+    active_nodes[best_first] = joined_node;
+    active_nodes[best_second] = active_nodes[0];
 
-    // Mirror NJ_compute_r followed by NJ_collapse. Preserving these update and
-    // accumulation orders matters because the supplied implementation retains
-    // every intermediate in single precision rather than recomputing row sums.
-    for (std::size_t index = best_first + 1; index < count; ++index) {
-      row_sums[index] -= distances[best_first * count + index];
+    for (std::size_t index = best_first + 1; index < size; ++index) {
+      row_sums[sum_base + index] -= at(best_first, index);
       if (index > best_second) {
-        row_sums[index] -= distances[best_second * count + index];
+        row_sums[sum_base + index] -= at(best_second, index);
       }
     }
     for (std::size_t index = 0; index < best_second; ++index) {
       if (index < best_first) {
-        row_sums[index] -= distances[index * count + best_first];
+        row_sums[sum_base + index] -= at(index, best_first);
       }
-      row_sums[index] -= distances[index * count + best_second];
+      row_sums[sum_base + index] -= at(index, best_second);
     }
 
-    std::vector<float> mutated = distances;
-    row_sums[best_first] = 0.0F;
-    const float next_divisor = static_cast<float>(count - 3);
-    for (std::size_t index = best_first + 1; index < count; ++index) {
-      const float joined = 0.5F *
-          ((distances[best_first * count + index] - first_length) +
-           (distances[best_second * count + index] - second_length));
-      mutated[best_first * count + index] = joined;
-      mutated[index * count + best_first] = joined;
-      row_sums[best_first] += joined;
-      row_sums[index] += joined;
-      transformed_sums[index] = row_sums[index] / next_divisor;
+    row_sums[sum_base + best_first] = 0.0F;
+    for (std::size_t index = best_first + 1; index < size; ++index) {
+      const float joined =
+          ((at(best_first, index) - first_length) +
+           (at(best_second, index) - second_length)) * 0.5F;
+      at(best_first, index) = joined;
+      row_sums[sum_base + best_first] += joined;
+      row_sums[sum_base + index] += joined;
+      transformed_sums[sum_base + index] =
+          row_sums[sum_base + index] / static_cast<float>(size - 3);
     }
     for (std::size_t index = 0; index < best_first; ++index) {
-      const float joined = 0.5F *
-          ((distances[index * count + best_first] - first_length) +
-           (distances[index * count + best_second] - second_length));
-      mutated[index * count + best_first] = joined;
-      mutated[best_first * count + index] = joined;
-      row_sums[best_first] += joined;
-      row_sums[index] += joined;
-      transformed_sums[index] = row_sums[index] / next_divisor;
+      const float joined =
+          ((at(index, best_first) - first_length) +
+           (at(index, best_second) - second_length)) * 0.5F;
+      at(index, best_first) = joined;
+      row_sums[sum_base + best_first] += joined;
+      row_sums[sum_base + index] += joined;
+      transformed_sums[sum_base + index] =
+          row_sums[sum_base + index] / static_cast<float>(size - 3);
     }
-    transformed_sums[best_first] = row_sums[best_first] / next_divisor;
+    transformed_sums[sum_base + best_first] =
+        row_sums[sum_base + best_first] / static_cast<float>(size - 3);
 
-    // Put the joined clade at row a, copy updated row zero and its node into
-    // row b, then drop row zero exactly as the packed matrix does.
-    active_nodes[best_first] = joined_node;
-    active_nodes[best_second] = active_nodes[0];
-    for (std::size_t index = 0; index < count; ++index) {
-      const float copied = mutated[index];
-      mutated[best_second * count + index] = copied;
-      mutated[index * count + best_second] = copied;
+    for (std::size_t index = 0; index < best_second; ++index) {
+      at(index, best_second) = distances[value_base + index];
     }
-    mutated[best_second * count + best_second] = 0.0F;
-    row_sums[best_second] = row_sums[0];
-    transformed_sums[best_second] = transformed_sums[0];
+    std::size_t source = best_second + 1;
+    for (std::size_t index = best_second + 1; index < size; ++index) {
+      at(best_second, index) = distances[value_base + source++];
+    }
+    row_sums[sum_base + best_second] = row_sums[sum_base];
+    transformed_sums[sum_base + best_second] = transformed_sums[sum_base];
 
-    std::vector<float> compacted((count - 1) * (count - 1), 0.0F);
-    for (std::size_t first = 1; first < count; ++first) {
-      for (std::size_t second = 1; second < count; ++second) {
-        compacted[(first - 1) * (count - 1) + second - 1] =
-            mutated[first * count + second];
-      }
-    }
     active_nodes.erase(active_nodes.begin());
-    row_sums.erase(row_sums.begin());
-    transformed_sums.erase(transformed_sums.begin());
-    distances = std::move(compacted);
+    value_base += size;
+    ++sum_base;
+    --size;
   }
 
+  const float remaining =
+      distances[value_base + packed_index(0, 1, size)];
   const std::size_t root = next_node++;
-  const float remaining = distances[1];
   add_source_edge(tree, root, active_nodes[0], remaining);
   add_source_edge(tree, root, active_nodes[1], remaining);
   tree.root = root;
   tree.adjacency.resize(next_node);
   return tree;
 }
-
 void collect_leaves(
     const NjTree& tree,
     std::size_t node,
@@ -375,6 +396,444 @@ double source_parsed_branch_length(double serialized_length) {
   return std::min(
       1.0,
       std::trunc(std::max(0.0, serialized_length) * 10000.0) / 10000.0);
+}
+
+void append_source_branch_length(std::string& output, double branch_length) {
+  output.push_back(':');
+  double value = std::abs(branch_length);
+  if (value < 1.0) {
+    output += "0.";
+  } else {
+    output.push_back(static_cast<char>(static_cast<int>(value) + '0'));
+    output.push_back('.');
+  }
+  value -= static_cast<int>(value);
+  int modulus = 100000;
+  int remainder = static_cast<int>(value * static_cast<double>(modulus));
+  int digit = remainder / (modulus / 10);
+  while (modulus > 10) {
+    output.push_back(static_cast<char>(digit + '0'));
+    modulus /= 10;
+    remainder -= digit * modulus;
+    digit = remainder / (modulus / 10);
+  }
+}
+
+void append_source_taxon_name(
+    std::string& output,
+    std::size_t taxon,
+    int name_modulus) {
+  output.push_back('S');
+  int remainder = static_cast<int>(taxon);
+  int modulus = name_modulus;
+  int digit = remainder / modulus;
+  output.push_back(static_cast<char>(digit + '0'));
+  while (modulus > 1) {
+    remainder -= digit * modulus;
+    digit = remainder / (modulus / 10);
+    output.push_back(static_cast<char>(digit + '0'));
+    modulus /= 10;
+  }
+}
+
+void append_source_clearcut_newick_node(
+    const NjTree& tree,
+    std::size_t node,
+    std::size_t parent,
+    std::size_t root_left,
+    double parent_length,
+    int name_modulus,
+    std::string& output) {
+  if (node < tree.leaf_count) {
+    append_source_taxon_name(output, node, name_modulus);
+    append_source_branch_length(output, parent_length);
+    return;
+  }
+  output.push_back('(');
+  bool first_child = true;
+  for (const Edge& edge : tree.adjacency[node]) {
+    if (edge.to == parent) continue;
+    if (!first_child) output.push_back(',');
+    append_source_clearcut_newick_node(
+        tree, edge.to, node, root_left, edge.length, name_modulus, output);
+    first_child = false;
+  }
+  output.push_back(')');
+  // NJ_output_tree2 omits the length of the root and, unusually, the root's
+  // left internal child. TreeToArrayP2 then scans forward to the next decimal
+  // for that child. Preserve that parser-visible omission exactly.
+  if (node != tree.root && node != root_left) {
+    append_source_branch_length(output, parent_length);
+  }
+}
+
+std::vector<std::uint8_t> source_clearcut_newick_holder(const NjTree& tree) {
+  if (tree.adjacency.empty()) return {};
+  int name_modulus = 10;
+  if (tree.leaf_count > 100) name_modulus = 100;
+  if (tree.leaf_count > 1000) name_modulus = 1000;
+  const std::size_t root_left = tree.adjacency[tree.root].empty()
+      ? tree.root
+      : tree.adjacency[tree.root].front().to;
+  std::string serialized;
+  serialized.reserve(tree.leaf_count * 24);
+  append_source_clearcut_newick_node(
+      tree,
+      tree.root,
+      tree.adjacency.size(),
+      root_left,
+      0.0,
+      name_modulus,
+      serialized);
+  serialized.push_back(';');
+  std::vector<std::uint8_t> holder(serialized.size() + 1, 0);
+  std::copy(serialized.begin(), serialized.end(), holder.begin() + 1);
+  return holder;
+}
+
+std::vector<double> source_tree2arrayp2_rank_distances(
+    const NjTree& tree,
+    std::size_t& rank_levels) {
+  const std::size_t count = tree.leaf_count;
+  rank_levels = 0;
+  if (count == 0) return {};
+  const int upper = static_cast<int>(count) - 1;
+  const int name_length = std::max(
+      2, static_cast<int>(std::to_string(upper).size()));
+  const int max_position = upper * 3 + 100;
+  const auto holder = source_clearcut_newick_holder(tree);
+  if (holder.empty()) return std::vector<double>(count * count, 0.0);
+  const auto semicolon = std::find(holder.begin(), holder.end(), ';');
+  const int tree_length = static_cast<int>(semicolon - holder.begin());
+  std::vector<int> node_order(max_position + 1, 0);
+  std::vector<int> done_node(max_position + 1, 0);
+  std::vector<double> node_length(max_position + 1, 0.0);
+  std::vector<double> num_done(max_position + 1, 0.0);
+  std::vector<float> tree_matrix(count * count, 0.0F);
+
+  const auto parse_length = [&](int decimal_position) {
+    if (decimal_position < 2 ||
+        decimal_position >= static_cast<int>(holder.size())) {
+      return 0.0;
+    }
+    int adjustment = 2;
+    double value = 0.0;
+    for (int offset = 0; offset <= 6; ++offset) {
+      const int position = decimal_position - 2 + offset;
+      const int character = position >= 0 &&
+              position < static_cast<int>(holder.size())
+          ? holder[position]
+          : 0;
+      if (character > '0' - 1 && character < '9' + 1) {
+        value += static_cast<double>(character - '0') *
+            std::pow(10.0, 6 - offset - adjustment);
+      } else {
+        --adjustment;
+      }
+    }
+    return holder[decimal_position - 2] == '-'
+        ? 0.0
+        : value / 10000.0;
+  };
+
+  int last_position = 0;
+  int current_position = 0;
+  int current_node = upper;
+  while (last_position < tree_length && current_position <= max_position) {
+    ++last_position;
+    if (holder[last_position] == 'S' && current_position <= max_position) {
+      for (int offset = 1; offset <= name_length; ++offset) {
+        node_order[current_position] += static_cast<int>(
+            0.1 + (holder[last_position + offset] - '0') *
+                std::pow(10.0, name_length - offset));
+      }
+      int tree_position = last_position + 2;
+      while (tree_position < tree_length) {
+        if (holder[tree_position] == '.') {
+          const int node = node_order[current_position];
+          node_length[node] += parse_length(tree_position);
+          done_node[node] = 1;
+          break;
+        }
+        ++tree_position;
+      }
+      while (current_position <= max_position) {
+        ++current_position;
+        if (node_order[current_position] == 0) break;
+      }
+    } else if (holder[last_position] == '(' && current_position <= max_position) {
+      ++current_node;
+      node_order[current_position] = current_node;
+      while (node_order[current_position] != 0) {
+        ++current_position;
+        if (current_position > max_position) break;
+      }
+      if (current_node != upper + 1) {
+        int tree_node = current_node;
+        int temporary_position = current_position;
+        int tree_position = last_position;
+        do {
+          ++tree_position;
+          if (holder[tree_position] == '(') {
+            ++tree_node;
+            ++temporary_position;
+            if (temporary_position > max_position) break;
+          } else if (holder[tree_position] == 'S') {
+            tree_position += name_length + 7;
+            ++temporary_position;
+            if (temporary_position > max_position) break;
+          } else if (holder[tree_position] == ')') {
+            ++temporary_position;
+            if (temporary_position > max_position) break;
+            --tree_node;
+            if (tree_node == current_node - 1) {
+              while (tree_position < tree_length) {
+                ++tree_position;
+                if (holder[tree_position] == '.') break;
+              }
+              node_length[current_node] += parse_length(tree_position);
+              done_node[current_node] = 1;
+              node_order[temporary_position - 1] = current_node;
+            }
+          } else if (holder[tree_position] == ';' ||
+                     holder[tree_position] == 0) {
+            break;
+          }
+        } while (done_node[current_node] == 0);
+      }
+    } else if (holder[last_position] == ';' || holder[last_position] == 0) {
+      break;
+    }
+  }
+
+  for (double& length : node_length) {
+    length = std::clamp(length, 0.0, 1.0);
+  }
+  int saw_empty = 0;
+  for (int& node : node_order) {
+    if (node != 0) continue;
+    if (saw_empty == 0) {
+      saw_empty = 1;
+    } else {
+      node = upper + 1;
+      break;
+    }
+  }
+  for (int first_position = 0;
+       first_position <= max_position;
+       ++first_position) {
+    std::fill(num_done.begin(), num_done.end(), 1.0);
+    if (node_order[first_position] > upper) continue;
+    double distance = node_length[node_order[first_position]];
+    for (int second_position = first_position + 1;
+         second_position <= max_position;
+         ++second_position) {
+      if (node_order[second_position] == upper + 1) break;
+      if (node_order[second_position] > upper) {
+        distance += node_length[node_order[second_position]] *
+            num_done[node_order[second_position]];
+        num_done[node_order[second_position]] *= -1.0;
+      } else {
+        const float value = static_cast<float>(
+            distance + node_length[node_order[second_position]]);
+        tree_matrix[
+            node_order[first_position] + node_order[second_position] * count] =
+            value;
+        tree_matrix[
+            node_order[second_position] + node_order[first_position] * count] =
+            value;
+      }
+    }
+  }
+  for (std::size_t first = 0; first < count; ++first) {
+    for (std::size_t second = first + 1; second < count; ++second) {
+      const float value = static_cast<float>(
+          std::round(tree_matrix[first + second * count] * 100000.0) /
+          100000.0);
+      tree_matrix[first + second * count] = value;
+      tree_matrix[second + first * count] = value;
+    }
+  }
+  for (double& length : node_length) {
+    length = std::round(length * 100000.0) / 100000.0;
+  }
+
+  double diameter = 0.0;
+  int diameter_first = 0;
+  int diameter_second = 0;
+  for (int first = 0; first < upper; ++first) {
+    for (int second = first + 1; second <= upper; ++second) {
+      if (diameter < tree_matrix[first + second * count]) {
+        diameter = tree_matrix[first + second * count];
+        diameter_first = first;
+        diameter_second = second;
+      }
+    }
+  }
+  const double midpoint = diameter / 2.0;
+  std::fill(num_done.begin(), num_done.end(), 1.0);
+  int midpoint_position = 0;
+  double traversed = 0.0;
+  for (int position = 0; position <= max_position; ++position) {
+    int other = -1;
+    if (node_order[position] == diameter_first) other = diameter_second;
+    else if (node_order[position] == diameter_second) other = diameter_first;
+    if (other < 0) continue;
+    int end_position = position + 1;
+    do {
+      if (node_order[end_position] > upper) {
+        num_done[node_order[end_position]] *= -1.0;
+      } else if (node_order[end_position] == other) {
+        break;
+      }
+      ++end_position;
+    } while (node_order[end_position] != other);
+
+    traversed += node_length[node_order[position]];
+    if (traversed < midpoint) {
+      for (int path_position = position + 1;
+           path_position <= end_position;
+           ++path_position) {
+        if (node_order[path_position] > upper ||
+            node_order[path_position] == node_order[end_position]) {
+          if (num_done[node_order[path_position]] == -1.0 ||
+              node_order[path_position] == node_order[end_position]) {
+            num_done[node_order[path_position]] *= -1.0;
+            if (traversed + node_length[node_order[path_position]] < midpoint) {
+              traversed += node_length[node_order[path_position]];
+            } else {
+              midpoint_position = path_position;
+              break;
+            }
+          }
+        }
+      }
+    } else {
+      midpoint_position = position;
+    }
+    break;
+  }
+
+  int maximum_nonzero = max_position;
+  for (int position = max_position; position >= 0; --position) {
+    if (node_order[position] != 0) {
+      maximum_nonzero = position;
+      break;
+    }
+  }
+  int left_root = 0;
+  for (; left_root <= maximum_nonzero; ++left_root) {
+    if (node_order[left_root] == node_order[midpoint_position]) break;
+  }
+  int right_root = left_root;
+  if (node_order[midpoint_position] > upper) {
+    for (int position = maximum_nonzero; position >= 0; --position) {
+      if (node_order[position] == node_order[midpoint_position]) {
+        right_root = position;
+        break;
+      }
+    }
+  }
+
+  std::vector<int> reordered;
+  reordered.reserve(maximum_nonzero + 5);
+  reordered.push_back(upper * 2 + 3);
+  for (int position = left_root; position <= right_root; ++position) {
+    reordered.push_back(node_order[position]);
+  }
+  reordered.push_back(upper * 2 + 2);
+  for (int position = left_root - 1; position > 0; --position) {
+    reordered.push_back(node_order[position]);
+  }
+  for (int position = maximum_nonzero - 1;
+       position >= right_root + 1;
+       --position) {
+    reordered.push_back(node_order[position]);
+  }
+  reordered.push_back(upper * 2 + 2);
+  reordered.push_back(upper * 2 + 3);
+
+  std::vector<int> done(max_position + 1, 0);
+  std::vector<double> result(count * count, 0.0);
+  int rank = upper + 1;
+  for (int outer_close = static_cast<int>(reordered.size()) - 1;
+       outer_close > 0;
+       --outer_close) {
+    if (reordered[outer_close] <= upper ||
+        done[reordered[outer_close]] != 0) {
+      continue;
+    }
+    done[reordered[outer_close]] = 1;
+    const int outer_label = reordered[outer_close];
+    int inner_close = -1;
+    int inner_label = -1;
+    for (int position = outer_close - 1; position > 0; --position) {
+      if (reordered[position] > upper && done[reordered[position]] == 0) {
+        inner_label = reordered[position];
+        inner_close = position;
+        break;
+      }
+    }
+    int inner_open = -1;
+    for (int position = inner_close - 1; position > 0; --position) {
+      if (reordered[position] == inner_label) {
+        inner_open = position;
+        break;
+      }
+    }
+    if (inner_open < 0) continue;
+    int outer_open = -1;
+    for (int position = inner_open - 1; position >= 0; --position) {
+      if (reordered[position] == outer_label) {
+        outer_open = position;
+        break;
+      }
+    }
+    if (outer_open < 0) continue;
+    std::vector<int> first_list;
+    std::vector<int> second_list;
+    for (int position = outer_open; position < inner_open; ++position) {
+      if (reordered[position] <= upper) first_list.push_back(reordered[position]);
+    }
+    for (int position = inner_close + 1;
+         position < outer_close;
+         ++position) {
+      if (reordered[position] <= upper) first_list.push_back(reordered[position]);
+    }
+    for (int position = inner_open + 1;
+         position < inner_close;
+         ++position) {
+      if (reordered[position] <= upper) second_list.push_back(reordered[position]);
+    }
+    if (first_list.empty() || second_list.empty()) continue;
+    --rank;
+    for (const int first : first_list) {
+      for (const int second : second_list) {
+        result[first * count + second] = rank / 1000.0;
+        result[second * count + first] = rank / 1000.0;
+      }
+    }
+  }
+  for (std::size_t position = 0; position + 1 < reordered.size(); ++position) {
+    if (reordered[position] <= upper && reordered[position + 1] <= upper) {
+      --rank;
+      result[reordered[position] * count + reordered[position + 1]] =
+          rank / 1000.0;
+      result[reordered[position + 1] * count + reordered[position]] =
+          rank / 1000.0;
+    }
+  }
+  std::vector<double> levels;
+  levels.reserve(count > 0 ? count - 1 : 0);
+  for (std::size_t first = 0; first < count; ++first) {
+    for (std::size_t second = first + 1; second < count; ++second) {
+      levels.push_back(result[first * count + second]);
+    }
+  }
+  std::sort(levels.begin(), levels.end());
+  levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
+  rank_levels = levels.size();
+  return result;
 }
 
 std::vector<double> source_node_distances(
@@ -554,154 +1013,203 @@ SourceMidpointRankTree source_midpoint_rank_tree_distances(const NjTree& tree) {
       ultrametric[second * count + first] = adjusted;
     }
   }
-  result.ranked_distances = source_rank_tree_distances(
-      ultrametric, count, result.rank_levels);
+  // RDP 5.93 uses Tree2ArrayP2 here. Unlike the older Tree2ArrayP path, it
+  // assigns ranks from a midpoint-rerooted Newick token stream rather than
+  // ranking branch-length-derived ultrametric distances. Its parser quirks
+  // are observable in role consensus, so retain them in the conversion.
+  result.ranked_distances =
+      source_tree2arrayp2_rank_distances(tree, result.rank_levels);
   return result;
 }
 
-std::vector<double> source_collapsed_rank_tree_distances(
-    const NjTree& tree,
+struct SourceNodeGroups {
+  std::vector<float> trace_values;
+  std::vector<std::vector<std::uint8_t>> members;
+  std::size_t populated = 0;
+};
+
+SourceNodeGroups source_midpoint_node_groups(
     const SourceMidpointRankTree& raw,
-    const std::unordered_set<std::string>& weak_splits,
-    std::unordered_set<std::string>& effective_collapsed_splits,
-    std::size_t& rank_levels) {
+    std::size_t count) {
+  SourceNodeGroups groups;
+  groups.trace_values.assign(count, 0.0F);
+  groups.members.assign(count, std::vector<std::uint8_t>(count, 0));
+  if (raw.ranked_distances.size() != count * count || count == 0) {
+    return groups;
+  }
+
+  // MakeNodeDepth first converts each matrix value back to its integer
+  // thousandth, then scans those levels in ascending order.  A node's match
+  // row is the union of all leaves participating in a pair at that level.
+  const int maximum_level = static_cast<int>((count - 1) * 2);
+  std::vector<std::vector<std::uint8_t>> by_level(
+      static_cast<std::size_t>(maximum_level + 1),
+      std::vector<std::uint8_t>(count, 0));
+  std::vector<std::uint8_t> present(
+      static_cast<std::size_t>(maximum_level + 1), 0);
+  for (std::size_t first = 0; first + 1 < count; ++first) {
+    for (std::size_t second = first + 1; second < count; ++second) {
+      const int level = static_cast<int>(std::nearbyint(
+          raw.ranked_distances[first * count + second] * 1000.0));
+      if (level < 0 || level > maximum_level) continue;
+      present[static_cast<std::size_t>(level)] = 1;
+      by_level[static_cast<std::size_t>(level)][first] = 1;
+      by_level[static_cast<std::size_t>(level)][second] = 1;
+    }
+  }
+  for (int level = 0;
+       level <= maximum_level && groups.populated < count;
+       ++level) {
+    if (present[static_cast<std::size_t>(level)] == 0) continue;
+    groups.trace_values[groups.populated] =
+        static_cast<float>(level) / 1000.0F;
+    groups.members[groups.populated] =
+        std::move(by_level[static_cast<std::size_t>(level)]);
+    ++groups.populated;
+  }
+  return groups;
+}
+
+std::vector<std::vector<std::uint8_t>> source_newick_node_groups(
+    const NjTree& tree) {
   const std::size_t count = tree.leaf_count;
-  if (weak_splits.empty() || raw.ranked_distances.size() != count * count) {
-    rank_levels = raw.rank_levels;
-    return raw.ranked_distances;
+  std::vector<std::vector<std::uint8_t>> groups(
+      count, std::vector<std::uint8_t>(count, 0));
+  if (count == 0) return groups;
+  const int upper = static_cast<int>(count) - 1;
+  const int name_length = std::max(
+      2, static_cast<int>(std::to_string(upper).size()));
+  const auto holder = source_clearcut_newick_holder(tree);
+  std::size_t node_count = 0;
+  for (std::size_t position = 1;
+       position < holder.size() && node_count < count;
+       ++position) {
+    if (holder[position] != '(') continue;
+    int depth = 1;
+    for (std::size_t cursor = position + 1;
+         cursor < holder.size() && depth > 0;
+         ++cursor) {
+      if (holder[cursor] == '(') {
+        ++depth;
+      } else if (holder[cursor] == ')') {
+        --depth;
+      } else if (holder[cursor] == 'S') {
+        int taxon = 0;
+        for (int digit = 1; digit <= name_length; ++digit) {
+          taxon += static_cast<int>(
+              0.1 + (holder[cursor + static_cast<std::size_t>(digit)] - '0') *
+                  std::pow(10.0, name_length - digit));
+        }
+        if (taxon >= 0 && taxon <= upper) {
+          groups[node_count][static_cast<std::size_t>(taxon)] = 1;
+        }
+      }
+    }
+    ++node_count;
   }
+  return groups;
+}
 
-  struct TopologyNeighbor {
-    std::size_t node = 0;
-    std::uint64_t original_edge = 0;
-    bool midpoint_half = false;
-  };
-  const bool virtual_root =
-      raw.root_node == std::numeric_limits<std::size_t>::max();
-  const std::size_t root = virtual_root ? tree.adjacency.size() : raw.root_node;
-  std::vector<std::vector<TopologyNeighbor>> adjacency(
-      tree.adjacency.size() + (virtual_root ? 1 : 0));
-  const std::uint64_t midpoint_edge = virtual_root
-      ? topology_edge_key(raw.root_edge_first, raw.root_edge_second)
-      : std::numeric_limits<std::uint64_t>::max();
-  for (std::size_t first = 0; first < tree.adjacency.size(); ++first) {
-    for (const Edge& edge : tree.adjacency[first]) {
-      if (first >= edge.to) continue;
-      const std::uint64_t key = topology_edge_key(first, edge.to);
-      if (virtual_root && key == midpoint_edge) continue;
-      adjacency[first].push_back({edge.to, key, false});
-      adjacency[edge.to].push_back({first, key, false});
+void source_add_tree_group_support(
+    const NjTree& replicate_tree,
+    const SourceNodeGroups& base_groups,
+    std::vector<std::size_t>& support) {
+  const std::size_t count = replicate_tree.leaf_count;
+  const auto replicate_groups = source_newick_node_groups(replicate_tree);
+  std::vector<std::uint8_t> done(count, 0);
+  // This is TreeGroupsXP's loop order, including its all-zero unused node row
+  // and its one-use rule for each replicate clade.  Both the exact group and
+  // its complement count as a match.
+  for (std::size_t base = 0; base < count; ++base) {
+    for (std::size_t candidate = 0; candidate < count; ++candidate) {
+      if (done[candidate] != 0) continue;
+      std::size_t misses = 0;
+      std::size_t hits = 0;
+      for (std::size_t leaf = 0; leaf < count; ++leaf) {
+        if (replicate_groups[candidate][leaf] ==
+            base_groups.members[base][leaf]) {
+          ++hits;
+        } else {
+          ++misses;
+        }
+        if (misses > 0 && hits > 0) break;
+      }
+      if (misses == 0 || hits == 0) {
+        ++support[base];
+        done[candidate] = 1;
+      }
     }
   }
-  if (virtual_root) {
-    adjacency[root].push_back({raw.root_edge_first, midpoint_edge, true});
-    adjacency[root].push_back({raw.root_edge_second, midpoint_edge, true});
-    adjacency[raw.root_edge_first].push_back({root, midpoint_edge, true});
-    adjacency[raw.root_edge_second].push_back({root, midpoint_edge, true});
-  }
+}
 
-  std::vector<std::size_t> parent(adjacency.size(), adjacency.size());
-  std::vector<std::uint64_t> parent_edge(
-      adjacency.size(), std::numeric_limits<std::uint64_t>::max());
-  std::vector<bool> parent_midpoint_half(adjacency.size(), false);
-  std::vector<std::size_t> depth(adjacency.size(), 0);
-  std::vector<std::size_t> order{root};
-  parent[root] = root;
-  for (std::size_t cursor = 0; cursor < order.size(); ++cursor) {
-    const std::size_t node = order[cursor];
-    for (const TopologyNeighbor& edge : adjacency[node]) {
-      if (parent[edge.node] != adjacency.size()) continue;
-      parent[edge.node] = node;
-      parent_edge[edge.node] = edge.original_edge;
-      parent_midpoint_half[edge.node] = edge.midpoint_half;
-      depth[edge.node] = depth[node] + 1;
-      order.push_back(edge.node);
-    }
+std::vector<double> source_collapsed_rank_tree_distances(
+    const SourceMidpointRankTree& raw,
+    const SourceNodeGroups& groups,
+    const std::vector<std::size_t>& support_percent,
+    std::size_t count,
+    std::size_t& rank_levels) {
+  if (raw.ranked_distances.size() != count * count) {
+    rank_levels = 0;
+    return {};
   }
-
-  std::vector<std::size_t> descendant_leaf(
-      adjacency.size(), std::numeric_limits<std::size_t>::max());
-  for (auto cursor = order.rbegin(); cursor != order.rend(); ++cursor) {
-    const std::size_t node = *cursor;
-    if (node < count) descendant_leaf[node] = node;
-    for (const TopologyNeighbor& edge : adjacency[node]) {
-      if (parent[edge.node] != node) continue;
-      descendant_leaf[node] = std::min(
-          descendant_leaf[node], descendant_leaf[edge.node]);
-    }
-  }
-  std::vector<double> node_rank(adjacency.size(), 0.0);
-  for (const std::size_t node : order) {
-    std::size_t first_leaf = std::numeric_limits<std::size_t>::max();
-    std::size_t second_leaf = std::numeric_limits<std::size_t>::max();
-    for (const TopologyNeighbor& edge : adjacency[node]) {
-      if (parent[edge.node] != node ||
-          descendant_leaf[edge.node] == std::numeric_limits<std::size_t>::max()) {
+  std::vector<float> working(raw.ranked_distances.begin(),
+                             raw.ranked_distances.end());
+  std::vector<float> collapsed(count * count, 0.0F);
+  for (std::size_t node = 0; node < count; ++node) {
+    const float trace = groups.trace_values[node];
+    const bool weak = node >= support_percent.size() ||
+        support_percent[node] <
+            static_cast<std::size_t>(kBootstrapCollapseCutoff * 100.0);
+    if (weak) {
+      bool found_pair = false;
+      float next_distance = 100000.0F;
+      for (std::size_t first = 0; first + 1 < count && !found_pair; ++first) {
+        for (std::size_t second = first + 1; second < count; ++second) {
+          if (working[first * count + second] != trace) continue;
+          found_pair = true;
+          for (std::size_t other = 0; other < count; ++other) {
+            const float first_distance = working[other * count + first];
+            const float second_distance = working[other * count + second];
+            if (first_distance == second_distance &&
+                first_distance > trace && first_distance < next_distance) {
+              next_distance = first_distance;
+            }
+          }
+          break;
+        }
+      }
+      if (!found_pair) continue;
+      if (next_distance < 100000.0F) {
+        for (std::size_t first = 0; first + 1 < count; ++first) {
+          for (std::size_t second = first + 1; second < count; ++second) {
+            if (working[first * count + second] != trace) continue;
+            working[first * count + second] = next_distance;
+            working[second * count + first] = next_distance;
+          }
+        }
         continue;
       }
-      if (first_leaf == std::numeric_limits<std::size_t>::max()) {
-        first_leaf = descendant_leaf[edge.node];
-      } else {
-        second_leaf = descendant_leaf[edge.node];
-        break;
+    }
+    for (std::size_t first = 0; first + 1 < count; ++first) {
+      for (std::size_t second = first + 1; second < count; ++second) {
+        if (working[first * count + second] != trace) continue;
+        collapsed[first * count + second] = trace;
+        collapsed[second * count + first] = trace;
       }
     }
-    if (second_leaf != std::numeric_limits<std::size_t>::max()) {
-      node_rank[node] = raw.ranked_distances[first_leaf * count + second_leaf];
-    }
   }
 
-  const auto edge_splits = internal_edge_splits(tree);
-  std::unordered_map<std::string, std::size_t> split_occurrences;
-  for (const auto& [key, split] : edge_splits) {
-    (void)key;
-    ++split_occurrences[split];
-  }
-  const auto collapses_parent_edge = [&](std::size_t node) {
-    if (node == root || parent_midpoint_half[node]) return false;
-    const auto split = edge_splits.find(parent_edge[node]);
-    if (split == edge_splits.end() ||
-        split_occurrences[split->second] != 1 ||
-        !weak_splits.contains(split->second)) {
-      return false;
-    }
-    effective_collapsed_splits.insert(split->second);
-    return true;
-  };
-
-  const auto lca = [&](std::size_t first, std::size_t second) {
-    while (depth[first] > depth[second]) first = parent[first];
-    while (depth[second] > depth[first]) second = parent[second];
-    while (first != second) {
-      first = parent[first];
-      second = parent[second];
-    }
-    return first;
-  };
-
-  std::vector<double> collapsed(count * count, 0.0);
-  for (std::size_t first = 0; first < count; ++first) {
-    for (std::size_t second = first + 1; second < count; ++second) {
-      std::size_t node = lca(first, second);
-      while (node != root && collapses_parent_edge(node)) node = parent[node];
-      while (node != root && node_rank[node] == 0.0) node = parent[node];
-      const double rank = node_rank[node] > 0.0
-          ? node_rank[node]
-          : raw.ranked_distances[first * count + second];
-      collapsed[first * count + second] = rank;
-      collapsed[second * count + first] = rank;
-    }
-  }
+  std::vector<double> result(collapsed.begin(), collapsed.end());
   std::vector<double> levels;
-  for (std::size_t first = 0; first < count; ++first) {
+  for (std::size_t first = 0; first + 1 < count; ++first) {
     for (std::size_t second = first + 1; second < count; ++second) {
-      levels.push_back(collapsed[first * count + second]);
+      levels.push_back(result[first * count + second]);
     }
   }
   std::sort(levels.begin(), levels.end());
   levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
   rank_levels = levels.size();
-  return collapsed;
+  return result;
 }
 
 std::size_t source_vb_round_nonnegative(double value) {
@@ -821,6 +1329,11 @@ TreeRegionEvidence build_tree_region_evidence(
       base_distances, sequences.size());
   evidence.negative_branches_normalized =
       base_tree.negative_branches_normalized;
+  const SourceMidpointRankTree raw_ranked =
+      source_midpoint_rank_tree_distances(base_tree);
+  const SourceNodeGroups base_node_groups =
+      source_midpoint_node_groups(raw_ranked, sequences.size());
+  std::vector<std::size_t> node_group_support(sequences.size(), 0);
   const auto base_splits = internal_splits(base_tree);
   evidence.internal_branches = base_splits.size();
 
@@ -843,12 +1356,23 @@ TreeRegionEvidence build_tree_region_evidence(
         replicate);
     const NjTree replicate_tree = source_clearcut_neighbor_joining(
         replicate_distances, sequences.size());
+    source_add_tree_group_support(
+        replicate_tree, base_node_groups, node_group_support);
     const auto replicate_splits = internal_splits(replicate_tree);
     for (auto& [key, count] : support) {
       if (replicate_splits.contains(key)) ++count;
     }
   }
   evidence.bootstrap_replicates = bootstrap_replicates;
+
+  std::vector<std::size_t> node_group_support_percent(sequences.size(), 0);
+  for (std::size_t node = 0; node < sequences.size(); ++node) {
+    node_group_support_percent[node] = bootstrap_replicates == 0
+        ? 100
+        : source_vb_round_nonnegative(
+              (static_cast<double>(node_group_support[node]) + 1.0) /
+              (static_cast<double>(bootstrap_replicates) + 1.0) * 100.0);
+  }
 
   std::unordered_set<std::string> weak_splits;
   std::unordered_map<std::string, double> split_support;
@@ -870,17 +1394,25 @@ TreeRegionEvidence build_tree_region_evidence(
       ++evidence.supported_internal_branches;
     }
   }
-  const SourceMidpointRankTree raw_ranked =
-      source_midpoint_rank_tree_distances(base_tree);
   evidence.raw_tree_distances = raw_ranked.ranked_distances;
   evidence.raw_distance_rank_levels = raw_ranked.rank_levels;
   std::unordered_set<std::string> effective_collapsed_splits;
-  evidence.collapsed_tree_distances = source_collapsed_rank_tree_distances(
-      base_tree,
-      raw_ranked,
-      weak_splits,
-      effective_collapsed_splits,
-      evidence.collapsed_distance_rank_levels);
+  if (bootstrap_replicates == 0) {
+    // TestMoveInTreeAlt's active Reps=0 branch assigns tFAMat/tSAMat directly
+    // into FCMat/SCMat.  Preserve identity at the stored-value level: passing
+    // through the general float collapse buffer introduces sub-ULP changes
+    // that MakePhPrScore can amplify even though no node was collapsed.
+    evidence.collapsed_tree_distances = evidence.raw_tree_distances;
+    evidence.collapsed_distance_rank_levels =
+        evidence.raw_distance_rank_levels;
+  } else {
+    evidence.collapsed_tree_distances = source_collapsed_rank_tree_distances(
+        raw_ranked,
+        base_node_groups,
+        node_group_support_percent,
+        sequences.size(),
+        evidence.collapsed_distance_rank_levels);
+  }
   evidence.topology_node_count = base_tree.adjacency.size();
   evidence.topology_root = base_tree.root;
   const auto base_edge_splits = internal_edge_splits(base_tree);

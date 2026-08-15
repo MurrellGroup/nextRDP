@@ -2225,18 +2225,18 @@ export function ReviewStep({
             <div className="card-heading split-heading">
               <div>
                 <span className="eyebrow">Phylogenetic-correlation set</span>
-                <h3>Six-region bootstrap neighbour joining</h3>
+                <h3>Six-region neighbour joining</h3>
               </div>
               <span className="fidelity-badge">
-                {selected.treePanel.sequenceCount} sequences · 10 replicates
+                {selected.treePanel.sequenceCount} sequences · unbootstrapped
               </span>
             </div>
             <p className="evidence-method-note">
               Each candidate must group more closely with the presumed recombinant than either
-              parent in both trees of a paired region. Internal branches below 50% bootstrap support
-              are collapsed. The analytical comparisons use the desktop RDP calculation path and its
-              midpoint-rooted ultrametric topology ranks after Clearcut float NJ and SEQBOOT2
-              resampling (seed {selected.treePanel.randomSeed}); breakpoint flanks target{" "}
+              parent in both trees of a paired region. The active RDP 5.93 event path requests zero
+              bootstrap replicates, so the nominal collapsed matrices are exact copies of the raw
+              tree ranks. The analytical comparisons use the desktop Tree2ArrayP2 midpoint ranks
+              after Clearcut float NJ; breakpoint flanks target{" "}
               {selected.treePanel.flankVariableSiteTarget} informative variable sites on each side.{" "}
               {selected.treePanel.subsampled
                 ? `The closest ${selected.treePanel.sequenceCap} sequences form the tree panel; remaining active sequences use the marked Jukes–Cantor fallback.`
