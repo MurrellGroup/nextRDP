@@ -2001,12 +2001,12 @@ for (const reconstructionContract of [
   }
 }
 for (const pthreadVerifierContract of [
-  "emittedPthreadWorkers",
-  "referencedPthreadWorkers",
-  "/\\.worker\\.(?:js|mjs)$/",
+  "do not necessarily emit a standalone",
+  "threadedModuleSource === moduleSource",
+  "threadedWasm.equals(wasm)",
 ]) {
   if (!pagesVerifier.includes(pthreadVerifierContract)) {
-    fail(`Pages pthread helper verification is missing ${pthreadVerifierContract}`);
+    fail(`Pages pthread artifact verification is missing ${pthreadVerifierContract}`);
   }
 }
 for (const handoffContract of [

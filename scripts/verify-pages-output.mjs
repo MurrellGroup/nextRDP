@@ -78,24 +78,13 @@ const threadedModuleSource = await readFile(threadedModulePath, "utf8");
 if (!threadedModuleSource.includes("rdp-core-threads.wasm")) {
   fail("the pthread Emscripten module does not reference rdp-core-threads.wasm");
 }
-const wasmDirectoryEntries = await readdir(resolve(output, "wasm"));
-// Emscripten derives the pthread helper's basename from the emitted ES module.
-// That name is not an API: CMake OUTPUT_NAME changes and Emscripten releases
-// may legitimately produce either .worker.js or .worker.mjs. Verify the
-// stronger invariant instead -- at least one emitted worker helper must be
-// referenced by the threaded loader that Pages will actually serve.
-const emittedPthreadWorkers = wasmDirectoryEntries.filter((name) =>
-  /\.worker\.(?:js|mjs)$/.test(name));
-const referencedPthreadWorkers = emittedPthreadWorkers.filter((name) =>
-  threadedModuleSource.includes(name));
-if (referencedPthreadWorkers.length === 0) {
-  fail(emittedPthreadWorkers.length === 0
-    ? "the pthread Emscripten worker helper is missing"
-    : `the pthread module does not reference emitted helper(s): ${
-        emittedPthreadWorkers.join(", ")}`);
+// Recent Emscripten releases can bootstrap pthread workers from the generated
+// ES module itself and therefore do not necessarily emit a standalone
+// .worker.js/.worker.mjs helper. The stable artifact contract is the pair of
+// distinct loaders and WASM binaries, not an implementation-private filename.
+if (threadedModuleSource === moduleSource) {
+  fail("the pthread Emscripten module is identical to the single-worker module");
 }
-await Promise.all(referencedPthreadWorkers.map((name) =>
-  requireFile(`wasm/${name}`)));
 
 const bootstrapSource = await readFile(bootstrapPath, "utf8");
 const serviceWorkerSource = await readFile(serviceWorkerPath, "utf8");
@@ -114,6 +103,9 @@ const threadedWasm = await readFile(threadedWasmPath);
 if (threadedWasm.length < 8 ||
     !threadedWasm.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
   fail("rdp-core-threads.wasm does not have a WebAssembly header");
+}
+if (threadedWasm.equals(wasm)) {
+  fail("the pthread WASM artifact is identical to the single-worker artifact");
 }
 
 const { default: createRdpModule } = await import(
@@ -695,5 +687,5 @@ try {
 
 await inspectTree(output);
 console.log(
-  `GitHub Pages artifact verified: ${requiredFiles.length} required files plus the pthread helper, static-host isolation bootstrap, FASTA upload, primary-BootScan/cache, SISCAN/context/random-prefix, cyclic-shortlist, PHYLPRO review, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
+  `GitHub Pages artifact verified: ${requiredFiles.length} required files, distinct single/pthread WASM artifacts, static-host isolation bootstrap, FASTA upload, primary-BootScan/cache, SISCAN/context/random-prefix, cyclic-shortlist, PHYLPRO review, and graceful-stop smoke tests passed, ${totalBytes.toLocaleString()} total bytes.`,
 );
