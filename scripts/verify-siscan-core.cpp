@@ -421,10 +421,10 @@ int main() {
   const std::string project = rdp_export_project_json(handle);
   if (project.find("\"schema\":\"org.rdp-web.project/v1alpha19\"") ==
           std::string::npos ||
-      project.find("\"engineVersion\":\"0.24.0-session-24\"") ==
+      project.find("\"engineVersion\":\"0.25.0-session-25\"") ==
           std::string::npos) {
     destroy_context();
-    fail("the Session 24 SISCAN project version/v1alpha19 schema contract is missing");
+    fail("the Session 25 SISCAN project version/v1alpha19 schema contract is missing");
   }
 
   // A browser context is intentionally reusable. Its second scan must retain

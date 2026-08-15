@@ -283,10 +283,10 @@ int main() {
   const std::string project = rdp_export_project_json(handle);
   if (project.find("\"schema\":\"org.rdp-web.project/v1alpha19\"") ==
           std::string::npos ||
-      project.find("\"engineVersion\":\"0.24.0-session-24\"") ==
+      project.find("\"engineVersion\":\"0.25.0-session-25\"") ==
           std::string::npos) {
     destroy_context();
-    return fail("the Session 24 project version/v1alpha19 schema contract is missing");
+    return fail("the Session 25 project version/v1alpha19 schema contract is missing");
   }
   const std::size_t signal_id_field = results.rfind("\"id\":", bootscan_method);
   if (signal_id_field == std::string::npos) {

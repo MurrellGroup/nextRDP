@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.25.0-session-25
+
+- Restored the supplied internal daughter/minor-parent/major-parent representative order in BURT
+  and late role/group analysis while retaining the public recombinant/major/minor contract.
+- Added TraceSub-equivalent working-row aliases from exact cached signal triplets. Strongest support
+  establishes aliases for all original identities and the anchor triplet takes precedence; older
+  restored records retain their fragment-event fallback.
+- Changed selected-role outlier ranks from original rows to the supplied fragment-expanded `NextNo`
+  population. Symmetric distances are requested once per unordered pair and representative totals
+  reuse the completed rows, roughly halving pair-cache calls without changing summation order.
+- Kept fragment evidence off the primary hot path. When needed, its analytical alignment view copies
+  state bytes only and avoids the alignment's `O(N^2)` pair-similarity table and string metadata.
+- Generalized the Pages pthread artifact check to accept any emitted `.worker.js`/`.worker.mjs`
+  basename that is actually referenced by the threaded Emscripten loader.
+- Preserved the unrelated cyclic selected-result digest and all host-linked BootScan, SISCAN,
+  event-tree, PHYLPRO, cyclic-pruning, and deterministic multicore regressions. Full native cyclic
+  parity remains unclaimed.
+
 ## 0.24.0-session-24
 
 - Added monotonic whole-run timing using `performance.now()`, with separate setup, primary-screen,

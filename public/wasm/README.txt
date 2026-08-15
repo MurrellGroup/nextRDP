@@ -1,8 +1,9 @@
 The generated Emscripten module is written here by scripts/build-wasm.sh.
 
-Session 24 includes the supplied event-tree, SISCAN, and PHYLPRO calculation paths,
-cyclic clean-triplet/fragment pruning, exact phase timing, and deterministic method-level
-multicore dispatch, and keeps the supplied native projects read-only.
+Session 25 includes the supplied event-tree, SISCAN, and PHYLPRO calculation paths,
+cyclic clean-triplet/fragment pruning, exact phase timing, deterministic method-level
+multicore dispatch, and reconstructed TraceSub fragment evidence, and keeps the supplied
+native projects read-only.
 The source exports lazy breakpoint-alignment, six-region event-tree, and PHYLPRO review endpoints.
 Six-region event trees now use source-shaped single-precision Clearcut NJ,
 Microsoft-CRT SEQBOOT2 resampling, retained-base-tree support pseudocounts,

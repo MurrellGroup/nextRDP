@@ -64,6 +64,7 @@ const [
   session22Handoff,
   session23Handoff,
   session24Handoff,
+  session25Handoff,
   bootscanTrace,
   siscanTrace,
   eventTreeTrace,
@@ -139,6 +140,7 @@ const [
   read("docs/session-22-handoff.md"),
   read("docs/session-23-handoff.md"),
   read("docs/session-24-handoff.md"),
+  read("docs/session-25-handoff.md"),
   read("docs/native-bootscan-discovery-trace.md"),
   read("docs/native-siscan-discovery-trace.md"),
   read("docs/native-event-tree-kernel-trace.md"),
@@ -965,7 +967,7 @@ if (!scan.includes("SISCAN triplet profiles") ||
     !review.includes("SISCAN sister-pair permutation switch") ||
     !review.includes("SISCAN fixed-region recheck") ||
     !signalPlot.includes("SISCAN vertical-permutation sister-pair Z scores") ||
-    !exportStep.includes("Session 24 snapshot")) {
+    !exportStep.includes("Session 25 snapshot")) {
   fail("SISCAN progress/review/plot/export workflow is incomplete");
 }
 for (const runtimeContract of [
@@ -1974,6 +1976,40 @@ for (const handoffContract of [
   }
 }
 for (const handoffContract of [
+  "0.25.0-session-25",
+  "org.rdp-web.project/v1alpha19",
+  "daughter, minor parent, major parent",
+  "TraceSub",
+  "fragment-expanded",
+  ".worker.js",
+  "510a6782c1dd818a91ebed4e3dd7bb28fdbfb6e763b6d2ce1bf6464404ce2b3b",
+  "No alternate RDP implementation was consulted",
+]) {
+  if (!session25Handoff.includes(handoffContract)) {
+    fail(`Session 25 handoff is missing ${handoffContract}`);
+  }
+}
+for (const reconstructionContract of [
+  "Native ISeqs is ordered Daughter, MinorP, MajorP",
+  "TraceSub in the supplied implementation substitutes",
+  "expanded_sequence_count = analysis_alignment.sequence_count()",
+  "second = first + 1",
+  "reported_representatives[role]",
+]) {
+  if (!method.includes(reconstructionContract)) {
+    fail(`Session 25 cyclic reconstruction is missing ${reconstructionContract}`);
+  }
+}
+for (const pthreadVerifierContract of [
+  "emittedPthreadWorkers",
+  "referencedPthreadWorkers",
+  "/\\.worker\\.(?:js|mjs)$/",
+]) {
+  if (!pagesVerifier.includes(pthreadVerifierContract)) {
+    fail(`Pages pthread helper verification is missing ${pthreadVerifierContract}`);
+  }
+}
+for (const handoffContract of [
   "0.17.0-session-17",
   "org.rdp-web.project/v1alpha16",
   "Raw KA P",
@@ -2264,15 +2300,15 @@ if (!method.includes("kEventTreeFlankInformativeSites = 20") ||
     !method.includes("flankVariableSiteTarget\\\":")) {
   fail("manual six-tree 20-variable-site flank construction is missing");
 }
-if (!readme.includes("Session 24 source checkpoint") ||
+if (!readme.includes("Session 25 source checkpoint") ||
     !readme.includes("v1alpha19") ||
     !readme.includes("cyclic-shortlist trace") ||
     !readme.includes("native-bootscan-discovery-trace") ||
     !readme.includes("native-siscan-discovery-trace") ||
     !readme.includes("native-event-tree-kernel-trace") ||
     !readme.includes("native-phylpro-review-trace") ||
-    !readme.includes("session-24-handoff") ||
-    !status.includes("Port status — session 24") ||
+    !readme.includes("session-25-handoff") ||
+    !status.includes("Port status — session 25") ||
     !status.includes("SISCAN discovery") ||
     !status.includes("SISCAN fixed-region confirmation") ||
     !status.includes("PHYLPRO event review") ||
@@ -2281,13 +2317,13 @@ if (!readme.includes("Session 24 source checkpoint") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 24 README/status documentation is stale");
+  fail("Session 25 README/status documentation is stale");
 }
-if (!app.includes("Win95 edition · session 24") ||
-    !app.includes("RDP Web 0.24")) {
-  fail("Session 24 application chrome is stale");
+if (!app.includes("Win95 edition · session 25") ||
+    !app.includes("RDP Web 0.25")) {
+  fail("Session 25 application chrome is stale");
 }
-if (!exportStep.includes("Session 24 snapshot") ||
+if (!exportStep.includes("Session 25 snapshot") ||
     !exportStep.includes("supplied-source ranked event-tree provenance") ||
     !exportStep.includes("primary BootScan") ||
     !exportStep.includes("SISCAN") ||
@@ -2296,7 +2332,7 @@ if (!exportStep.includes("Session 24 snapshot") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)") ||
     !exportStep.includes("Event PHYLPRO profiles remain")) {
-  fail("Session 24 export fidelity boundary is stale");
+  fail("Session 25 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",

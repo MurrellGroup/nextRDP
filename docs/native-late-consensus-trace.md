@@ -24,6 +24,24 @@ The browser also exposes bounded MaxChi, CHIMAERA, GENECONV, and 3SEQ corroborat
 finalized rows; full method-origin dispatch and global event-catalogue integration remain a
 documented boundary. Together with primary RDP, these are five active method-family rechecks.
 
+## Session 25 cyclic identity corrections
+
+The supplied late path does not use the public display order for its three representatives.
+`ISeqs` is daughter, minor parent, major parent. Session 25 restores that internal ordering in
+`FinalTrim`/`ConsensusOK` and BURT inputs while leaving JSON, UI, CSV, and project roles in the
+public recombinant, major parent, minor parent order.
+
+After cyclic erasure, `TraceSub` resolves original identities to the retained working fragments
+that produced cached XOverList evidence. The port now retains exact working-triplet provenance in
+the signal shortlist, assigns strongest-support aliases for all original candidates, and gives the
+anchor triplet precedence. This is an identity mapping rule, not a cycle-number rule. Restored old
+projects without exact working triplets keep the earlier fragment-event lookup.
+
+The selected-role movement/rank block iterates through source `NextNo`, including working fragments.
+Session 25 therefore uses the expanded population and denominator rather than only the original
+alignment rows. Candidate membership remains keyed by original identity; comparisons that skip the
+role representative use the reported identity rather than its transient working-fragment index.
+
 ## FinalTrim mapping
 
 `Module2.bas` defines `FinalTrim` at line 23342 and gates this family with `If RFF = 0` at line
@@ -87,6 +105,12 @@ line 24510. The active `ConservativeGroup = 0` block is mapped as follows:
 
 Line 24895 compares outside `FAMatSmall` with `HDF`, the maximum direct outside distance. The port
 retains that mixed-matrix comparison rather than substituting `FMatSmall`.
+
+The distance matrix is symmetric. Session 25 evaluates each unordered pair once, adds it to both
+movement rows, and reuses the completed rows for representative totals. With ascending lower/upper
+indices, every row still receives contributions in ascending sequence order, so Single narrowing
+and source rank thresholds are unchanged. Pair-cache calls are roughly halved and six representative
+re-sums disappear; symmetric caching already prevented duplicate expensive JC calculations.
 
 ## Post-group method rechecks
 

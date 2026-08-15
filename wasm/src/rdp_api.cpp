@@ -82,7 +82,7 @@ std::uint64_t restored_counter(double value) {
 std::string project_json(const Context& context) {
   std::ostringstream out;
   out << "{\"schema\":\"org.rdp-web.project/v1alpha19\","
-         "\"engineVersion\":\"0.24.0-session-24\",\"dataset\":{";
+         "\"engineVersion\":\"0.25.0-session-25\",\"dataset\":{";
   out << "\"format\":";
   rdp::json::string(out, context.alignment.format);
   out << ",\"alignmentLength\":" << context.alignment.length << ",\"sequences\":[";
@@ -123,7 +123,7 @@ RDP_KEEPALIVE void rdp_destroy(std::uint32_t handle) {
 }
 
 RDP_KEEPALIVE const char* rdp_version(void) {
-  return "0.24.0-session-24";
+  return "0.25.0-session-25";
 }
 
 RDP_KEEPALIVE std::uint32_t rdp_set_worker_threads(

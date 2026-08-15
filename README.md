@@ -4,10 +4,10 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 24 source checkpoint — timed multicore analysis.** This archive contains source only.
-> Every run now reports total, setup, primary, cyclic-rescan, reconciliation, and round timing;
-> routine progress is refreshed at most once per 100 ms; and independent heavy method kernels can
-> use a hardware-aware, user-adjustable WASM pthread pool without changing deterministic merge order.
+> **Session 25 source checkpoint — cyclic fragment-evidence reconstruction.** This archive contains
+> source only. It retains Session 24 timing and deterministic multicore work, restores supplied-source
+> daughter/minor/major ordering, TraceSub-style cached-fragment evidence, and fragment-expanded late
+> ranks, and accepts Emscripten's generated pthread helper basename on GitHub Pages.
 
 ## What this checkpoint contains
 
@@ -263,7 +263,7 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [SISCAN source trace](docs/native-siscan-discovery-trace.md), and the
 [event-tree kernel trace](docs/native-event-tree-kernel-trace.md), and the
 [PHYLPRO review trace](docs/native-phylpro-review-trace.md), and the
-[Session 24 handoff](docs/session-24-handoff.md) before interpreting results or starting the next phase.
+[Session 25 handoff](docs/session-25-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 

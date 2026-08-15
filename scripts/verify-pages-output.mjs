@@ -79,14 +79,23 @@ if (!threadedModuleSource.includes("rdp-core-threads.wasm")) {
   fail("the pthread Emscripten module does not reference rdp-core-threads.wasm");
 }
 const wasmDirectoryEntries = await readdir(resolve(output, "wasm"));
-const pthreadWorker = wasmDirectoryEntries.find((name) =>
-  /^rdp-core-threads\.worker\.(?:js|mjs)$/.test(name));
-if (!pthreadWorker) {
-  fail("the pthread Emscripten worker helper is missing");
+// Emscripten derives the pthread helper's basename from the emitted ES module.
+// That name is not an API: CMake OUTPUT_NAME changes and Emscripten releases
+// may legitimately produce either .worker.js or .worker.mjs. Verify the
+// stronger invariant instead -- at least one emitted worker helper must be
+// referenced by the threaded loader that Pages will actually serve.
+const emittedPthreadWorkers = wasmDirectoryEntries.filter((name) =>
+  /\.worker\.(?:js|mjs)$/.test(name));
+const referencedPthreadWorkers = emittedPthreadWorkers.filter((name) =>
+  threadedModuleSource.includes(name));
+if (referencedPthreadWorkers.length === 0) {
+  fail(emittedPthreadWorkers.length === 0
+    ? "the pthread Emscripten worker helper is missing"
+    : `the pthread module does not reference emitted helper(s): ${
+        emittedPthreadWorkers.join(", ")}`);
 }
-if (!threadedModuleSource.includes(pthreadWorker)) {
-  fail(`the pthread module does not reference ${pthreadWorker}`);
-}
+await Promise.all(referencedPthreadWorkers.map((name) =>
+  requireFile(`wasm/${name}`)));
 
 const bootstrapSource = await readFile(bootstrapPath, "utf8");
 const serviceWorkerSource = await readFile(serviceWorkerPath, "utf8");
