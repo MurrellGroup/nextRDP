@@ -116,8 +116,10 @@ export interface ScanProgress {
   cachedSignalsReused: number;
   methodScansSkipped: number;
   invalidScheduleTripletsSkipped: number;
+  pairShortlistTripletsSkipped: number;
   fragmentSequencesPruned: number;
   scanRound: number;
+  maximumDetectionCycles: number;
   fixedEventCount: number;
   signalCount: number;
   eventCount: number;
@@ -1304,6 +1306,7 @@ export interface ScanResults {
   processedTriplets: number;
   totalTriplets: number;
   scanRounds: number;
+  maximumDetectionCycles: number;
   cumulativeTriplets: number;
   maxChiProfilesScanned: number;
   maxChiPeakAttempts: number;

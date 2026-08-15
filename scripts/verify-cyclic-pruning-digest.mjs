@@ -34,7 +34,9 @@ const selectedResult = {
 const digest = createHash("sha256")
   .update(JSON.stringify(selectedResult))
   .digest("hex");
-const expected = "5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa";
+// Session 26 deliberately changes tract coordinates to the supplied CentreBP
+// midpoints before the deterministic snapshot is taken.
+const expected = "4a2b5a14996b64b317b21eded4bfe270628e202872728d20c755382595b2a27f";
 if (digest !== expected) {
   throw new Error(`Cyclic pruning changed selected analytical results (${digest}).`);
 }

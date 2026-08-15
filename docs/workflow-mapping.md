@@ -3,7 +3,7 @@
 The manual treats recombination analysis as hypothesis construction and ordered review, not a
 single “run” operation. RDP Web uses the same staged shape.
 
-| Manual workflow | Browser implementation | Session 25 boundary |
+| Manual workflow | Browser implementation | Session 26 boundary |
 | --- | --- | --- |
 | Load an aligned nucleotide dataset | Drag/drop local alignment; validate format and length | GenBank/ORFMap, PDB, and `.rdp5` import remain pending |
 | Inspect diversity and alignment quality | Identity, missing-data, variable-site, and informative-site summaries | Full alignment editor/checker remains pending |

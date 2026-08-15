@@ -65,6 +65,7 @@ const [
   session23Handoff,
   session24Handoff,
   session25Handoff,
+  session26Handoff,
   bootscanTrace,
   siscanTrace,
   eventTreeTrace,
@@ -141,6 +142,7 @@ const [
   read("docs/session-23-handoff.md"),
   read("docs/session-24-handoff.md"),
   read("docs/session-25-handoff.md"),
+  read("docs/session-26-handoff.md"),
   read("docs/native-bootscan-discovery-trace.md"),
   read("docs/native-siscan-discovery-trace.md"),
   read("docs/native-event-tree-kernel-trace.md"),
@@ -967,7 +969,7 @@ if (!scan.includes("SISCAN triplet profiles") ||
     !review.includes("SISCAN sister-pair permutation switch") ||
     !review.includes("SISCAN fixed-region recheck") ||
     !signalPlot.includes("SISCAN vertical-permutation sister-pair Z scores") ||
-    !exportStep.includes("Session 25 snapshot")) {
+    !exportStep.includes("Session 26 snapshot")) {
   fail("SISCAN progress/review/plot/export workflow is incomplete");
 }
 for (const runtimeContract of [
@@ -1776,6 +1778,7 @@ for (const shortlistProgressContract of [
   "cachedSignalsReused",
   "methodScansSkipped",
   "invalidScheduleTripletsSkipped",
+  "pairShortlistTripletsSkipped",
   "fragmentSequencesPruned",
 ]) {
   if (!method.includes(`\\\"${shortlistProgressContract}\\\"`) ||
@@ -1790,8 +1793,11 @@ for (const shortlistCoreContract of [
   "round_triplet_signal_summaries_",
   "carried_triplet_signal_summaries_",
   "dirty_working_sequences_",
+  "cyclic_pair_shortlist_",
   "reuse_carried_triplet_signals",
   "triplet_touches_dirty_sequence",
+  "rebuild_cyclic_pair_shortlist",
+  "cyclic_pair_shortlist_allows",
   "refresh_threeseq_on_unchanged_triplets_",
   "previously_signal_bearing",
   "prune_event_free_fragments",
@@ -1809,6 +1815,7 @@ if (!pagesVerifier.includes("progress.correctionTests !== 120") ||
     !pagesVerifier.includes("progress.cachedSignalsReused > 0") ||
     !pagesVerifier.includes("progress.cleanTripletsPruned > 0") ||
     !pagesVerifier.includes("progress.invalidScheduleTripletsSkipped > 0") ||
+    !pagesVerifier.includes("progress.pairShortlistTripletsSkipped > 0") ||
     !pagesVerifier.includes("progress.fragmentSequencesPruned > 0")) {
   fail("Pages verification does not exercise fixed correction, shortlist reuse, and fragment pruning");
 }
@@ -1825,6 +1832,8 @@ for (const pruningRegressionContract of [
   "cleanTripletsPruned",
   "methodScansSkipped",
   "invalidScheduleTripletsSkipped",
+  "pairShortlistTripletsSkipped",
+  "AddjustCXO/MakePairsP",
   "fragmentSequencesPruned",
   "swap/reindex compaction",
 ]) {
@@ -1834,7 +1843,7 @@ for (const pruningRegressionContract of [
 }
 if (!cyclicPruningCoreScript.includes('mktemp "${PWD}/wasm/.rdp-cyclic-pruning-core-check') ||
     !cyclicPruningCoreScript.includes("verify-cyclic-pruning-digest.mjs") ||
-    !cyclicPruningDigestVerifier.includes("5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa") ||
+    !cyclicPruningDigestVerifier.includes("4a2b5a14996b64b317b21eded4bfe270628e202872728d20c755382595b2a27f") ||
     !packageSource.includes('"check:cyclic-pruning-core"') ||
     !pagesWorkflow.includes("npm run check:cyclic-pruning-core")) {
   fail("cyclic-pruning host regression is not wired into the local/Pages gates");
@@ -1987,6 +1996,23 @@ for (const handoffContract of [
 ]) {
   if (!session25Handoff.includes(handoffContract)) {
     fail(`Session 25 handoff is missing ${handoffContract}`);
+  }
+}
+for (const handoffContract of [
+  "0.26.0-session-26",
+  "org.rdp-web.project/v1alpha19",
+  "CentreBP",
+  "BestXOList",
+  "RList(WinPP)",
+  "AddjustCXO",
+  "MakePairsP",
+  "453 events",
+  "72.7 seconds",
+  "cycle-limit-reached",
+  "Full native parity remains unclaimed",
+]) {
+  if (!session26Handoff.includes(handoffContract)) {
+    fail(`Session 26 handoff is missing ${handoffContract}`);
   }
 }
 for (const reconstructionContract of [
@@ -2300,15 +2326,15 @@ if (!method.includes("kEventTreeFlankInformativeSites = 20") ||
     !method.includes("flankVariableSiteTarget\\\":")) {
   fail("manual six-tree 20-variable-site flank construction is missing");
 }
-if (!readme.includes("Session 25 source checkpoint") ||
+if (!readme.includes("Session 26 source checkpoint") ||
     !readme.includes("v1alpha19") ||
     !readme.includes("cyclic-shortlist trace") ||
     !readme.includes("native-bootscan-discovery-trace") ||
     !readme.includes("native-siscan-discovery-trace") ||
     !readme.includes("native-event-tree-kernel-trace") ||
     !readme.includes("native-phylpro-review-trace") ||
-    !readme.includes("session-25-handoff") ||
-    !status.includes("Port status — session 25") ||
+    !readme.includes("session-26-handoff") ||
+    !status.includes("Port status — session 26") ||
     !status.includes("SISCAN discovery") ||
     !status.includes("SISCAN fixed-region confirmation") ||
     !status.includes("PHYLPRO event review") ||
@@ -2317,13 +2343,13 @@ if (!readme.includes("Session 25 source checkpoint") ||
     !status.includes("3SEQ exploratory discovery") ||
     !status.includes("3SEQ Findall recheck") ||
     !status.includes("XOverList/BestXOList-style shortlist")) {
-  fail("Session 25 README/status documentation is stale");
+  fail("Session 26 README/status documentation is stale");
 }
-if (!app.includes("Win95 edition · session 25") ||
-    !app.includes("RDP Web 0.25")) {
-  fail("Session 25 application chrome is stale");
+if (!app.includes("Win95 edition · session 26") ||
+    !app.includes("RDP Web 0.26")) {
+  fail("Session 26 application chrome is stale");
 }
-if (!exportStep.includes("Session 25 snapshot") ||
+if (!exportStep.includes("Session 26 snapshot") ||
     !exportStep.includes("supplied-source ranked event-tree provenance") ||
     !exportStep.includes("primary BootScan") ||
     !exportStep.includes("SISCAN") ||
@@ -2332,7 +2358,7 @@ if (!exportStep.includes("Session 25 snapshot") ||
     !exportStep.includes("CheckSplit3Seq") ||
     !exportStep.includes("TSXOver(1)") ||
     !exportStep.includes("Event PHYLPRO profiles remain")) {
-  fail("Session 25 export fidelity boundary is stale");
+  fail("Session 26 export fidelity boundary is stale");
 }
 for (const win95Contract of [
   "Windows 95 visual skin",

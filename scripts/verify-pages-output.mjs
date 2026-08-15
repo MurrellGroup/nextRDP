@@ -276,6 +276,7 @@ try {
       !(progress.methodScansSkipped > 0) ||
       !(progress.cachedSignalsReused > 0) ||
       !(progress.invalidScheduleTripletsSkipped > 0) ||
+      !(progress.pairShortlistTripletsSkipped > 0) ||
       !(progress.fragmentSequencesPruned > 0) ||
       !(progress.tripletKernelEvaluations < progress.cumulativeTriplets)) {
     fail("cyclic shortlist or event-free fragment pruning was not applied across rounds");
@@ -316,7 +317,7 @@ try {
     .update(JSON.stringify(selectedResult))
     .digest("hex");
   if (selectedResultDigest !==
-      "5ad90dbeeecd3ea531d52455dd3ded89498c8d0aeefc5d73c2885e451648e6fa") {
+      "4a2b5a14996b64b317b21eded4bfe270628e202872728d20c755382595b2a27f") {
     fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
   }
 

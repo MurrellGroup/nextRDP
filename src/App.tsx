@@ -77,8 +77,10 @@ const initialProgress: ScanProgress = {
   cachedSignalsReused: 0,
   methodScansSkipped: 0,
   invalidScheduleTripletsSkipped: 0,
+  pairShortlistTripletsSkipped: 0,
   fragmentSequencesPruned: 0,
   scanRound: 1,
+  maximumDetectionCycles: 64,
   fixedEventCount: 0,
   signalCount: 0,
   eventCount: 0,
@@ -507,8 +509,12 @@ export function App() {
                 cachedSignalsReused: 0,
                 methodScansSkipped: 0,
                 invalidScheduleTripletsSkipped: 0,
+                pairShortlistTripletsSkipped: 0,
                 fragmentSequencesPruned: 0,
                 scanRound: restored.results.scanRounds,
+                maximumDetectionCycles:
+                  restored.results.maximumDetectionCycles
+                  ?? initialProgress.maximumDetectionCycles,
                 fixedEventCount: 0,
                 signalCount: restored.results.signals.length,
                 eventCount: restored.results.events.length,
@@ -1109,7 +1115,7 @@ export function App() {
                     : "Checkpoint current"}
               </span>
             ) : null}
-            <span className="session-pill">Win95 edition · session 25</span>
+            <span className="session-pill">Win95 edition · session 26</span>
           </div>
         </div>
       </header>
@@ -1251,7 +1257,7 @@ export function App() {
       <footer className="app-statusbar" aria-live="polite">
         <span>{engine.status === "ready" ? "Ready" : engine.status === "loading" ? "Loading analysis engine…" : "Engine unavailable"}</span>
         <span>{filename || "No alignment loaded"}</span>
-        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.25"}</span>
+        <span>{results ? `${results.events.length} event${results.events.length === 1 ? "" : "s"}` : "RDP Web 0.26"}</span>
       </footer>
     </div>
   );

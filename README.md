@@ -4,10 +4,11 @@ RDP Web is a browser-native port of the Recombination Detection Program workflow
 as a static site: alignments are parsed and analysed locally in a Web Worker, while the numerical
 core runs in WebAssembly.
 
-> **Session 25 source checkpoint — cyclic fragment-evidence reconstruction.** This archive contains
-> source only. It retains Session 24 timing and deterministic multicore work, restores supplied-source
-> daughter/minor/major ordering, TraceSub-style cached-fragment evidence, and fragment-expanded late
-> ranks, and accepts Emscripten's generated pthread helper basename on GitHub Pages.
+> **Session 26 source checkpoint — RDP-only cyclic parity audit.** This source-only archive retains
+> Session 25's fragment evidence and Pages correction, ports `CentreBP` coordinate centering,
+> BestXOList-style committed-event caching, the `AddjustCXO`/`MakePairsP` `DoPairs` rescan gate,
+> final-RList erasure, exact active role-score rounding, and a graceful 64-round diagnostic ceiling.
+> Full desktop cyclic parity remains unclaimed.
 
 ## What this checkpoint contains
 
@@ -32,7 +33,8 @@ core runs in WebAssembly.
   calls receive the manual's distinct amber review treatment and explicit JSON/CSV input-role data.
 - A C++20/WASM primary RDP scanner derived only from the supplied RDP sources:
   information-rich triplet sites, rolling pair counts, candidate tract boundaries, the binomial
-  tail calculation, 169-site scaling, and RDP5's multiple-testing cap.
+  tail calculation, 169-site scaling, RDP5's multiple-testing cap, and post-score `CentreBP`
+  midpoint coordinates with source-shaped post-erasure missing-site relocation.
 - A second, independently auditable C++20/WASM discovery stream for the supplied MaxChi
   `MCXoverF` workflow: all three variable-site pair profiles, native critical-difference screening,
   raw strongest-peak order, source-shaped window growth, `FindSide`, `OptLeftBPMC`/
@@ -97,7 +99,13 @@ core runs in WebAssembly.
   touch erased rows or new fragments run fresh kernels; unchanged signal-bearing triplets replay
   their compact summaries. An unchanged triplet that was clean on its first full screen never runs
   a discovery kernel again. The one-time 3SEQ post-erasure split refresh applies only to a
-  previously signal-bearing triplet, so it cannot defeat that clean-negative rule.
+  previously signal-bearing triplet, so it cannot defeat that clean-negative rule. Committed
+  events are durable action-cache entries; automatic erasure uses the selected role's final
+  `ConsensusOK`/`FinalTrim` distance list, and a 64-round ceiling preserves completed events and
+  proceeds to Review with an explicit `cycle-limit-reached` result. For changed rows, the supplied
+  sparse `DoPairs` rule runs a method only when all three original-sequence pairs were enabled by
+  an XOverList signal touching the selected RList; this replaces an unnecessary all-dirty-triplet
+  rescan without changing the retained unchanged-signal shortlist.
 - The source `MakeMCCorrection` factor is fixed from the initial scan plan while each later round's
   actual fragment-expanded workload remains visible separately. GENECONV review distinguishes raw
   `GCCalcPValP2` probability from the RDP5 `XOverList`-equivalent project-corrected value and makes
@@ -263,7 +271,7 @@ See [STATUS.md](STATUS.md), [docs/fidelity-notes.md](docs/fidelity-notes.md), th
 [SISCAN source trace](docs/native-siscan-discovery-trace.md), and the
 [event-tree kernel trace](docs/native-event-tree-kernel-trace.md), and the
 [PHYLPRO review trace](docs/native-phylpro-review-trace.md), and the
-[Session 25 handoff](docs/session-25-handoff.md) before interpreting results or starting the next phase.
+[Session 26 handoff](docs/session-26-handoff.md) before interpreting results or starting the next phase.
 
 ## Deploy with GitHub Pages Actions
 

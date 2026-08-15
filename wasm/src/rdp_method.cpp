@@ -2641,7 +2641,9 @@ void RdpScanner::reset_working_alignment() {
   round_triplet_signal_summaries_.clear();
   carried_triplet_signal_summaries_.clear();
   dirty_working_sequences_.clear();
+  cyclic_pair_shortlist_.clear();
   cyclic_shortlist_active_ = false;
+  cyclic_pair_shortlist_active_ = false;
   refresh_threeseq_on_unchanged_triplets_ = false;
 }
 
@@ -2930,6 +2932,82 @@ bool RdpScanner::triplet_touches_dirty_sequence(
       });
 }
 
+void RdpScanner::rebuild_cyclic_pair_shortlist(const UniqueEvent& event) {
+  cyclic_pair_shortlist_.clear();
+  cyclic_pair_shortlist_active_ = false;
+  if (options_.analysis_mode != AnalysisMode::exploratory) {
+    return;
+  }
+
+  std::vector<std::uint8_t> selected(alignment_.sequence_count(), 0);
+  std::vector<std::uint32_t> selected_group = event.co_recombinant_sequences;
+  if (selected_group.empty()) selected_group.push_back(event.recombinant);
+  for (const std::uint32_t sequence : selected_group) {
+    if (sequence < selected.size()) selected[sequence] = 1;
+  }
+
+  // AddjustCXO calls MakePairsP for every retained XOverList record that
+  // contains a member of RList(WinPP). MakePairsP enables all three pairs of
+  // that record; records not touching the selected RList stay in the carried
+  // XOverList and therefore do not need a dirty-row rescan.
+  for (std::size_t index = round_signal_begin_; index < signals_.size(); ++index) {
+    const Signal& signal = signals_[index];
+    const bool touches_selected = std::any_of(
+        signal.triplet.begin(), signal.triplet.end(),
+        [&](std::uint32_t sequence) {
+          return sequence < selected.size() && selected[sequence] != 0;
+        });
+    if (!touches_selected) continue;
+    for (const std::uint64_t key : triplet_pair_keys(signal.triplet)) {
+      cyclic_pair_shortlist_.insert(key);
+    }
+  }
+
+  // The supplied loop following AddjustCXO copies every allowed pair from
+  // one selected RList member to all other members. Do the same sparsely over
+  // original identities instead of allocating a dense NextNo^2 byte matrix.
+  std::vector<std::uint32_t> group;
+  for (std::size_t sequence = 0; sequence < selected.size(); ++sequence) {
+    if (selected[sequence] != 0) {
+      group.push_back(static_cast<std::uint32_t>(sequence));
+    }
+  }
+  for (std::size_t sequence = 0; sequence < selected.size(); ++sequence) {
+    const auto outside = static_cast<std::uint32_t>(sequence);
+    bool enabled = false;
+    for (const std::uint32_t member : group) {
+      if (member != outside && cyclic_pair_shortlist_.contains(
+              sequence_pair_key(member, outside))) {
+        enabled = true;
+        break;
+      }
+    }
+    if (!enabled) continue;
+    for (const std::uint32_t member : group) {
+      if (member != outside) {
+        cyclic_pair_shortlist_.insert(sequence_pair_key(member, outside));
+      }
+    }
+  }
+  cyclic_pair_shortlist_active_ = true;
+}
+
+bool RdpScanner::cyclic_pair_shortlist_allows(
+    const std::array<std::uint32_t, 3>& triplet) const {
+  if (!cyclic_pair_shortlist_active_ || !triplet_touches_dirty_sequence(triplet)) {
+    return true;
+  }
+  std::array<std::uint32_t, 3> origins{};
+  for (std::size_t member = 0; member < triplet.size(); ++member) {
+    if (triplet[member] >= working_origins_.size()) return false;
+    origins[member] = working_origins_[triplet[member]];
+  }
+  for (const std::uint64_t key : triplet_pair_keys(origins)) {
+    if (!cyclic_pair_shortlist_.contains(key)) return false;
+  }
+  return true;
+}
+
 void RdpScanner::append_round_signal(Signal signal) {
   const auto triplet = canonical_triplet(signal.triplet);
   auto& bucket = round_signal_index_[signal_signature(signal)];
@@ -3112,6 +3190,7 @@ bool RdpScanner::begin(ScanOptions options, std::string& error) {
   cached_signals_reused_ = 0;
   method_scans_skipped_ = 0;
   invalid_schedule_triplets_skipped_ = 0;
+  pair_shortlist_triplets_skipped_ = 0;
   fragment_sequences_pruned_ = 0;
   maxchi_profiles_scanned_ = 0;
   maxchi_peak_attempts_ = 0;
@@ -3178,7 +3257,9 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
       signals_.resize(round_signal_begin_);
       round_triplet_signal_summaries_.clear();
       carried_triplet_signal_summaries_.clear();
+      cyclic_pair_shortlist_.clear();
       cyclic_shortlist_active_ = false;
+      cyclic_pair_shortlist_active_ = false;
       refresh_threeseq_on_unchanged_triplets_ = false;
       cancelled_.store(false);
       running_ = false;
@@ -3193,7 +3274,9 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
       return -1;
     }
     const bool valid_triplet = working_triplet_is_valid(triplet);
-    if (valid_triplet) {
+    const bool pair_shortlisted =
+        valid_triplet && cyclic_pair_shortlist_allows(triplet);
+    if (pair_shortlisted) {
       std::uint8_t method_mask = enabled_method_mask();
       if (cyclic_shortlist_active_ && !triplet_touches_dirty_sequence(triplet)) {
         // WorthwhileScan/BestXOList behavior: the unchanged rows have exactly
@@ -3226,13 +3309,29 @@ int RdpScanner::scan_batch(std::size_t triplet_budget, std::string& error) {
       ++cumulative_triplets_;
       ++processed_in_batch;
     } else {
-      // Same-origin fragment combinations are not analytical triplets. Do
-      // not let them consume the ABI batch budget: otherwise a fragment-rich
-      // schedule can force thousands of needless worker/WASM crossings.
+      // Same-origin fragment combinations and AddjustCXO/MakePairsP-pruned
+      // dirty triplets are not analytical work in this round. Do not let
+      // either consume the ABI batch budget or enter a heavy method kernel.
       ++invalid_schedule_triplets_skipped_;
+      if (valid_triplet) ++pair_shortlist_triplets_skipped_;
     }
     if (!advance_triplet()) {
       if (finish_detection_round(error)) {
+        if (events_.size() >= options_.maximum_detection_cycles) {
+          // Finish at a committed round boundary. As with a graceful user
+          // stop, keep every durable event and let ordinary reconciliation
+          // run; unlike cancellation, expose a distinct diagnostic reason.
+          round_triplet_signal_summaries_.clear();
+          carried_triplet_signal_summaries_.clear();
+          cyclic_pair_shortlist_.clear();
+          cyclic_shortlist_active_ = false;
+          cyclic_pair_shortlist_active_ = false;
+          refresh_threeseq_on_unchanged_triplets_ = false;
+          running_ = false;
+          primary_done_ = true;
+          cycle_termination_ = "cycle-limit-reached";
+          return 3;
+        }
         ++scan_round_;
         round_signal_begin_ = signals_.size();
         reset_round_cursor();
@@ -3480,6 +3579,76 @@ void RdpScanner::append_candidate_signals(
       ? candidate_members[1]
       : candidate_members[0];
 
+  const auto centered_breakpoints = [&](std::size_t beginning,
+                                         std::size_t ending) {
+    std::array<std::size_t, 2> centered{
+        profile.coordinates[beginning],
+        profile.coordinates[ending],
+    };
+    const std::size_t alignment_length = working_alignment_.length;
+    if (alignment_length == 0 || profile.coordinates.empty()) return centered;
+
+    // CentreBP stores the midpoint between the detected information-rich
+    // boundary and its neighbouring information-rich site. VB's
+    // CLng((distance / 2) - .1) is floor(distance / 2) for integral site
+    // distances, including the circular end interval.
+    const std::size_t previous_index = beginning == 0
+        ? profile.coordinates.size() - 1
+        : beginning - 1;
+    const std::size_t previous = profile.coordinates[previous_index];
+    const std::size_t backward_distance = centered[0] > previous
+        ? centered[0] - previous
+        : centered[0] + alignment_length - previous;
+    const std::size_t backward_shift = backward_distance / 2;
+    centered[0] = centered[0] > backward_shift
+        ? centered[0] - backward_shift
+        : alignment_length + centered[0] - backward_shift;
+
+    const std::size_t next_index = ending + 1 < profile.coordinates.size()
+        ? ending + 1
+        : 0;
+    const std::size_t next = profile.coordinates[next_index];
+    const std::size_t forward_distance = next > centered[1]
+        ? next - centered[1]
+        : next + alignment_length - centered[1];
+    centered[1] += forward_distance / 2;
+    if (centered[1] > alignment_length) centered[1] -= alignment_length;
+
+    // From the second cyclic pass onward CentreBP shifts a midpoint off a
+    // missing/erased column toward the detected tract. MissingData is shared
+    // by the three input rows, so the test is role-order independent.
+    const auto missing_for_triplet = [&](std::size_t coordinate) {
+      return std::any_of(
+          profile.sequences.begin(),
+          profile.sequences.end(),
+          [&](std::uint32_t sequence) {
+            return sequence >= working_alignment_.sequence_count() ||
+                working_alignment_.at(sequence, coordinate - 1) == 0;
+          });
+    };
+    if (!events_.empty() && missing_for_triplet(centered[0])) {
+      for (std::size_t visited = 0; visited < alignment_length; ++visited) {
+        if (++centered[0] > alignment_length) {
+          centered[0] = 1;
+          if (!options_.circular) break;
+        }
+        if (!missing_for_triplet(centered[0])) break;
+      }
+    }
+    if (!events_.empty() && missing_for_triplet(centered[1])) {
+      for (std::size_t visited = 0; visited < alignment_length; ++visited) {
+        if (centered[1] == 1) {
+          centered[1] = alignment_length;
+          if (!options_.circular) break;
+        } else {
+          --centered[1];
+        }
+        if (!missing_for_triplet(centered[1])) break;
+      }
+    }
+    return centered;
+  };
+
   while (search < length) {
     while (search < length &&
            !(profile.rolling_counts[candidate_pair][search] >
@@ -3546,14 +3715,15 @@ void RdpScanner::append_candidate_signals(
           ? std::min(1.0, local * static_cast<double>(correction_tests_))
           : std::min(1.0, local);
       if (!enforce_cutoff || corrected < options_.p_value_cutoff) {
+        const auto centered = centered_breakpoints(beginning, ending);
         Signal signal;
         signal.triplet = profile.sequences;
         signal.recombinant = profile.sequences[recombinant_local];
         signal.major_parent = profile.sequences[major_local];
         signal.minor_parent = profile.sequences[minor_local];
-        signal.beginning = profile.coordinates[beginning];
-        signal.ending = profile.coordinates[ending];
-        signal.wraps_origin = wrapped ||
+        signal.beginning = centered[0];
+        signal.ending = centered[1];
+        signal.wraps_origin =
             (options_.circular && signal.beginning >= signal.ending);
         signal.informative_beginning = beginning + 1;
         signal.informative_ending = ending + 1;
@@ -7089,8 +7259,13 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     }
   }
 
+  // ModSeqNumY erases RList(WinPP), i.e. the selected role's final,
+  // ConsensusOK/FinalTrim-pruned list.  The three evidence sets are used to
+  // identify WinPP, but their two-of-three union is not the erasure list.
+  // Using that union here over-erased neighbouring clades and caused later
+  // cyclic rounds to manufacture signals that source RDP never sees.
   event.automatic_co_recombinant_sequences =
-      event.role_hypotheses[0].complete_two_of_three_set;
+      event.role_hypotheses[0].distance_correlation_set;
   if (!event.group_manual_adjusted) {
     event.co_recombinant_sequences = event.automatic_co_recombinant_sequences;
   }
@@ -7182,28 +7357,65 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     metric_valid[8][role] = true;
   }
 
+  // MakeConsensusC quantizes these statistics before its decision-tree
+  // comparisons. Preserve the method-specific precision so near-ties follow
+  // the same branches as the supplied implementation (CLng uses nearest-even
+  // rounding under the default floating-point mode).
+  const auto source_round = [](double value, double scale) {
+    return std::nearbyint(value * scale) / scale;
+  };
+  for (std::size_t role = 0; role < representatives.size(); ++role) {
+    metrics[0].scores[role] = source_round(metrics[0].scores[role], 100000.0);
+    metrics[1].scores[role] = source_round(metrics[1].scores[role], 100000.0);
+    metrics[2].scores[role] = source_round(metrics[2].scores[role], 100000.0);
+    metrics[3].scores[role] = source_round(metrics[3].scores[role], 10000.0);
+    metrics[4].scores[role] = source_round(metrics[4].scores[role], 100000.0);
+    if (std::abs(metrics[5].scores[role]) < 100.0) {
+      metrics[5].scores[role] = source_round(metrics[5].scores[role], 1000000.0);
+    }
+    if (metrics[6].scores[role] > 100000.0) {
+      metrics[6].scores[role] = 100000.0;
+    }
+    metrics[6].scores[role] = source_round(metrics[6].scores[role], 100000.0);
+    metrics[7].scores[role] = source_round(metrics[7].scores[role], 100000.0);
+  }
+
   // MakeConsensusC disables each PhylPro family when an anchor correlation is
   // exactly +/-1. Apply that family guard to its leave-one-out and displacement
   // derivatives as well.
-  const auto family_informative = [](const SourcePhylproScores& scores) {
+  const auto family_informative = [](
+                                      const SourcePhylproScores& scores,
+                                      const std::array<double, 3>& rounded) {
     return std::all_of(
                scores.primary_valid.begin(), scores.primary_valid.end(),
                [](bool value) { return value; }) &&
-        std::none_of(scores.primary.begin(), scores.primary.end(), [](double value) {
-          return std::abs(value) >= 0.999999;
+        std::none_of(rounded.begin(), rounded.end(), [](double value) {
+          // MakeConsensusC resets PS1/PS2/PS3 only when the already-CLng-
+          // quantized anchor is exactly +/-1. Values such as 0.99999 remain
+          // informative in the supplied decision tree.
+          return std::abs(value) == 1.0;
         });
   };
-  if (!family_informative(jc_scores)) {
+  if (!family_informative(jc_scores, metrics[0].scores)) {
     metric_valid[0].fill(false);
     metric_valid[3].fill(false);
     metric_valid[5].fill(false);
   }
-  if (!family_informative(raw_tree_scores)) {
+  if (!family_informative(raw_tree_scores, metrics[1].scores)) {
     metric_valid[1].fill(false);
     metric_valid[4].fill(false);
     metric_valid[6].fill(false);
   }
-  if (!family_informative(collapsed_tree_scores)) metric_valid[2].fill(false);
+  if (!family_informative(collapsed_tree_scores, metrics[2].scores)) {
+    metric_valid[2].fill(false);
+  }
+  if (std::all_of(
+          metrics[3].scores.begin(), metrics[3].scores.end(),
+          [](double value) { return std::abs(value) == 1.0; })) {
+    // The SubPhPr prize has an additional sentinel guard even when PS1 is
+    // otherwise enabled.
+    metric_valid[3].fill(false);
+  }
 
   for (std::size_t metric_index = 0; metric_index < metrics.size(); ++metric_index) {
     auto& metric = metrics[metric_index];
@@ -7262,7 +7474,11 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         if (no_worse(other_one) && no_worse(other_two)) {
           metric.contributions[role] = metric.weight;
         } else if (strictly_better(other_one) || strictly_better(other_two)) {
-          metric.contributions[role] = metric.weight / 2.0;
+          // The tree-based PhPr branch is the one deliberate non-half second
+          // prize in MakeConsensusC: 14 points versus an 18-point win.
+          metric.contributions[role] = metric.kind == RoleMetricKind::tree_phpr
+              ? 14.0
+              : metric.weight / 2.0;
         }
       }
     }
@@ -7486,9 +7702,213 @@ void RdpScanner::fast_method_triplet_rechecks(
   }
 }
 
+bool RdpScanner::source_phylogenetic_movement(const Signal& signal) const {
+  if (!signal.working_triplet_available || working_alignment_.length == 0) {
+    return false;
+  }
+
+  // TestMoveInTreeAlt receives ISeqs as Daughter, MinorP, MajorP. UFDist then
+  // evaluates pairs (0,1), (0,2), (1,2) on the mutable sequence rows which
+  // produced the XOverList entry. Recover that role order without replacing
+  // fragment rows by their original-sequence aliases.
+  const std::array<std::uint32_t, 3> original_roles{
+      signal.recombinant,
+      signal.minor_parent,
+      signal.major_parent,
+  };
+  std::array<std::uint32_t, 3> working_roles{};
+  std::array<std::uint8_t, 3> used{};
+  for (std::size_t role = 0; role < original_roles.size(); ++role) {
+    bool found = false;
+    for (std::size_t member = 0; member < signal.working_triplet.size(); ++member) {
+      const std::uint32_t working = signal.working_triplet[member];
+      if (used[member] != 0 || working >= working_origins_.size() ||
+          working >= working_alignment_.sequence_count() ||
+          working_origins_[working] != original_roles[role]) {
+        continue;
+      }
+      working_roles[role] = working;
+      used[member] = 1;
+      found = true;
+      break;
+    }
+    if (!found) return false;
+  }
+
+  constexpr std::array<std::array<std::size_t, 2>, 3> pairs{{
+      {{0, 1}},
+      {{0, 2}},
+      {{1, 2}},
+  }};
+  std::array<float, 3> tract_distance{};
+  std::array<float, 3> background_distance{};
+  for (std::size_t pair = 0; pair < pairs.size(); ++pair) {
+    std::size_t total_valid = 0;
+    std::size_t total_differences = 0;
+    std::size_t tract_valid = 0;
+    std::size_t tract_differences = 0;
+    const std::uint32_t first = working_roles[pairs[pair][0]];
+    const std::uint32_t second = working_roles[pairs[pair][1]];
+    for (std::size_t position = 0; position < working_alignment_.length; ++position) {
+      const std::uint8_t first_state = working_alignment_.at(first, position);
+      const std::uint8_t second_state = working_alignment_.at(second, position);
+      if (first_state == 0 || second_state == 0) continue;
+      const bool different = first_state != second_state;
+      ++total_valid;
+      if (different) ++total_differences;
+      if (coordinate_in_tract(
+              position + 1,
+              signal.beginning,
+              signal.ending,
+              signal.wraps_origin)) {
+        ++tract_valid;
+        if (different) ++tract_differences;
+      }
+    }
+    tract_distance[pair] = tract_valid > 0
+        ? static_cast<float>(tract_differences) / static_cast<float>(tract_valid)
+        : 10.0F;
+    const std::size_t background_valid = total_valid - tract_valid;
+    background_distance[pair] = background_valid > 0
+        ? static_cast<float>(total_differences - tract_differences) /
+              static_cast<float>(background_valid)
+        : 10.0F;
+  }
+
+  const auto unique_minimum = [](const std::array<float, 3>& distance) {
+    if (distance[0] < distance[1] && distance[0] < distance[2]) return 0U;
+    if (distance[1] < distance[0] && distance[1] < distance[2]) return 1U;
+    if (distance[2] < distance[0] && distance[2] < distance[1]) return 2U;
+    // TestMoveInTreeAlt uses three for a tied/no-unique minimum.
+    return 3U;
+  };
+  const bool direct_movement =
+      unique_minimum(tract_distance) != unique_minimum(background_distance);
+
+  // ForcePhylE=1 exits TestMoveInTreeAlt immediately when the ultra-quick
+  // UFDist pair is unchanged.  Besides being an exact source rejection gate,
+  // this avoids building two NJ trees for the common static-topology case.
+  if (!direct_movement) return false;
+
+  // The ultra-quick UFDist test is followed by vQuickDist and then two
+  // Clearcut NJ trees in TestMoveInTreeAlt. The durable ForcePhylE decision
+  // uses the latter tree-distance pair, not merely the initial p-distance
+  // pair. Build the same unbootstrapped inside/background trees here. Keeping
+  // the direct result as the unavailable-tree fallback preserves the native
+  // fast path for degenerate panels while avoiding an approximate topology
+  // decision.
+  std::vector<std::size_t> tract_positions;
+  std::vector<std::size_t> background_positions;
+  tract_positions.reserve(working_alignment_.length);
+  background_positions.reserve(working_alignment_.length);
+  for (std::size_t coordinate = 1;
+       coordinate <= working_alignment_.length;
+       ++coordinate) {
+    auto& positions = coordinate_in_tract(
+        coordinate,
+        signal.beginning,
+        signal.ending,
+        signal.wraps_origin)
+        ? tract_positions
+        : background_positions;
+    positions.push_back(coordinate);
+  }
+  if (tract_positions.empty() || background_positions.empty()) return false;
+
+  std::vector<std::uint32_t> tree_candidates = active_sequences_;
+  tree_candidates.insert(
+      tree_candidates.end(), working_roles.begin(), working_roles.end());
+  sort_unique(tree_candidates);
+  const std::vector<std::uint32_t> tree_sequences = select_tree_sequences(
+      working_alignment_, tree_candidates, working_roles);
+  if (tree_sequences.size() < 3) return direct_movement;
+  const TreeRegionEvidence background_tree = build_tree_region_evidence(
+      working_alignment_,
+      tree_sequences,
+      background_positions,
+      0,
+      options_.bootscan_random_seed);
+  const TreeRegionEvidence tract_tree = build_tree_region_evidence(
+      working_alignment_,
+      tree_sequences,
+      tract_positions,
+      0,
+      options_.bootscan_random_seed);
+  if (!background_tree.usable || !tract_tree.usable) return direct_movement;
+
+  const auto tree_minimum_pair = [&](const TreeRegionEvidence& tree) {
+    std::size_t minimum_pair = 0;
+    double minimum_distance = std::numeric_limits<double>::infinity();
+    for (std::size_t pair = 0; pair < pairs.size(); ++pair) {
+      const double distance = tree.tree(
+          working_roles[pairs[pair][0]],
+          working_roles[pairs[pair][1]],
+          false);
+      // TestMoveInTreeAlt scans pairs in this order and updates on a strict
+      // less-than, so the first pair wins an exact topology-rank tie.
+      if (distance < minimum_distance) {
+        minimum_distance = distance;
+        minimum_pair = pair;
+      }
+    }
+    return minimum_pair;
+  };
+  return tree_minimum_pair(tract_tree) != tree_minimum_pair(background_tree);
+}
+
+bool RdpScanner::source_rejection_shortlist_match(
+    const Signal& rejected,
+    const Signal& candidate) const {
+  if (rejected.beginning == rejected.ending ||
+      candidate.beginning == candidate.ending || alignment_.length == 0) {
+    return false;
+  }
+  std::size_t shared = 0;
+  for (const std::uint32_t sequence : rejected.triplet) {
+    if (std::find(candidate.triplet.begin(), candidate.triplet.end(), sequence) !=
+        candidate.triplet.end()) {
+      ++shared;
+    }
+  }
+  if (shared <= 1) return false;
+
+  // Literal MarkDones boundary arithmetic from the supplied DNA5 source.
+  // Its strict total-distance threshold is deliberately not replaced by a
+  // fractional overlap test: near-identical shortlists are a source action
+  // cache, not biological event clustering.
+  const std::int64_t length = static_cast<std::int64_t>(alignment_.length);
+  const std::int64_t start_a = static_cast<std::int64_t>(rejected.beginning);
+  const std::int64_t end_a = static_cast<std::int64_t>(rejected.ending);
+  const std::int64_t start_b = static_cast<std::int64_t>(candidate.beginning);
+  const std::int64_t end_b = static_cast<std::int64_t>(candidate.ending);
+  constexpr std::int64_t threshold = 20;
+  if (start_a < end_a) {
+    if (start_b < end_b) {
+      return std::abs(start_b - start_a) + std::abs(end_a - end_b) < threshold;
+    }
+    return std::abs(start_b - length - start_a) + std::abs(end_a - end_b) < threshold ||
+        std::abs(start_b - start_a) + std::abs(length - end_a - end_b) < threshold;
+  }
+  if (start_b < end_b) {
+    return std::abs(start_a - length - start_b) + std::abs(end_a - end_b) < threshold ||
+        std::abs(start_b - start_a) + std::abs(length - end_b - end_a) < threshold;
+  }
+  return std::abs(start_b - start_a) + std::abs(end_a - end_b) < threshold;
+}
+
 bool RdpScanner::matches_fixed_event(const Signal& signal) const {
-  const std::size_t limit = std::min(fixed_event_count_, events_.size());
-  for (std::size_t index = 0; index < limit; ++index) {
+  // BestXOList is not only a manual-reconciliation guard.  In the supplied
+  // cyclic scanner it is also the durable shortlist of signals on which an
+  // action has already been taken.  Fragment re-entry can expose the retained
+  // side of an already erased event through a different working-row triplet;
+  // considering only the manually fixed prefix lets that same biological
+  // signal win again, create another fragment, and repeat indefinitely.
+  //
+  // Compare against every committed event.  The original-sequence identities
+  // and tract-overlap test keep this independent of transient fragment row
+  // numbers, matching TraceSub/BestXOList semantics while still allowing a
+  // genuinely different tract involving the same sequences to be screened.
+  for (std::size_t index = 0; index < events_.size(); ++index) {
     const auto& event = events_[index];
     const std::array<std::uint32_t, 3> representatives{
         event.recombinant,
@@ -7502,11 +7922,20 @@ bool RdpScanner::matches_fixed_event(const Signal& signal) const {
         ++shared;
       }
     }
-    if (shared >= 2 && tract_overlap(
-            event.beginning,
-            event.ending,
-            signal.beginning,
-            signal.ending) > 0.3) {
+    const double overlap = tract_overlap(
+        event.beginning,
+        event.ending,
+        signal.beginning,
+        signal.ending);
+    const bool manually_fixed_prefix = index < fixed_event_count_;
+    const bool same_original_triplet = shared == 3;
+    // A restored/manual event invalidates the broader support cluster that
+    // was previously assigned to it. During an ordinary cyclic scan, however,
+    // only suppress the same original triplet over substantially the same
+    // tract. That is the BestXOList action key; using the broader support rule
+    // here would hide a real neighbouring event which merely shares a pair.
+    if ((manually_fixed_prefix && shared >= 2 && overlap > 0.3) ||
+        (!manually_fixed_prefix && same_original_triplet && overlap > 0.8)) {
       return true;
     }
   }
@@ -7787,18 +8216,10 @@ bool RdpScanner::finish_detection_round(std::string& error) {
   const auto retain_completed_round_workload = [&]() {
     total_triplets_ = processed_triplets_;
   };
-  std::uint32_t anchor_id = std::numeric_limits<std::uint32_t>::max();
-  for (std::size_t index = round_signal_begin_; index < signals_.size(); ++index) {
-    const auto& candidate = signals_[index];
-    if (candidate.review_state == ReviewState::rejected || matches_fixed_event(candidate)) {
-      continue;
-    }
-    if (anchor_id == std::numeric_limits<std::uint32_t>::max()) {
-      anchor_id = static_cast<std::uint32_t>(index);
-      continue;
-    }
+  const auto better_signal = [&](std::size_t candidate_id, std::size_t anchor_id) {
+    const auto& candidate = signals_[candidate_id];
     const auto& anchor = signals_[anchor_id];
-    if (candidate.corrected_p_value < anchor.corrected_p_value ||
+    return candidate.corrected_p_value < anchor.corrected_p_value ||
         (candidate.corrected_p_value == anchor.corrected_p_value &&
          (candidate.local_p_value < anchor.local_p_value ||
           (candidate.local_p_value == anchor.local_p_value &&
@@ -7806,7 +8227,22 @@ bool RdpScanner::finish_detection_round(std::string& error) {
                 source_scan_method_priority(anchor.method) ||
             (source_scan_method_priority(candidate.method) ==
                  source_scan_method_priority(anchor.method) &&
-             index < anchor_id)))))) {
+             candidate_id < anchor_id)))));
+  };
+
+  // Select the strongest surviving XOverList summary. TestMoveInTreeAlt is
+  // deliberately not used as an acceptance gate yet: its later vQuickDist
+  // and mutable PermValid/PermDiffs stages must move together, otherwise the
+  // ultra-quick test can reject a source-accepted signal after prior erasure.
+  std::uint32_t anchor_id = std::numeric_limits<std::uint32_t>::max();
+  for (std::size_t index = round_signal_begin_; index < signals_.size(); ++index) {
+    const auto& candidate = signals_[index];
+    if (candidate.review_state == ReviewState::rejected ||
+        matches_fixed_event(candidate)) {
+      continue;
+    }
+    if (anchor_id == std::numeric_limits<std::uint32_t>::max() ||
+        better_signal(index, anchor_id)) {
       anchor_id = static_cast<std::uint32_t>(index);
     }
   }
@@ -7878,6 +8314,7 @@ bool RdpScanner::finish_detection_round(std::string& error) {
   }
   refresh_breakpoint_context(event);
 
+  rebuild_cyclic_pair_shortlist(event);
   const ErasureResult erasure = erase_event_tract(event);
   event.erased_nucleotide_sites = erasure.original_sites;
   event.erased_working_sites = erasure.working_sites;
@@ -7923,6 +8360,9 @@ bool RdpScanner::finish_detection_round(std::string& error) {
     }
   }
   cyclic_shortlist_active_ = erasure.working_sites > 0;
+  cyclic_pair_shortlist_active_ =
+      cyclic_shortlist_active_ && cyclic_pair_shortlist_active_;
+  if (!cyclic_shortlist_active_) cyclic_pair_shortlist_.clear();
   refresh_threeseq_on_unchanged_triplets_ =
       cyclic_shortlist_active_ && first_post_erasure_threeseq_refresh;
 
@@ -8475,7 +8915,7 @@ bool RdpScanner::restore(
   scan_round_ = std::max<std::size_t>(1, scan_rounds);
   round_signal_begin_ = signals_.size();
   fixed_event_count_ = 0;
-  constexpr std::array<std::string_view, 9> valid_cycle_terminations{
+  constexpr std::array<std::string_view, 10> valid_cycle_terminations{
       "not-started",
       "scanning",
       "no-significant-signals",
@@ -8483,6 +8923,7 @@ bool RdpScanner::restore(
       "no-eligible-query-reference-triplets",
       "event-assignment-error",
       "no-new-tract-sites",
+      "cycle-limit-reached",
       "user-stopped",
       "restored-project",
   };
@@ -8645,8 +9086,12 @@ std::string RdpScanner::progress_json() const {
       << ",\"methodScansSkipped\":" << method_scans_skipped_
       << ",\"invalidScheduleTripletsSkipped\":"
       << invalid_schedule_triplets_skipped_
+      << ",\"pairShortlistTripletsSkipped\":"
+      << pair_shortlist_triplets_skipped_
       << ",\"fragmentSequencesPruned\":" << fragment_sequences_pruned_
       << ",\"scanRound\":" << scan_round_
+      << ",\"maximumDetectionCycles\":"
+      << options_.maximum_detection_cycles
       << ",\"fixedEventCount\":" << fixed_event_count_
       << ",\"signalCount\":" << signals_.size() << ",\"eventCount\":" << events_.size()
       << ",\"maxChiProfilesScanned\":" << maxchi_profiles_scanned_
@@ -8727,7 +9172,7 @@ std::string RdpScanner::results_json() const {
   }
   sort_unique(reference_group_ids);
   std::ostringstream out;
-  out << "{\"engineVersion\":\"0.25.0-session-25\",\"status\":\"cyclic-three-set-reconciled\","
+  out << "{\"engineVersion\":\"0.26.0-session-26\",\"status\":\"cyclic-three-set-reconciled\","
          "\"method\":\"RDP";
   if (options_.geneconv_enabled) out << "+GENECONV";
   if (options_.bootscan_primary_enabled) out << "+BOOTSCAN";
@@ -8909,7 +9354,9 @@ std::string RdpScanner::results_json() const {
       << ",\"processedTriplets\":" << processed_triplets_
       << ",\"totalTriplets\":" << total_triplets_
       << ",\"scanRounds\":"
-      << scan_round_ << ",\"cumulativeTriplets\":" << cumulative_triplets_
+      << scan_round_ << ",\"maximumDetectionCycles\":"
+      << options_.maximum_detection_cycles
+      << ",\"cumulativeTriplets\":" << cumulative_triplets_
       << ",\"maxChiProfilesScanned\":" << maxchi_profiles_scanned_
       << ",\"maxChiPeakAttempts\":" << maxchi_peak_attempts_
       << ",\"maxChiCandidatesFound\":" << maxchi_candidates_found_

@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace rdp {
@@ -54,6 +55,11 @@ struct ScanOptions {
   CorrectionMode correction = CorrectionMode::bonferroni;
   double p_value_cutoff = 0.05;
   std::size_t window_sites = 30;
+  // A bounded diagnostic stop prevents a pathological fragment/re-entry loop
+  // from consuming an unbounded number of complete cyclic passes. RDP5
+  // completed the supplied parity fixtures in at most 48 events; 64 leaves a
+  // deliberate margin while preserving every event committed before the cap.
+  std::size_t maximum_detection_cycles = 64;
   bool maxchi_enabled = true;
   std::size_t maxchi_window_sites = 70;
   bool chimaera_enabled = true;
@@ -605,6 +611,9 @@ class RdpScanner {
   TripletSignalShortlist round_triplet_signal_summaries_;
   TripletSignalShortlist carried_triplet_signal_summaries_;
   std::vector<std::uint8_t> dirty_working_sequences_;
+  // AddjustCXO/MakePairsP's sparse DoPairs replacement. Keys use original
+  // sequence identities so fragment-row compaction cannot invalidate them.
+  std::unordered_set<std::uint64_t> cyclic_pair_shortlist_;
   TripletProfile profile_scratch_;
   MaxChiWorkspace maxchi_workspace_;
   MaxChiWorkspace chimaera_workspace_;
@@ -644,6 +653,7 @@ class RdpScanner {
   std::uint64_t cached_signals_reused_ = 0;
   std::uint64_t method_scans_skipped_ = 0;
   std::uint64_t invalid_schedule_triplets_skipped_ = 0;
+  std::uint64_t pair_shortlist_triplets_skipped_ = 0;
   std::uint64_t fragment_sequences_pruned_ = 0;
   std::uint64_t maxchi_profiles_scanned_ = 0;
   std::uint64_t maxchi_peak_attempts_ = 0;
@@ -680,6 +690,7 @@ class RdpScanner {
   bool fragment_reentry_capped_ = false;
   bool correction_tests_frozen_ = false;
   bool cyclic_shortlist_active_ = false;
+  bool cyclic_pair_shortlist_active_ = false;
   bool refresh_threeseq_on_unchanged_triplets_ = false;
   bool cumulative_triplets_authoritative_ = false;
   std::string cycle_termination_ = "not-started";
@@ -708,6 +719,9 @@ class RdpScanner {
   [[nodiscard]] bool reuse_carried_triplet_signals(
       const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool triplet_touches_dirty_sequence(
+      const std::array<std::uint32_t, 3>& triplet) const;
+  void rebuild_cyclic_pair_shortlist(const UniqueEvent& event);
+  [[nodiscard]] bool cyclic_pair_shortlist_allows(
       const std::array<std::uint32_t, 3>& triplet) const;
   [[nodiscard]] std::uint8_t enabled_method_mask() const;
   [[nodiscard]] static std::size_t method_count(std::uint8_t method_mask);
@@ -769,6 +783,11 @@ class RdpScanner {
   [[nodiscard]] bool event_action_allowed(
       std::uint32_t event_id,
       std::string& error) const;
+  [[nodiscard]] bool source_phylogenetic_movement(
+      const Signal& signal) const;
+  [[nodiscard]] bool source_rejection_shortlist_match(
+      const Signal& rejected,
+      const Signal& candidate) const;
   [[nodiscard]] bool matches_fixed_event(const Signal& signal) const;
   void assign_event_support(
       UniqueEvent& event,

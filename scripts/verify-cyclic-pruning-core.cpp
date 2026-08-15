@@ -149,6 +149,7 @@ int main() {
       json_integer(progress, "cleanTripletsPruned") == 0 ||
       json_integer(progress, "methodScansSkipped") == 0 ||
       json_integer(progress, "invalidScheduleTripletsSkipped") == 0 ||
+      json_integer(progress, "pairShortlistTripletsSkipped") == 0 ||
       json_integer(progress, "fragmentSequencesPruned") == 0) {
     std::cerr << progress << '\n';
     destroy();
@@ -175,7 +176,9 @@ int main() {
             << json_integer(progress, "methodScansSkipped")
             << " method scans skipped, "
             << json_integer(progress, "invalidScheduleTripletsSkipped")
-            << " same-origin combinations bypassed, and "
+            << " non-analytical combinations bypassed (including "
+            << json_integer(progress, "pairShortlistTripletsSkipped")
+            << " by AddjustCXO/MakePairsP), and "
             << json_integer(progress, "fragmentSequencesPruned")
             << " event-free fragments removed with swap/reindex compaction.\n";
   return 0;

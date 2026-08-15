@@ -125,6 +125,19 @@ export function ScanStep({
         </div>
       ) : null}
 
+      {hasResults && progress.cycleTermination === "cycle-limit-reached" ? (
+        <div className="notice notice-blue" role="status">
+          <Check size={19} />
+          <div>
+            <strong>Cyclic safety limit reached</strong>
+            <p>
+              The scan stopped cleanly after {progress.maximumDetectionCycles} committed
+              discovery cycles. All completed events were retained and finalized for review.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="scan-console content-card">
         <div className="scan-summary">
           <div>
@@ -245,6 +258,7 @@ export function ScanStep({
             </span>
             <span>
               {integer.format(progress.cumulativeTriplets)} cumulative triplets · RDP {options.windowSites}
+              {` · cycle cap ${progress.maximumDetectionCycles}`}
               {options.maxChiEnabled ? ` · MaxChi ${options.maxChiWindowSites}` : ""}
               {options.chimaeraEnabled ? ` · CHIMAERA ${options.chimaeraWindowSites}` : ""}
               {options.geneconvEnabled
@@ -275,7 +289,15 @@ export function ScanStep({
                 {integer.format(progress.tripletKernelEvaluations)} triplet kernel evaluations
               </span>
               <span>
-                {integer.format(progress.invalidScheduleTripletsSkipped)} same-origin combinations skipped inside WASM batches
+                {integer.format(progress.invalidScheduleTripletsSkipped)} non-analytical combinations bypassed inside WASM batches
+              </span>
+            </div>
+          ) : null}
+          {progress.pairShortlistTripletsSkipped > 0 ? (
+            <div className="progress-meta">
+              <span>RDP DoPairs shortlist</span>
+              <span>
+                {integer.format(progress.pairShortlistTripletsSkipped)} dirty triplets omitted before method kernels
               </span>
             </div>
           ) : null}

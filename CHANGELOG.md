@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.26.0-session-26
+
+- Ported the supplied RDP `CentreBP` midpoint rule, including shifting a post-erasure midpoint off
+  missing data toward the detected tract. Scoring continues to use the informative-site bounds, so
+  this changes stored coordinates without recalculating the discovery p-value.
+- Generalized the BestXOList-style action cache to all committed events using the same original
+  triplet plus greater than 80% tract overlap; manual/restored event invalidation remains broader.
+- Restored the supplied `AddjustCXO`/`MakePairsP` `DoPairs` gate. Signals touching the selected
+  `RList` enable their three original-sequence pairs, permissions propagate across the selected
+  group, and dirty triplets lacking all three pairs bypass every numerical kernel.
+- Corrected cyclic erasure to use the selected role's final `ConsensusOK`/`FinalTrim` distance list
+  (`RList(WinPP)`) instead of the diagnostic two-of-three evidence union.
+- Matched the active `MakeConsensusC` subset's method-specific numeric quantization, post-rounding
+  exact-±1 sentinel guards and tree-distance cap, and restored the TreePhPr second-place
+  contribution of 14 points rather than a generic half of 18.
+- Added a graceful 64-round ceiling. It preserves completed events, records
+  `cycle-limit-reached`, and continues into Review/export with an explicit UI notice.
+- Audited ten simulated RDP-only saved analyses without inspecting alignment content. The audit
+  strongly validates breakpoint centering and final-RList membership. The `DoPairs` gate reduced
+  509 events to 453, improved matched roles from 82 to 95 and matched triplets from 152 to 171,
+  reduced heavy triplet-kernel entries by 78%, reduced capped cases from five to one, and cut
+  native audit time from 125.5 to 72.7 seconds.
+  Full cyclic parity is not yet established; exact role selection and event consolidation remain.
+- Kept the partial `TestMoveInTreeAlt` experiment out of active event selection after its ten-case
+  A/B worsened early parity. Its mutable pair totals, quick distance, and final tree stages must be
+  ported together before enabling that pruning heuristic.
+
 ## 0.25.0-session-25
 
 - Restored the supplied internal daughter/minor-parent/major-parent representative order in BURT
