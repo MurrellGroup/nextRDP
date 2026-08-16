@@ -317,7 +317,7 @@ try {
     .update(JSON.stringify(selectedResult))
     .digest("hex");
   if (selectedResultDigest !==
-      "5a68fbe96d81e69e1ae1a837dd9cc38f059f761385a2ed706f29f385305a3232") {
+      "5fd2fffa2413e4aac7ccce896fa9b72d88330e8968a52c985be5903d7766950c") {
     fail(`cyclic-shortlist selected results changed (${selectedResultDigest})`);
   }
 

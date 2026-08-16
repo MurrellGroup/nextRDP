@@ -285,7 +285,8 @@ double rdp_probability(
     std::size_t region_length,
     std::size_t matching_sites,
     double background_identity,
-    std::size_t informative_length) {
+    std::size_t informative_length,
+    bool apply_long_region_exponent = true) {
   if (region_length == 0 || informative_length == 0) return 1.0;
   double length_factor = 1.0;
   if (region_length >= 170) {
@@ -301,7 +302,7 @@ double rdp_probability(
   double probability = binomial_tail(region_length, matching_sites, background_identity);
   probability *= static_cast<double>(informative_length) /
       static_cast<double>(std::max<std::size_t>(1, region_length));
-  if (length_factor > 1.000001) {
+  if (apply_long_region_exponent && length_factor > 1.000001) {
     probability = probability > 0.0 ? std::pow(probability, length_factor) : 0.05;
   }
   if (probability < kMinimumProbability) probability = kMinimumProbability;
@@ -642,11 +643,13 @@ bool best_category_correlation(
     const std::array<double, 6>& candidate,
     double& direct,
     double& selected,
-    std::uint8_t& inversion_code) {
+    std::uint8_t& inversion_code,
+    std::array<double, 5>& category_correlations) {
   if (!pearson_six(anchor, candidate, direct)) return false;
+  category_correlations.fill(0.0);
+  category_correlations[0] = direct;
   selected = direct;
   inversion_code = 0;
-  if (direct >= 0.83) return true;
 
   constexpr std::array<std::array<std::size_t, 3>, 5> permutations{{
       {{1, 0, 2}},
@@ -664,7 +667,14 @@ bool best_category_correlation(
       }
     }
     double correlation = 0.0;
-    if (!pearson_six(anchor, relabelled, correlation) || correlation <= selected) continue;
+    if (!pearson_six(anchor, relabelled, correlation)) continue;
+    const std::size_t correlation_class = permutation < 3 ? permutation + 1 : 4;
+    category_correlations[correlation_class] = std::max(
+        category_correlations[correlation_class], correlation);
+    // CalCR accepts a sufficiently strong direct-polarity match without
+    // replacing it with an alternative relabelling, but still retains all
+    // class correlations for the later MakeListCorr pass.
+    if (direct >= 0.83 || correlation <= selected) continue;
     selected = correlation;
     // The supplied CalCR routine stores the two cyclic permutations together
     // as inversion class four.
@@ -1776,6 +1786,11 @@ const char* role_metric_name(RoleMetricKind kind) {
     case RoleMetricKind::cross_tree_subphpr_simdist:
       return "TreeSubPhPr+SimScoreB";
     case RoleMetricKind::cross_rcompat_trp: return "RCompatInside+TrpScore";
+    case RoleMetricKind::bad_distances: return "BadDists";
+    case RoleMetricKind::cross_tree_subdist_bad_distances:
+      return "TreeSubDist+BadDists";
+    case RoleMetricKind::list_correlation: return "ListCorr";
+    case RoleMetricKind::list_correlation_strength: return "ListCorr2";
   }
   return "Unknown";
 }
@@ -3639,6 +3654,8 @@ bool RdpScanner::build_profile_on(
     MaxChiWorkspace* maxchi_workspace) const {
   profile.category.clear();
   profile.coordinates.clear();
+  profile.erased_gap_before.clear();
+  profile.erased_gap_ending_before.clear();
   profile.category_counts.fill(0);
   profile.similarities.fill(0.0);
   profile.sequences = triplet;
@@ -3655,14 +3672,34 @@ bool RdpScanner::build_profile_on(
   if (profile.category.capacity() < alignment.length / 4) {
     profile.category.reserve(alignment.length / 4);
     profile.coordinates.reserve(alignment.length / 4);
+    profile.erased_gap_before.reserve(alignment.length / 4);
+    profile.erased_gap_ending_before.reserve(alignment.length / 4);
   }
 
   std::array<std::size_t, 3> comparable{};
   std::array<std::size_t, 3> identical{};
+  std::uint8_t erased_gap_pending = 0;
+  std::size_t first_erased_coordinate = 0;
   for (std::size_t position = 0; position < alignment.length; ++position) {
     const std::uint8_t first = alignment.at(triplet[0], position);
     const std::uint8_t second = alignment.at(triplet[1], position);
     const std::uint8_t third = alignment.at(triplet[2], position);
+    if (&alignment == &working_alignment_) {
+      for (std::size_t member = 0; member < triplet.size(); ++member) {
+        const std::uint32_t working_sequence = triplet[member];
+        if (working_sequence >= working_origins_.size() ||
+            working_sequence >= working_alignment_.sequence_count()) {
+          continue;
+        }
+        const std::uint32_t origin = working_origins_[working_sequence];
+        if (origin < alignment_.sequence_count() &&
+            alignment_.at(origin, position) != 0 &&
+            working_alignment_.at(working_sequence, position) == 0) {
+          erased_gap_pending |= static_cast<std::uint8_t>(1U << member);
+          if (first_erased_coordinate == 0) first_erased_coordinate = position + 1;
+        }
+      }
+    }
     if (maxchi_workspace) {
       for (const std::uint32_t working_sequence : triplet) {
         if (working_sequence >= working_origins_.size()) {
@@ -3711,7 +3748,22 @@ bool RdpScanner::build_profile_on(
     if (category == 255) continue;
     profile.category.push_back(category);
     profile.coordinates.push_back(position + 1);
+    profile.erased_gap_before.push_back(erased_gap_pending);
+    profile.erased_gap_ending_before.push_back(
+        erased_gap_pending != 0
+        ? wrap_coordinate(
+              static_cast<std::int64_t>(first_erased_coordinate) - 2,
+              alignment.length)
+        : 0);
+    erased_gap_pending = 0;
+    first_erased_coordinate = 0;
     ++profile.category_counts[category];
+  }
+  if (!profile.erased_gap_before.empty() && erased_gap_pending != 0) {
+    profile.erased_gap_before[0] |= erased_gap_pending;
+    profile.erased_gap_ending_before[0] = wrap_coordinate(
+        static_cast<std::int64_t>(first_erased_coordinate) - 2,
+        alignment.length);
   }
 
   for (std::size_t pair = 0; pair < profile.similarities.size(); ++pair) {
@@ -3788,13 +3840,19 @@ std::array<std::uint8_t, 3> RdpScanner::ranked_pairs(const TripletProfile& profi
 }
 
 void RdpScanner::append_candidate_signals(
-    const TripletProfile& profile,
+    TripletProfile& profile,
     std::uint8_t high_pair,
     std::uint8_t candidate_pair,
     std::uint8_t low_pair,
     bool enforce_cutoff,
-    std::vector<Signal>& output) const {
+    std::vector<Signal>& output,
+    std::optional<std::size_t>* old_search) const {
   const std::size_t length = profile.category.size();
+  if (length < 2) return;
+  // FastRecCheckP changes N information-rich sites to LenXoverSeq=N-1.
+  // FindNextP searches native indices 1..N-1; index zero is reserved as a
+  // circular alias for the final information-rich site during event walking.
+  const std::size_t search_length = length - 1;
   std::size_t search = 0;
 
   const auto candidate_members = pair_members(candidate_pair);
@@ -3881,21 +3939,69 @@ void RdpScanner::append_candidate_signals(
     return centered;
   };
 
-  while (search < length) {
-    while (search < length &&
-           !(profile.rolling_counts[candidate_pair][search] >
-                 profile.rolling_counts[high_pair][search] &&
-             profile.rolling_counts[candidate_pair][search] >
-                 profile.rolling_counts[low_pair][search])) {
+  const auto rolling_count = [&](std::uint8_t pair, std::size_t position) {
+    // Native index zero is never populated by XOHomologyP2. DefineEventP2
+    // nevertheless traverses it as the circular alias of category N.
+    if (position == length - 1) return std::uint32_t{0};
+    return profile.rolling_counts[pair][position];
+  };
+
+  while (search < search_length) {
+    while (search < search_length &&
+           !(rolling_count(candidate_pair, search) > rolling_count(high_pair, search) &&
+             rolling_count(candidate_pair, search) > rolling_count(low_pair, search))) {
       ++search;
     }
-    if (search >= length) break;
+    if (search >= search_length) break;
+    if (old_search != nullptr && old_search->has_value() &&
+        old_search->value() == search) {
+      break;
+    }
+    if (old_search != nullptr) *old_search = search;
+
+    // A circular candidate window already dominant at native index one is
+    // not defined immediately. FindFirstCOP advances through that opening
+    // dominance run, copies the first rolling counts into the terminal
+    // ordinary index in one branch, and FindNextP resumes after the run.
+    if (options_.circular && search == 0) {
+      std::size_t after_opening = 0;
+      while (after_opening < search_length &&
+             rolling_count(candidate_pair, after_opening) >
+                 rolling_count(high_pair, after_opening)) {
+        ++after_opening;
+      }
+      if (rolling_count(candidate_pair, search_length - 1) <=
+          rolling_count(high_pair, search_length - 1)) {
+        // FindFirstCOP writes these values into the shared XOverHomologyNum
+        // matrix, so the terminal override survives subsequent role
+        // rotations for this triplet.
+        profile.rolling_counts[candidate_pair][search_length - 1] =
+            profile.rolling_counts[candidate_pair][0];
+        profile.rolling_counts[high_pair][search_length - 1] =
+            profile.rolling_counts[high_pair][0];
+      }
+      search = after_opening + 1;
+      continue;
+    }
 
     std::size_t beginning = search;
     bool beginning_wrapped = false;
-    if (profile.category[beginning] == candidate_pair) {
-      while (beginning > 0 && profile.category[beginning - 1] == candidate_pair) --beginning;
-    } else {
+    // DefineEventP2 decrements before it inspects candidate support. A
+    // rolling-window peak may sit on the first non-supporting site after a
+    // run; in that case native RDP attaches the event to the preceding run,
+    // rather than searching forward from the peak. Preserve that asymmetric
+    // rule because the resulting tract length feeds the probability and can
+    // change strongest-first event order.
+    if (beginning > 0) {
+      while (beginning > 0) {
+        --beginning;
+        if (profile.category[beginning] != candidate_pair) {
+          ++beginning;
+          break;
+        }
+      }
+    }
+    if (profile.category[beginning] != candidate_pair) {
       std::size_t examined = 0;
       while (profile.category[beginning] != candidate_pair && examined < length) {
         ++beginning;
@@ -3913,6 +4019,8 @@ void RdpScanner::append_candidate_signals(
     std::size_t matching = 0;
     std::size_t region_length = 0;
     bool wrapped = beginning_wrapped;
+    bool stopped_on_drop = false;
+    std::size_t drop_position = beginning;
     for (std::size_t visited = 0; visited < length; ++visited) {
       if (profile.category[ending] == candidate_pair) ++matching;
       ++region_length;
@@ -3922,9 +4030,13 @@ void RdpScanner::append_candidate_signals(
         wrapped = true;
       }
       const bool candidate_drops =
-          profile.rolling_counts[candidate_pair][next] < profile.rolling_counts[high_pair][next] ||
-          profile.rolling_counts[candidate_pair][next] < profile.rolling_counts[low_pair][next];
-      if (candidate_drops && profile.category[next] != candidate_pair) break;
+          rolling_count(candidate_pair, next) < rolling_count(high_pair, next) ||
+          rolling_count(candidate_pair, next) < rolling_count(low_pair, next);
+      if (candidate_drops && profile.category[next] != candidate_pair) {
+        stopped_on_drop = true;
+        drop_position = next;
+        break;
+      }
       ending = next;
       if (ending == beginning) break;
     }
@@ -3942,35 +4054,238 @@ void RdpScanner::append_candidate_signals(
         matching > static_cast<double>(different) * 0.8) {
       const double background = static_cast<double>(profile.category_counts[candidate_pair]) /
           static_cast<double>(length);
-      const double local = rdp_probability(region_length, matching, background, length);
+      const double local = rdp_probability(
+          region_length, matching, background, search_length);
       const double corrected = options_.correction == CorrectionMode::bonferroni
           ? std::min(1.0, local * static_cast<double>(correction_tests_))
           : std::min(1.0, local);
       if (!enforce_cutoff || corrected < options_.p_value_cutoff) {
-        const auto centered = centered_breakpoints(beginning, ending);
-        Signal signal;
-        signal.triplet = profile.sequences;
-        signal.recombinant = profile.sequences[recombinant_local];
-        signal.major_parent = profile.sequences[major_local];
-        signal.minor_parent = profile.sequences[minor_local];
-        signal.beginning = centered[0];
-        signal.ending = centered[1];
-        signal.wraps_origin =
-            (options_.circular && signal.beginning >= signal.ending);
-        signal.informative_beginning = beginning + 1;
-        signal.informative_ending = ending + 1;
-        signal.local_p_value = local;
-        signal.corrected_p_value = corrected;
-        signal.correction_tests = correction_tests_;
-        signal.pair_similarity = profile.similarities;
-        signal.informative_sites = length;
-        signal.candidate_pair = candidate_pair;
-        output.push_back(signal);
+        const auto append_signal = [&](std::size_t signal_beginning,
+                                       std::size_t signal_ending,
+                                       double signal_local,
+                                       double signal_corrected,
+                                       std::optional<std::size_t>
+                                           ending_override) {
+          auto centered = centered_breakpoints(signal_beginning, signal_ending);
+          if (ending_override) centered[1] = *ending_override;
+          Signal signal;
+          signal.triplet = profile.sequences;
+          signal.recombinant = profile.sequences[recombinant_local];
+          signal.major_parent = profile.sequences[major_local];
+          signal.minor_parent = profile.sequences[minor_local];
+          signal.beginning = centered[0];
+          signal.ending = centered[1];
+          signal.wraps_origin =
+              (options_.circular && signal.beginning >= signal.ending);
+          signal.informative_beginning = signal_beginning + 1;
+          signal.informative_ending = signal_ending + 1;
+          signal.local_p_value = signal_local;
+          signal.corrected_p_value = signal_corrected;
+          signal.correction_tests = correction_tests_;
+          signal.pair_similarity = profile.similarities;
+          signal.informative_sites = length;
+          signal.candidate_pair = candidate_pair;
+          output.push_back(signal);
+        };
+        // In cyclic passes native XOver applies CheckSplit only after the
+        // unsplit event has crossed LowestProb. A significant spanning event
+        // is then divided at MissingData and each piece is rescored; it is
+        // never retained under the unsplit probability.
+        const auto missing_at = [&](std::size_t coordinate) {
+          return std::any_of(
+              profile.sequences.begin(), profile.sequences.end(),
+              [&](std::uint32_t sequence) {
+                if (sequence >= working_alignment_.sequence_count() ||
+                    sequence >= working_origins_.size()) {
+                  return true;
+                }
+                const std::uint32_t origin = working_origins_[sequence];
+                if (origin >= alignment_.sequence_count()) return true;
+                // XOver's cyclic MissingData matrix is freshly zeroed by
+                // ModSeqNum and populated only while earlier events are
+                // replayed. Literal gaps in the loaded alignment therefore
+                // do not trigger CheckSplit, even when they form a long run.
+                const std::int32_t fragment_event =
+                    sequence < working_fragment_events_.size()
+                    ? working_fragment_events_[sequence]
+                    : -1;
+                if (fragment_event >= 0 &&
+                    static_cast<std::size_t>(fragment_event) < events_.size()) {
+                  const auto& source = events_[fragment_event];
+                  const bool inside_source = coordinate_in_tract(
+                      coordinate,
+                      source.beginning,
+                      source.ending,
+                      source.wraps_origin);
+                  if (!inside_source) return true;
+                }
+                const std::size_t first_later_event = fragment_event >= 0
+                    ? static_cast<std::size_t>(fragment_event) + 1
+                    : 0;
+                // ModSeqNumY's sequence edit leaves the two reported
+                // breakpoint bases readable in the installed executable,
+                // but its parallel MissingData replay flags the event bounds
+                // inclusively. CheckSplit therefore sees one more coordinate
+                // on each side than the compressed working row does.
+                for (std::size_t event_index = first_later_event;
+                     event_index < events_.size();
+                     ++event_index) {
+                  const auto& prior = events_[event_index];
+                  const bool origin_was_erased = prior.co_recombinant_sequences.empty()
+                      ? prior.recombinant == origin
+                      : std::find(
+                            prior.co_recombinant_sequences.begin(),
+                            prior.co_recombinant_sequences.end(),
+                            origin) != prior.co_recombinant_sequences.end();
+                  if (origin_was_erased &&
+                      coordinate_in_tract(
+                          coordinate,
+                          prior.beginning,
+                          prior.ending,
+                          prior.wraps_origin)) {
+                    return true;
+                  }
+                }
+                return false;
+              });
+        };
+        const auto native_split_coordinate = [&]()
+            -> std::optional<std::size_t> {
+          if (!enforce_cutoff || events_.empty() || profile.coordinates.empty()) {
+            return std::nullopt;
+          }
+          const std::size_t full_beginning = profile.coordinates[beginning];
+          const std::size_t full_ending = profile.coordinates[ending];
+          if (full_beginning < full_ending) {
+            for (std::size_t coordinate = full_beginning;
+                 coordinate <= full_ending;
+                 coordinate += 10) {
+              if (missing_at(coordinate)) return coordinate;
+              if (full_ending - coordinate < 10) break;
+            }
+          } else {
+            for (std::size_t coordinate = full_beginning;
+                 coordinate <= working_alignment_.length;
+                 coordinate += 10) {
+              if (missing_at(coordinate)) return coordinate;
+              if (working_alignment_.length - coordinate < 10) break;
+            }
+            for (std::size_t coordinate = 1;
+                 coordinate <= full_ending;
+                 coordinate += 10) {
+              if (missing_at(coordinate)) return coordinate;
+              if (full_ending - coordinate < 10) break;
+            }
+          }
+          return std::nullopt;
+        };
+        if (const auto split_coordinate = native_split_coordinate()) {
+          // CheckSplit returns the first sampled missing coordinate. Native
+          // then excludes both the gap and the immediately preceding
+          // informative site from the left piece. FindMissing walks backward
+          // from EN to discard every missing block between the two pieces.
+          std::size_t last_missing = profile.coordinates[ending];
+          bool found_last_missing = false;
+          for (std::size_t visited = 0;
+               visited < working_alignment_.length;
+               ++visited) {
+            if (missing_at(last_missing)) {
+              found_last_missing = true;
+              break;
+            }
+            if (last_missing == *split_coordinate) break;
+            last_missing = last_missing == 1
+                ? working_alignment_.length
+                : last_missing - 1;
+          }
+
+          const auto information_before = [&](std::size_t coordinate) {
+            return static_cast<std::size_t>(std::distance(
+                profile.coordinates.begin(),
+                std::lower_bound(
+                    profile.coordinates.begin(),
+                    profile.coordinates.end(),
+                    coordinate)));
+          };
+          const auto score_split_piece = [&](std::size_t piece_beginning,
+                                             std::size_t piece_ending,
+                                             std::optional<std::size_t>
+                                                 ending_override) {
+            std::size_t piece_length = 0;
+            std::size_t piece_matching = 0;
+            std::size_t position = piece_beginning;
+            for (std::size_t visited = 0; visited < search_length; ++visited) {
+              if (position >= search_length) position = 0;
+              if (profile.category[position] == candidate_pair) ++piece_matching;
+              ++piece_length;
+              if (position == piece_ending) break;
+              ++position;
+            }
+            if (piece_length <= 2 || position != piece_ending) return;
+            // The ordinary XOver path raises long-region probabilities to
+            // AFact after reducing them to 169 sites. Its SplitEvent branch
+            // performs the reduction but accidentally omits that exponent.
+            const double piece_local = rdp_probability(
+                piece_length,
+                piece_matching,
+                background,
+                search_length,
+                false);
+            const double piece_corrected =
+                options_.correction == CorrectionMode::bonferroni
+                ? std::min(
+                      1.0,
+                      piece_local * static_cast<double>(correction_tests_))
+                : std::min(1.0, piece_local);
+            if (piece_corrected < options_.p_value_cutoff) {
+              append_signal(
+                  piece_beginning,
+                  piece_ending,
+                  piece_local,
+                  piece_corrected,
+                  ending_override);
+            }
+          };
+
+          const std::size_t before_split =
+              information_before(*split_coordinate);
+          if (before_split >= 2) {
+            const std::size_t left_ending = before_split - 2;
+            std::size_t erased_boundary = *split_coordinate;
+            for (std::size_t visited = 0;
+                 visited < working_alignment_.length;
+                 ++visited) {
+              if (!missing_at(erased_boundary)) break;
+              erased_boundary = erased_boundary == 1
+                  ? working_alignment_.length
+                  : erased_boundary - 1;
+            }
+            score_split_piece(
+                beginning,
+                left_ending,
+                std::optional<std::size_t>{erased_boundary});
+          }
+          if (found_last_missing) {
+            const std::size_t right_beginning = information_before(last_missing);
+            if (right_beginning < search_length) {
+              score_split_piece(right_beginning, ending, std::nullopt);
+            }
+          }
+          search = std::max(search + 1, ending + 1);
+          if (wrapped) break;
+          continue;
+        }
+        append_signal(beginning, ending, local, corrected, std::nullopt);
       }
     }
 
     if (wrapped) break;
-    search = std::max(search + 1, ending + 1);
+    // DefineEventP2 returns StoreX+1 and its caller resumes another position
+    // later. For an ordinary non-wrapping stop this skips the first two
+    // information-rich positions after the rolling-count drop.
+    search = stopped_on_drop
+        ? drop_position + 2
+        : std::max(search + 1, ending + 1);
   }
 }
 
@@ -3992,13 +4307,14 @@ std::vector<Signal> RdpScanner::triplet_signals(
   };
   std::vector<Signal> candidates;
   candidates.reserve(4);
+  std::optional<std::size_t> old_search;
   append_candidate_signals(
-      profile, order[0], order[1], order[2], enforce_cutoff, candidates);
+      profile, order[0], order[1], order[2], enforce_cutoff, candidates, &old_search);
   append_candidate_signals(
-      profile, order[0], order[2], order[1], enforce_cutoff, candidates);
+      profile, order[0], order[2], order[1], enforce_cutoff, candidates, &old_search);
   if (average[order[0]] < 0.7) {
     append_candidate_signals(
-        profile, order[1], order[0], order[2], enforce_cutoff, candidates);
+        profile, order[1], order[0], order[2], enforce_cutoff, candidates, &old_search);
   }
   return candidates;
 }
@@ -4025,10 +4341,14 @@ void RdpScanner::scan_triplet(
         static_cast<double>(profile.category_counts[1]) / profile.category.size(),
         static_cast<double>(profile.category_counts[2]) / profile.category.size(),
     };
-    append_candidate_signals(profile, order[0], order[1], order[2], true, candidates);
-    append_candidate_signals(profile, order[0], order[2], order[1], true, candidates);
+    std::optional<std::size_t> old_search;
+    append_candidate_signals(
+        profile, order[0], order[1], order[2], true, candidates, &old_search);
+    append_candidate_signals(
+        profile, order[0], order[2], order[1], true, candidates, &old_search);
     if (average[order[0]] < 0.7) {
-      append_candidate_signals(profile, order[1], order[0], order[2], true, candidates);
+      append_candidate_signals(
+          profile, order[1], order[0], order[2], true, candidates, &old_search);
     }
   }
 
@@ -5484,6 +5804,88 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
       event.beginning,
       event.ending);
 
+  // MakeDMatS uses QuickDist6's inclusive SP/EP windows, unlike MakeSDMP2's
+  // half-open category windows above.  It stores single-precision JC values
+  // rounded to four decimals and substitutes 3 when <=10 sites overlap.
+  std::array<std::vector<std::size_t>, 4> dmat_regions;
+  dmat_regions[0] = forward_region(
+      analysis_alignment, layout.boundaries[0], event.beginning);
+  dmat_regions[1] = forward_region(
+      analysis_alignment,
+      event.beginning,
+      wrap_coordinate(
+          static_cast<std::int64_t>(layout.boundaries[1]) + 1,
+          analysis_alignment.length));
+  dmat_regions[2] = forward_region(
+      analysis_alignment,
+      layout.boundaries[2],
+      wrap_coordinate(
+          static_cast<std::int64_t>(event.ending) + 1,
+          analysis_alignment.length));
+  dmat_regions[3] = forward_region(
+      analysis_alignment,
+      wrap_coordinate(
+          static_cast<std::int64_t>(event.ending) + 1,
+          analysis_alignment.length),
+      wrap_coordinate(
+          static_cast<std::int64_t>(layout.boundaries[3]) + 1,
+          analysis_alignment.length));
+  const auto dmat_distance = [&](
+                                 std::size_t region,
+                                 std::uint32_t first,
+                                 std::uint32_t second) {
+    std::size_t comparable = 0;
+    for (const std::size_t coordinate : dmat_regions[region]) {
+      if (coordinate < 1 || coordinate > analysis_alignment.length) continue;
+      if (analysis_alignment.at(first, coordinate - 1) != 0 &&
+          analysis_alignment.at(second, coordinate - 1) != 0) {
+        ++comparable;
+      }
+    }
+    if (comparable <= 10) return 3.0;
+    const float stored = static_cast<float>(jukes_cantor_distance(
+        analysis_alignment, first, second, dmat_regions[region]));
+    return std::nearbyint(static_cast<double>(stored) * 10000.0) / 10000.0;
+  };
+
+  // MakeProperRCorr derives one shared RCorrWarn triplet by testing all three
+  // ISeqs rows, then every role's MakeRList call consumes that same warning
+  // mask.  Computing a separate mask for each presumed recombinant misses a
+  // warning that is only exposed by one of the other two rows.
+  std::array<CorrelationProfiles, 3> anchor_profiles_by_role;
+  std::array<std::uint8_t, 3> shared_correlation_warnings{};
+  for (std::size_t role = 0; role < representatives.size(); ++role) {
+    anchor_profiles_by_role[role] = correlation_profiles(
+        analysis_alignment,
+        representatives[role],
+        representatives[kSourceCompRoles[role][0]],
+        representatives[kSourceCompRoles[role][1]],
+        representatives[role],
+        regions);
+    const auto role_warnings = correlation_warnings(
+        anchor_profiles_by_role[role]);
+    shared_correlation_warnings[0] |= role_warnings[0];
+    shared_correlation_warnings[1] |= role_warnings[1];
+  }
+  for (std::size_t region = 0; region < 4; ++region) {
+    const double first_second = dmat_distance(
+        region, representatives[0], representatives[1]);
+    const double first_third = dmat_distance(
+        region, representatives[0], representatives[2]);
+    const double second_third = dmat_distance(
+        region, representatives[2], representatives[1]);
+    const double total = first_second + first_third + second_third;
+    const bool weak_triangle = total <= 0.0 ||
+        ((1.0 - first_second * 2.0 / total) < 0.4 &&
+         (1.0 - first_third * 2.0 / total) < 0.4 &&
+         (1.0 - second_third * 2.0 / total) < 0.4);
+    if (weak_triangle) {
+      shared_correlation_warnings[region < 2 ? 0 : 1] = 1;
+    }
+  }
+  shared_correlation_warnings[2] =
+      shared_correlation_warnings[0] != shared_correlation_warnings[1] ? 1 : 0;
+
   for (std::size_t role = 0; role < representatives.size(); ++role) {
     auto& hypothesis = event.role_hypotheses[role];
     const std::uint32_t analysis_recombinant = representatives[role];
@@ -5510,30 +5912,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
       return score;
     };
 
-    const CorrelationProfiles anchor_profiles = correlation_profiles(
-        analysis_alignment,
-        analysis_recombinant,
-        analysis_parent_one,
-        analysis_parent_two,
-        analysis_recombinant,
-        regions);
-    hypothesis.correlation_warnings = correlation_warnings(anchor_profiles);
-    for (std::size_t region = 0; region < 4; ++region) {
-      const double first_second = reference_distance(
-          region, analysis_recombinant, analysis_parent_one);
-      const double first_third = reference_distance(
-          region, analysis_recombinant, analysis_parent_two);
-      const double second_third = reference_distance(
-          region, analysis_parent_one, analysis_parent_two);
-      const double total = first_second + first_third + second_third;
-      const bool weak_triangle = total <= 0.0 ||
-          ((1.0 - first_second * 2.0 / total) < 0.4 &&
-           (1.0 - first_third * 2.0 / total) < 0.4 &&
-           (1.0 - second_third * 2.0 / total) < 0.4);
-      if (weak_triangle) hypothesis.correlation_warnings[region < 2 ? 0 : 1] = 1;
-    }
-    hypothesis.correlation_warnings[2] =
-        hypothesis.correlation_warnings[0] != hypothesis.correlation_warnings[1] ? 1 : 0;
+    const CorrelationProfiles& anchor_profiles = anchor_profiles_by_role[role];
+    hypothesis.correlation_warnings = shared_correlation_warnings;
     std::vector<std::uint8_t> detectable(alignment_.sequence_count(), 0);
     for (const std::uint32_t sequence : hypothesis.detectable_signal_set) {
       if (sequence < detectable.size()) detectable[sequence] = 1;
@@ -5757,7 +6137,8 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
                 correlation_vector(candidate_profiles, pair),
                 direct_correlation,
                 correlation,
-                inversion_code)) {
+                inversion_code,
+                evidence.category_correlations[pair])) {
           continue;
         }
         has_valid_pair = true;
@@ -5970,23 +6351,6 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         });
   }
 
-  // RCompat is evaluated immediately after StripDupInv and before FinalTrim
-  // or ConsensusOK mutate the three lists. Preserve that exact list family;
-  // the later distance-correlation sets are intentionally overwritten with
-  // the final erasure groups for reporting and ModSeqNumY.
-  std::array<std::vector<std::uint32_t>, 3> native_rcompat_lists;
-  std::array<int, 3> native_rcompat_inversion_penalties{};
-  for (std::size_t role = 0; role < 3; ++role) {
-    native_rcompat_lists[role] =
-        event.role_hypotheses[role].distance_correlation_set;
-    native_rcompat_inversion_penalties[role] = std::any_of(
-        event.role_hypotheses[role].distance_evidence.begin(),
-        event.role_hypotheses[role].distance_evidence.end(),
-        [](const DistanceCorrelationEvidence& evidence) {
-          return evidence.stripped_inverse_only;
-        }) ? 1 : 0;
-  }
-
   // The active first FinalTrim stage copies the direct-polarity correlations,
   // clears warning/inversion rows, counts the same candidate/pair across all
   // three RLists, and suppresses a pair wherever that count exceeds one. Keep
@@ -6057,10 +6421,11 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
 
   SourceDetectedTractGrid detected_tracts;
   for (auto& role : detected_tracts) role.resize(ordinary_sequence_count);
-  // Every direct candidate + two-representative signal above this routine's
-  // >1/3 overlap threshold also passes event support's >0.3 shared-pair gate,
-  // so the retained support catalogue is complete for this lookup and remains
-  // reproducible after project restore and later cyclic rounds.
+  // Start with the assigned event catalogue, then perform the same targeted
+  // triplet recheck as FindActualEvents for an RList row which has no retained
+  // catalogue record. Event assignment deliberately keeps only the selected
+  // support cluster, whereas native PXOList can still contain a weaker signal
+  // for another RList member (Dataset4 W/J/Q/R is the minimal observed case).
   std::vector<std::uint32_t> catalogue_signal_ids;
   catalogue_signal_ids.reserve(event.support_signal_ids.size());
   for (const std::uint32_t signal_id : event.support_signal_ids) {
@@ -6115,6 +6480,69 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         selected.ending = signal.ending;
         selected.signal_id = static_cast<std::int32_t>(signal.id);
       }
+      if (!selected.available) {
+        bool profile_available = false;
+        const auto candidates = triplet_signals(
+            expected, true, &profile_available, &profile_scratch_);
+        if (profile_available) {
+          for (const Signal& signal : candidates) {
+            const double overlap = tract_overlap(
+                event.beginning,
+                event.ending,
+                signal.beginning,
+                signal.ending);
+            if (overlap * 3.0 <= 1.0 || overlap <= selected.overlap) continue;
+            selected.available = true;
+            selected.overlap = overlap;
+            selected.beginning = signal.beginning;
+            selected.ending = signal.ending;
+            selected.signal_id = -1;
+          }
+        }
+      }
+    }
+  }
+
+  // FindActualEvents/StripUnfound runs before StripDupInv and before the first
+  // RCompat call. Preserve both swap-last mutation passes: MakeLDist and
+  // MakeRCompat consume the resulting order as well as its membership. The
+  // later FinalTrim/ConsensusOK groups are a different list family.
+  std::array<std::vector<std::uint32_t>, 3> native_rcompat_lists;
+  std::array<int, 3> native_rcompat_inversion_penalties{};
+  for (std::size_t role = 0; role < 3; ++role) {
+    for (std::size_t sequence = 0; sequence < ordinary_sequence_count; ++sequence) {
+      if (initial_rlist[role][sequence] != 0) {
+        native_rcompat_lists[role].push_back(
+            static_cast<std::uint32_t>(sequence));
+      }
+    }
+    std::size_t position = 0;
+    while (position < native_rcompat_lists[role].size()) {
+      const std::uint32_t sequence = native_rcompat_lists[role][position];
+      if (detected_tracts[role][sequence].available) {
+        ++position;
+        continue;
+      }
+      native_rcompat_lists[role][position] =
+          native_rcompat_lists[role].back();
+      native_rcompat_lists[role].pop_back();
+    }
+    native_rcompat_inversion_penalties[role] = std::any_of(
+        native_rcompat_lists[role].begin(),
+        native_rcompat_lists[role].end(),
+        [&](std::uint32_t sequence) {
+          return initial_inverse_list[role][sequence] != 0;
+        }) ? 1 : 0;
+    position = 0;
+    while (position < native_rcompat_lists[role].size()) {
+      const std::uint32_t sequence = native_rcompat_lists[role][position];
+      if (initial_inverse_list[role][sequence] == 0) {
+        ++position;
+        continue;
+      }
+      native_rcompat_lists[role][position] =
+          native_rcompat_lists[role].back();
+      native_rcompat_lists[role].pop_back();
     }
   }
 
@@ -6228,24 +6656,7 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   std::array<std::vector<std::uint8_t>, 3> nearest_membership;
   for (std::size_t role = 0; role < 3; ++role) {
     nearest_membership[role].assign(ordinary_sequence_count, 0);
-    // MakeRList appends in ascending sequence order. Reproduce StripDupInv's
-    // swap-last removals instead of merely filtering, because FinalTrim later
-    // mutates the list in that retained order.
-    for (std::size_t sequence = 0; sequence < ordinary_sequence_count; ++sequence) {
-      if (initial_rlist[role][sequence] != 0) {
-        nearest_lists[role].push_back(static_cast<std::uint32_t>(sequence));
-      }
-    }
-    std::size_t position = 0;
-    while (position < nearest_lists[role].size()) {
-      const std::uint32_t sequence = nearest_lists[role][position];
-      if (initial_inverse_list[role][sequence] == 0) {
-        ++position;
-        continue;
-      }
-      nearest_lists[role][position] = nearest_lists[role].back();
-      nearest_lists[role].pop_back();
-    }
+    nearest_lists[role] = native_rcompat_lists[role];
     for (const std::uint32_t sequence : nearest_lists[role]) {
       nearest_membership[role][sequence] = 1;
     }
@@ -7580,6 +7991,30 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     }
   }
 
+  // The late primary-RDP recheck separates a candidate which failed the
+  // earlier FinalTrim list but carries its own significant, shifted tract.
+  // Treating that row as a co-recombinant erases the independent signal before
+  // the next cyclic pass. Native retains the row (Dataset5 A after the B/C
+  // event is the minimal observed case), allowing its distinct event to be
+  // selected in the following round.
+  auto& selected_group = consensus_lists[0];
+  selected_group.erase(
+      std::remove_if(
+          selected_group.begin(),
+          selected_group.end(),
+          [&](std::uint32_t sequence) {
+            if (sequence == reported_representatives[0] ||
+                sequence >= ordinary_sequence_count ||
+                finaltrim_membership[0][sequence] != 0) {
+              return false;
+            }
+            const auto& recheck = post_group_rdp_rechecks[0][sequence];
+            return recheck.significant && recheck.event_redetected &&
+                (recheck.best_beginning != event.beginning ||
+                 recheck.best_ending != event.ending);
+          }),
+      selected_group.end());
+
   for (std::size_t role = 0; role < 3; ++role) {
     std::vector<std::uint8_t> rebuilt_membership(ordinary_sequence_count, 0);
     for (const std::uint32_t sequence : consensus_rebuilt_lists[role]) {
@@ -7671,7 +8106,7 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   // Using that union here over-erased neighbouring clades and caused later
   // cyclic rounds to manufacture signals that source RDP never sees.
   event.automatic_co_recombinant_sequences =
-      event.role_hypotheses[0].distance_correlation_set;
+      selected_group;
   if (!event.group_manual_adjusted) {
     event.co_recombinant_sequences = event.automatic_co_recombinant_sequences;
   }
@@ -7910,9 +8345,9 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
                                   const std::array<std::vector<std::uint32_t>, 3>& lists,
                                   Distance distance) {
     std::array<double, 3> scores{};
-    const std::size_t category_limit = tree_sequences.empty()
+    const std::size_t category_limit = analysis_alignment.sequence_count() == 0
         ? 0
-        : tree_sequences.size() - 1;
+        : analysis_alignment.sequence_count() - 1;
     for (std::size_t role = 0; role < representatives.size(); ++role) {
       const auto& group = lists[role];
       if (group.empty()) continue;
@@ -8039,19 +8474,40 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   metrics[13].scores = select_rcompat_family(true);
   metric_valid[12].fill(true);
   metric_valid[13].fill(true);
+  // CalcMaxD reads the mutable SeqNum panel directly. Unlike the tree and
+  // correlation kernels above, it never receives the per-origin TraceSub
+  // alias overlay assembled for cached event evidence. IncSeq2 contains the
+  // currently active working rows, while the three ISeqs representatives are
+  // forced back in even when masked. Feeding the overlay here is observable
+  // in Dataset4's third event: the native 25-row call gives X a narrow dMax
+  // advantage, whereas substituted rows incorrectly make Y win.
+  const std::vector<std::uint8_t> dmax_signal_bearing =
+      fragment_signal_bearing_rows(event);
+  const std::int32_t dmax_generation_event = events_.empty()
+      ? -1
+      : static_cast<std::int32_t>(events_.back().id);
   std::vector<std::uint32_t> dmax_sequences;
-  dmax_sequences.reserve(analysis_alignment.sequence_count());
-  for (std::size_t sequence = 0;
-       sequence < analysis_alignment.sequence_count();
-       ++sequence) {
-    if (sequence < alignment_.sequence_count() &&
-        sequence_disabled(static_cast<std::uint32_t>(sequence))) {
+  dmax_sequences.reserve(active_sequences_.size() + representatives.size());
+  for (const std::uint32_t sequence : active_sequences_) {
+    const bool pending_generation_fragment =
+        sequence >= alignment_.sequence_count() &&
+        sequence < working_fragment_events_.size() &&
+        working_fragment_events_[sequence] == dmax_generation_event;
+    if (pending_generation_fragment &&
+        (sequence >= dmax_signal_bearing.size() ||
+         dmax_signal_bearing[sequence] == 0)) {
       continue;
     }
-    dmax_sequences.push_back(static_cast<std::uint32_t>(sequence));
+    dmax_sequences.push_back(sequence);
   }
+  for (const std::uint32_t representative : representatives) {
+    if (representative < working_alignment_.sequence_count()) {
+      dmax_sequences.push_back(representative);
+    }
+  }
+  sort_unique(dmax_sequences);
   metrics[14].scores = source_visrd_dmax(
-      alignment_, analysis_alignment, representatives, dmax_sequences,
+      alignment_, working_alignment_, representatives, dmax_sequences,
       event.beginning, event.ending);
   metric_valid[14].fill(true);
 
@@ -8134,6 +8590,70 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
       outside_direct(no, ni) - inside_direct(no, ni) * simple_dist_scale);
   metric_valid[15].fill(true);
   metric_valid[16].fill(true);
+
+  // GetBadDists is an independent MakeConsensusC statistic. For each final
+  // RList it counts distinct (rather than individual) outside-tree distance
+  // bins occupied by strongly correlated members whose regional distances
+  // exceed either proposed parent. The native bin is CLng(distance * 1000),
+  // capped at NextNo; retaining that quantization matters on tied clades.
+  RoleMetricEvidence bad_distance_metric;
+  bad_distance_metric.kind = RoleMetricKind::bad_distances;
+  bad_distance_metric.weight = 10.0;
+  bad_distance_metric.higher_is_recombinant = false;
+  const std::size_t bad_distance_bin_limit =
+      analysis_alignment.sequence_count() > 0
+          ? analysis_alignment.sequence_count() - 1
+          : 0;
+  for (std::size_t role = 0; role < representatives.size(); ++role) {
+    const auto& hypothesis = event.role_hypotheses[role];
+    std::vector<std::uint8_t> occupied(bad_distance_bin_limit + 1, 0);
+    const std::size_t other_zero = kSourceCompRoles[role][0];
+    const std::size_t other_one = kSourceCompRoles[role][1];
+    for (const std::uint32_t sequence : native_rcompat_lists[role]) {
+      const auto found = std::find_if(
+          hypothesis.distance_evidence.begin(),
+          hypothesis.distance_evidence.end(),
+          [&](const DistanceCorrelationEvidence& evidence) {
+            return evidence.sequence == sequence;
+          });
+      if (found == hypothesis.distance_evidence.end()) {
+        continue;
+      }
+      bool bad = false;
+      if (found->correlations[0] > 0.83) {
+        bad =
+            dmat_distance(0, representatives[role], sequence) >
+                dmat_distance(0, representatives[role], representatives[other_one]) ||
+            dmat_distance(1, representatives[role], sequence) >=
+                dmat_distance(1, representatives[role], representatives[other_one]) ||
+            dmat_distance(0, representatives[role], sequence) >
+                dmat_distance(0, representatives[role], representatives[other_zero]) ||
+            dmat_distance(1, representatives[role], sequence) >=
+                dmat_distance(1, representatives[role], representatives[other_zero]);
+      }
+      if (found->correlations[1] > 0.83) {
+        bad = bad ||
+            dmat_distance(2, representatives[role], sequence) >=
+                dmat_distance(2, representatives[role], representatives[other_one]) ||
+            dmat_distance(3, representatives[role], sequence) >
+                dmat_distance(3, representatives[role], representatives[other_one]) ||
+            dmat_distance(2, representatives[role], sequence) >=
+                dmat_distance(2, representatives[role], representatives[other_zero]) ||
+            dmat_distance(3, representatives[role], sequence) >
+                dmat_distance(3, representatives[role], representatives[other_zero]);
+      }
+      if (!bad) continue;
+      const double distance = raw_tree_distance(
+          representatives[role], sequence).first;
+      long bin = std::lrint(distance * 1000.0);
+      bin = std::clamp<long>(
+          bin, 0, static_cast<long>(bad_distance_bin_limit));
+      occupied[static_cast<std::size_t>(bin)] = 1;
+    }
+    bad_distance_metric.scores[role] = static_cast<double>(std::accumulate(
+        occupied.begin(), occupied.end(), std::size_t{0}));
+  }
+
   const SourcePhylproScores jc_scores = source_phylpro_scores(
       representatives, involved, jc_distance);
   const SourcePhylproScores raw_tree_scores = source_phylpro_scores(
@@ -8224,6 +8744,254 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     // otherwise enabled.
     metric_valid[3].fill(false);
   }
+
+  // MakeEList + MakeListCorr compare the inversion class observed in each
+  // pre-StripDupInv RList with the class predicted under the three possible
+  // recombinant roles. This is separate from RCompat: the first score counts
+  // classification disagreements, while the second averages the CalCR value
+  // of the predicted class even when that class was not RCorr's winner.
+  RoleMetricEvidence list_correlation_metric;
+  list_correlation_metric.kind = RoleMetricKind::list_correlation;
+  list_correlation_metric.weight = 4.0;
+  list_correlation_metric.higher_is_recombinant = false;
+  RoleMetricEvidence list_correlation_strength_metric;
+  list_correlation_strength_metric.kind =
+      RoleMetricKind::list_correlation_strength;
+  list_correlation_strength_metric.weight = 20.0;
+  list_correlation_strength_metric.higher_is_recombinant = true;
+  if (distinct_closest_pairs) {
+    using ExpectedList = std::array<std::array<std::vector<std::int8_t>, 3>, 3>;
+    ExpectedList expected;
+    for (auto& assumption : expected) {
+      for (auto& source_role : assumption) {
+        source_role.assign(ordinary_sequence_count, -1);
+      }
+    }
+    const std::size_t no = in_list[0];
+    const std::size_t pi = in_list[1];
+    const std::size_t ni = in_list[2];
+    const auto outside = [&](std::size_t role, std::uint32_t sequence) {
+      return raw_tree_distance(representatives[role], sequence).first;
+    };
+    const auto inside = [&](std::size_t role, std::uint32_t sequence) {
+      return raw_tree_distance(representatives[role], sequence).second;
+    };
+    for (std::size_t sequence = 0; sequence < ordinary_sequence_count; ++sequence) {
+      const auto candidate = static_cast<std::uint32_t>(sequence);
+
+      // DO NO: the outside-region outlier is the recombinant.
+      if (outside(no, candidate) < outside(no, representatives[pi]) &&
+          inside(no, candidate) < inside(no, representatives[pi])) {
+        expected[0][no][sequence] = 0;
+      }
+      if (outside(no, candidate) < outside(no, representatives[ni]) &&
+          outside(no, candidate) > 0.0 &&
+          inside(pi, candidate) < inside(no, representatives[pi])) {
+        expected[0][pi][sequence] = 0;
+      }
+      if (outside(no, candidate) > outside(no, representatives[ni]) &&
+          inside(no, candidate) > inside(ni, candidate)) {
+        expected[0][pi][sequence] = 2;
+      }
+      if (outside(no, candidate) > outside(no, representatives[pi]) &&
+          inside(no, candidate) > inside(pi, candidate)) {
+        expected[0][ni][sequence] = 0;
+      }
+      if (outside(no, candidate) < outside(no, representatives[pi]) &&
+          outside(no, candidate) > 0.0 &&
+          inside(no, candidate) > inside(pi, candidate)) {
+        expected[0][ni][sequence] = 2;
+      }
+
+      // DO PI: the inside-and-outside inlier is the recombinant.
+      if (outside(pi, candidate) > 0.0 &&
+          outside(pi, candidate) < outside(pi, representatives[ni]) &&
+          inside(pi, candidate) > inside(no, candidate)) {
+        expected[1][no][sequence] = 0;
+      }
+      if (outside(ni, candidate) > 0.0 &&
+          outside(ni, candidate) < outside(pi, representatives[ni]) &&
+          inside(ni, candidate) > inside(pi, representatives[ni])) {
+        expected[1][no][sequence] = 1;
+      }
+      if (outside(pi, candidate) < outside(pi, representatives[no]) &&
+          inside(pi, candidate) < inside(pi, representatives[no])) {
+        expected[1][pi][sequence] = 0;
+      }
+      if (outside(ni, candidate) < outside(no, representatives[ni]) &&
+          inside(ni, candidate) < outside(no, representatives[ni])) {
+        // The inside-vs-outside comparison is intentional: it is present in
+        // the supplied MakeEList implementation.
+        expected[1][ni][sequence] = 0;
+      }
+      if (outside(pi, candidate) > outside(pi, representatives[no]) &&
+          outside(pi, candidate) < outside(pi, representatives[ni])) {
+        expected[1][ni][sequence] = 1;
+      }
+      if (outside(pi, candidate) > 0.0 &&
+          outside(pi, candidate) < outside(pi, representatives[no]) &&
+          inside(pi, candidate) < inside(pi, representatives[no])) {
+        expected[1][ni][sequence] = 4;
+      }
+
+      // DO NI: the inside-region outlier is the recombinant.
+      if (outside(pi, candidate) > 0.0 &&
+          outside(pi, candidate) < outside(pi, representatives[ni])) {
+        expected[2][no][sequence] = 0;
+      }
+      if (outside(ni, candidate) > 0.0 &&
+          outside(ni, candidate) < outside(no, representatives[ni]) &&
+          inside(ni, candidate) < inside(no, candidate)) {
+        expected[2][no][sequence] = 1;
+      }
+      if (outside(pi, candidate) < outside(pi, representatives[no]) &&
+          inside(pi, candidate) < inside(pi, representatives[no])) {
+        expected[2][pi][sequence] = 0;
+      }
+      if (outside(ni, candidate) > 0.0 &&
+          outside(ni, candidate) < outside(no, representatives[ni]) &&
+          inside(ni, candidate) < outside(no, candidate)) {
+        // This second cross-matrix comparison is likewise source-faithful.
+        expected[2][pi][sequence] = 4;
+      }
+      if (outside(pi, candidate) > outside(pi, representatives[no]) &&
+          outside(pi, candidate) < outside(pi, representatives[ni])) {
+        expected[2][pi][sequence] = 2;
+      }
+      if (outside(ni, candidate) < outside(no, representatives[ni]) &&
+          inside(ni, candidate) < inside(no, representatives[ni])) {
+        expected[2][ni][sequence] = 0;
+      }
+    }
+
+    std::array<std::vector<const DistanceCorrelationEvidence*>, 3> evidence_by_sequence;
+    for (std::size_t role = 0; role < 3; ++role) {
+      evidence_by_sequence[role].assign(ordinary_sequence_count, nullptr);
+      for (const auto& evidence : event.role_hypotheses[role].distance_evidence) {
+        if (evidence.sequence < ordinary_sequence_count) {
+          evidence_by_sequence[role][evidence.sequence] = &evidence;
+        }
+      }
+    }
+    std::array<double, 3> expected_denominators{};
+    std::array<double, 3> absent_denominators{};
+    const auto source_calcr_value = [](
+                                        const DistanceCorrelationEvidence& evidence,
+                                        std::size_t pair,
+                                        std::size_t correlation_class) {
+      if (evidence.warning_filtered[pair] != 0) return 0.0;
+      double value = evidence.category_correlations[pair][correlation_class];
+      if (correlation_class == 2) {
+        // MakeListCorr merges CalCR classes two and three before scoring.
+        value = std::max(value, evidence.category_correlations[pair][3]);
+      }
+      value = std::nearbyint(value * 1000000.0) / 1000000.0;
+      return value > 0.5 && value < 1.0 ? value : 0.0;
+    };
+    for (std::size_t source_role = 0; source_role < 3; ++source_role) {
+      for (std::size_t sequence = 0; sequence < ordinary_sequence_count; ++sequence) {
+        std::int8_t observed = -1;
+        if (initial_rlist[source_role][sequence] != 0) {
+          observed = 0;
+          if (const auto* evidence = evidence_by_sequence[source_role][sequence]) {
+            if (std::find(
+                    evidence->inversion_codes.begin(),
+                    evidence->inversion_codes.end(), 1) !=
+                evidence->inversion_codes.end()) {
+              observed = 1;
+            } else if (std::find(
+                           evidence->inversion_codes.begin(),
+                           evidence->inversion_codes.end(), 2) !=
+                       evidence->inversion_codes.end()) {
+              observed = 2;
+            } else if (std::find(
+                           evidence->inversion_codes.begin(),
+                           evidence->inversion_codes.end(), 4) !=
+                       evidence->inversion_codes.end()) {
+              observed = 4;
+            }
+          }
+        }
+        for (std::size_t assumption = 0; assumption < 3; ++assumption) {
+          const std::size_t target_role = in_list[assumption];
+          const std::int8_t predicted = expected[assumption][source_role][sequence];
+          if (observed >= 0 && observed != predicted) {
+            list_correlation_metric.scores[target_role] += 1.0;
+          }
+          if (predicted >= 0) {
+            expected_denominators[target_role] += 3.0;
+            if (const auto* evidence = evidence_by_sequence[source_role][sequence]) {
+              for (std::size_t pair = 0; pair < 3; ++pair) {
+                list_correlation_strength_metric.scores[target_role] +=
+                    source_calcr_value(
+                        *evidence, pair, static_cast<std::size_t>(predicted));
+              }
+            }
+          } else {
+            absent_denominators[target_role] += 3.0;
+          }
+        }
+      }
+    }
+    bool list_strength_available = true;
+    for (std::size_t role = 0; role < 3; ++role) {
+      if (expected_denominators[role] == 0.0 || absent_denominators[role] == 0.0) {
+        list_strength_available = false;
+        break;
+      }
+    }
+    if (list_strength_available) {
+      for (std::size_t role = 0; role < 3; ++role) {
+        list_correlation_strength_metric.scores[role] /=
+            expected_denominators[role];
+        list_correlation_strength_metric.scores[role] = source_round(
+            list_correlation_strength_metric.scores[role], 100000.0);
+      }
+    } else {
+      // Native MakeListCorr exits early and clears all three ListCorr2 values
+      // when any single role is missing either denominator family.
+      list_correlation_strength_metric.scores.fill(0.0);
+    }
+  }
+
+  for (std::size_t role = 0; role < 3; ++role) {
+    const std::size_t other_one = kSourceCompRoles[role][0];
+    const std::size_t other_two = kSourceCompRoles[role][1];
+    if (list_correlation_metric.scores[role] <=
+            list_correlation_metric.scores[other_one] &&
+        list_correlation_metric.scores[role] <=
+            list_correlation_metric.scores[other_two]) {
+      list_correlation_metric.contributions[role] = 4.0;
+    } else if (list_correlation_metric.scores[role] <
+                   list_correlation_metric.scores[other_one] ||
+               list_correlation_metric.scores[role] <
+                   list_correlation_metric.scores[other_two]) {
+      list_correlation_metric.contributions[role] = 2.0;
+    }
+    if (analysis_alignment.sequence_count() > 11 &&
+        list_correlation_strength_metric.scores[role] > 0.0) {
+      if (list_correlation_strength_metric.scores[role] >=
+              list_correlation_strength_metric.scores[other_one] &&
+          list_correlation_strength_metric.scores[role] >=
+              list_correlation_strength_metric.scores[other_two]) {
+        list_correlation_strength_metric.contributions[role] = 20.0;
+      } else if (list_correlation_strength_metric.scores[role] >
+                     list_correlation_strength_metric.scores[other_one] ||
+                 list_correlation_strength_metric.scores[role] >
+                     list_correlation_strength_metric.scores[other_two]) {
+        list_correlation_strength_metric.contributions[role] = 15.0;
+      }
+    }
+    event.role_consensus.votes[role] +=
+        list_correlation_metric.contributions[role] +
+        list_correlation_strength_metric.contributions[role];
+  }
+  list_correlation_metric.informative = !all_equal(
+      list_correlation_metric.scores);
+  list_correlation_strength_metric.informative = !all_equal(
+      list_correlation_strength_metric.scores);
+  event.role_consensus.metrics.push_back(list_correlation_metric);
+  event.role_consensus.metrics.push_back(list_correlation_strength_metric);
 
   for (std::size_t metric_index = 0; metric_index < metrics.size(); ++metric_index) {
     auto& metric = metrics[metric_index];
@@ -8346,6 +9114,45 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
     event.role_consensus.metrics.push_back(metric);
   }
 
+  const bool bad_distances_tied =
+      bad_distance_metric.scores[0] == bad_distance_metric.scores[1] &&
+      bad_distance_metric.scores[0] == bad_distance_metric.scores[2];
+  for (std::size_t role = 0; role < representatives.size(); ++role) {
+    const std::size_t other_one = kSourceCompRoles[role][0];
+    const std::size_t other_two = kSourceCompRoles[role][1];
+    if (bad_distances_tied) {
+      // MakeConsensusC explicitly awards one point to every role on a
+      // three-way BadDists tie instead of treating the statistic as absent.
+      bad_distance_metric.contributions[role] = 1.0;
+    } else if (bad_distance_metric.scores[role] <=
+                   bad_distance_metric.scores[other_one] &&
+               bad_distance_metric.scores[role] <=
+                   bad_distance_metric.scores[other_two]) {
+      bad_distance_metric.contributions[role] = 10.0;
+    } else if (bad_distance_metric.scores[role] <
+                   bad_distance_metric.scores[other_one] ||
+               bad_distance_metric.scores[role] <
+                   bad_distance_metric.scores[other_two]) {
+      bad_distance_metric.contributions[role] = 5.0;
+    }
+    event.role_consensus.votes[role] +=
+        bad_distance_metric.contributions[role];
+  }
+  bad_distance_metric.informative = !bad_distances_tied;
+  if (!bad_distances_tied) {
+    const auto winner = std::max_element(
+        bad_distance_metric.contributions.begin(),
+        bad_distance_metric.contributions.end());
+    if (winner != bad_distance_metric.contributions.end() &&
+        std::count(
+            bad_distance_metric.contributions.begin(),
+            bad_distance_metric.contributions.end(), *winner) == 1) {
+      bad_distance_metric.winning_role = static_cast<std::int8_t>(
+          std::distance(bad_distance_metric.contributions.begin(), winner));
+    }
+  }
+  event.role_consensus.metrics.push_back(bad_distance_metric);
+
   // The final MakeConsensusC block gives extra weight when independent
   // diagnostics select the same role. Keep each cross-check explicit in the
   // JSON evidence so its contribution can be compared directly with DScores.
@@ -8376,6 +9183,7 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   std::array<double, 3> ou_sim_cross{};
   std::array<double, 3> tree_subphpr_simdist_cross{};
   std::array<double, 3> rcompat_trp_cross{};
+  std::array<double, 3> tree_subdist_bad_distance_cross{};
   for (std::size_t role = 0; role < 3; ++role) {
     const std::size_t other_one = kSourceCompRoles[role][0];
     const std::size_t other_two = kSourceCompRoles[role][1];
@@ -8407,6 +9215,16 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         metrics[7].scores[role] >= metrics[7].scores[other_two]) {
       rcompat_trp_cross[role] = 10.0;
     }
+    if (metric_valid[6][role] &&
+        metrics[6].scores[role] >= metrics[6].scores[other_one] &&
+        metrics[6].scores[role] >= metrics[6].scores[other_two] &&
+        !bad_distances_tied &&
+        bad_distance_metric.scores[role] <=
+            bad_distance_metric.scores[other_one] &&
+        bad_distance_metric.scores[role] <=
+            bad_distance_metric.scores[other_two]) {
+      tree_subdist_bad_distance_cross[role] = 5.0;
+    }
   }
   append_cross_metric(
       RoleMetricKind::cross_phpr_rcompat,
@@ -8420,6 +9238,9 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
   append_cross_metric(
       RoleMetricKind::cross_rcompat_trp,
       metrics[13].scores, rcompat_trp_cross, 10.0);
+  append_cross_metric(
+      RoleMetricKind::cross_tree_subdist_bad_distances,
+      bad_distance_metric.scores, tree_subdist_bad_distance_cross, 5.0);
 
   const double total_votes = std::accumulate(
       event.role_consensus.votes.begin(), event.role_consensus.votes.end(), 0.0);
@@ -8446,16 +9267,48 @@ void RdpScanner::refresh_role_hypotheses(UniqueEvent& event) {
         total_votes;
     const auto& hypothesis = event.role_hypotheses[recommended_role];
     event.role_consensus.recommended_recombinant = hypothesis.presumed_recombinant;
-    const double outside_first = tree_evidence[4].jc(
-        representatives[recommended_role], representatives[(recommended_role + 1) % 3]);
-    const double outside_second = tree_evidence[4].jc(
-        representatives[recommended_role], representatives[(recommended_role + 2) % 3]);
-    if (outside_second < outside_first) {
-      event.role_consensus.recommended_major_parent = hypothesis.parent_two;
-      event.role_consensus.recommended_minor_parent = hypothesis.parent_one;
+    if (distinct_closest_pairs) {
+      // Parent orientation is carried separately from NOPINI by SwapFlag.
+      // Its initial value asks whether the next relevant INList member is
+      // CompMat(WinPP, 0). The later ExtraHitsMi correction still requires
+      // native's complete retained-list lifecycle.
+      const std::size_t comp_zero = kSourceCompRoles[recommended_role][0];
+      const std::size_t comp_one = kSourceCompRoles[recommended_role][1];
+      std::size_t orientation_member = in_list[0];
+      if (recommended_role == in_list[0]) orientation_member = in_list[1];
+      const bool swap_flag = orientation_member != comp_zero;
+      const std::size_t major_role = swap_flag ? comp_one : comp_zero;
+      const std::size_t minor_role = swap_flag ? comp_zero : comp_one;
+      event.role_consensus.recommended_major_parent =
+          reported_representatives[major_role];
+      event.role_consensus.recommended_minor_parent =
+          reported_representatives[minor_role];
     } else {
-      event.role_consensus.recommended_major_parent = hypothesis.parent_one;
-      event.role_consensus.recommended_minor_parent = hypothesis.parent_two;
+      // Preserve the verified pre-MakeBreaks NOPINI interpretation. Native's
+      // final public fields are rewritten later from all per-RList records;
+      // applying the tempting direct daughter/minor/major interpretation here
+      // regresses the established ten-dataset checkpoint.
+      const std::size_t comp_zero = kSourceCompRoles[recommended_role][0];
+      const std::size_t comp_one = kSourceCompRoles[recommended_role][1];
+      const double recombinant_to_zero = affinity_distance(
+          4, representatives[recommended_role], representatives[comp_zero]);
+      const double recombinant_to_one = affinity_distance(
+          4, representatives[recommended_role], representatives[comp_one]);
+      const double parent_distance = affinity_distance(
+          4, representatives[comp_zero], representatives[comp_one]);
+      const bool recombinant_is_inlier =
+          recombinant_to_zero < parent_distance ||
+          recombinant_to_one < parent_distance;
+      const bool comp_zero_is_nearer_inlier =
+          recombinant_is_inlier && recombinant_to_zero < recombinant_to_one;
+      const std::size_t major_role =
+          comp_zero_is_nearer_inlier ? comp_one : comp_zero;
+      const std::size_t minor_role =
+          comp_zero_is_nearer_inlier ? comp_zero : comp_one;
+      event.role_consensus.recommended_major_parent =
+          reported_representatives[major_role];
+      event.role_consensus.recommended_minor_parent =
+          reported_representatives[minor_role];
     }
   }
 }
@@ -8907,6 +9760,7 @@ RdpScanner::ErasureResult RdpScanner::erase_event_tract(const UniqueEvent& event
     fragment_states.clear();
     std::uint64_t fragment_fingerprint = 0;
     std::size_t fragment_sites = 0;
+    std::size_t erased_sites = 0;
     for (std::size_t coordinate = 1; coordinate <= working_alignment_.length; ++coordinate) {
       if (!coordinate_in_tract(
               coordinate,
@@ -8915,15 +9769,24 @@ RdpScanner::ErasureResult RdpScanner::erase_event_tract(const UniqueEvent& event
               event.wraps_origin)) {
         continue;
       }
+      // Installed ModSeqNum removes the reported endpoints from the mutable
+      // recombinant row, while ModSeqNumY deliberately omits those same two
+      // sites from tSeqNum. They therefore disappear from both halves. The
+      // supplied source describes this as a two-site read-through penalty;
+      // captured SeqNum rows confirm the inclusive background deletion and
+      // strict-interior fragment copy for linear and wrapped events alike.
       const std::size_t offset =
           static_cast<std::size_t>(sequence) * working_alignment_.length + coordinate - 1;
       const std::uint8_t state = working_alignment_.states[offset];
       if (state == 0) continue;
-      if (retain_fragments) {
+      const bool fragment_interior =
+          coordinate != event.beginning && coordinate != event.ending;
+      if (retain_fragments && fragment_interior) {
         fragment_coordinates.push_back(coordinate - 1);
         fragment_states.push_back(state);
         fragment_fingerprint ^=
             state_fingerprint_component(coordinate - 1, state);
+        ++fragment_sites;
       }
       working_alignment_.states[offset] = 0;
       if (sequence >= alignment_.sequence_count() &&
@@ -8936,11 +9799,11 @@ RdpScanner::ErasureResult RdpScanner::erase_event_tract(const UniqueEvent& event
         if (summary.valid_sites > 0) --summary.valid_sites;
         ++summary.missing_sites;
       }
-      ++fragment_sites;
+      ++erased_sites;
       ++result.working_sites;
       if (sequence < alignment_.sequence_count()) ++result.original_sites;
     }
-    if (fragment_sites > 0) {
+    if (erased_sites > 0) {
       result.changed_working_sequences.push_back(
           static_cast<std::uint32_t>(sequence));
     }
@@ -9049,27 +9912,96 @@ void RdpScanner::remap_working_triplet_provenance(
   dirty_working_sequences_ = std::move(remapped_dirty);
 }
 
-std::size_t RdpScanner::prune_event_free_fragments() {
+std::vector<std::uint8_t> RdpScanner::fragment_signal_bearing_rows(
+    const UniqueEvent& current_event) const {
+  std::vector<std::uint8_t> signal_bearing(
+      working_alignment_.sequence_count(), 0);
+  if (events_.empty() ||
+      working_alignment_.sequence_count() <= alignment_.sequence_count()) {
+    return signal_bearing;
+  }
+  // DropSeqs uses NumRecsI after the inner/outer scan. Here, every nonempty
+  // XOverList-equivalent summary marks its exact working rows as signal-
+  // bearing. Only fragments created by the immediately preceding event are
+  // eligible: they have now completed exactly one full follow-up pass.
+  const std::int32_t generation_event =
+      static_cast<std::int32_t>(events_.back().id);
+  std::vector<std::uint8_t> current_daughters(alignment_.sequence_count(), 0);
+  if (current_event.recombinant < current_daughters.size()) {
+    current_daughters[current_event.recombinant] = 1;
+  }
+  for (const std::uint32_t sequence : current_event.co_recombinant_sequences) {
+    if (sequence < current_daughters.size()) current_daughters[sequence] = 1;
+  }
+  const auto consumed_by_current_event = [&](const Signal& signal) {
+    return std::any_of(
+        signal.triplet.begin(), signal.triplet.end(),
+        [&](const std::uint32_t sequence) {
+          return sequence < current_daughters.size() &&
+              current_daughters[sequence] != 0;
+        });
+  };
+  for (const auto& [triplet, summaries] : round_triplet_signal_summaries_) {
+    const bool touches_generation = std::any_of(
+        triplet.begin(), triplet.end(), [&](const std::uint32_t sequence) {
+          return sequence < working_fragment_events_.size() &&
+              working_fragment_events_[sequence] == generation_event;
+        });
+    if (!touches_generation) continue;
+    // The native post-event pass scans the new generation against the base
+    // lookup rows. A later all-triplets pass in the WASM also exposes
+    // cross-generation synthetic combinations which never enter that
+    // XOverList and must not keep the new rows alive.
+    const bool mixes_fragment_generations = std::any_of(
+        triplet.begin(), triplet.end(), [&](const std::uint32_t sequence) {
+          return sequence < working_fragment_events_.size() &&
+              working_fragment_events_[sequence] >= 0 &&
+              working_fragment_events_[sequence] != generation_event;
+        });
+    if (mixes_fragment_generations) continue;
+    // CopyXOLists rebuilds NumRecsI from the current XOverList only. Signals
+    // already consumed into BestXOList are marked done and therefore do not
+    // keep a synthetic fragment alive merely by rediscovering the event that
+    // created it. Preserve a row only when this triplet contains at least one
+    // still-actionable signal.
+    const bool has_unresolved_fragment_signal = std::any_of(
+        summaries.begin(), summaries.end(),
+        [&](const Signal& signal) {
+          if (matches_fixed_event(signal) ||
+              consumed_by_current_event(signal)) {
+            return false;
+          }
+          // The native follow-up scan fixes each new fragment as Seq1, but
+          // XOver may identify any of the three rows as the daughter. Once it
+          // emits a current XOverList record, CopyXOLists increments NumRecsI
+          // for all three rows.
+          return std::any_of(
+              triplet.begin(), triplet.end(),
+              [&](const std::uint32_t sequence) {
+                return sequence < working_fragment_events_.size() &&
+                    working_fragment_events_[sequence] == generation_event;
+              });
+        });
+    if (!has_unresolved_fragment_signal) continue;
+    for (const std::uint32_t sequence : triplet) {
+      if (sequence < signal_bearing.size()) signal_bearing[sequence] = 1;
+    }
+  }
+  return signal_bearing;
+}
+
+std::size_t RdpScanner::prune_event_free_fragments(
+    const UniqueEvent& current_event) {
   if (events_.empty() ||
       working_alignment_.sequence_count() <= alignment_.sequence_count()) {
     return 0;
   }
 
-  // DropSeqs uses NumRecsI after the inner/outer scan. Here, every nonempty
-  // XOverList-equivalent summary marks its exact working rows as signal-
-  // bearing. Only fragments created by the immediately preceding event are
-  // eligible: they have now completed exactly one full follow-up pass.
-  std::vector<std::uint8_t> signal_bearing(
-      working_alignment_.sequence_count(), 0);
-  for (const auto& [triplet, summaries] : round_triplet_signal_summaries_) {
-    if (summaries.empty()) continue;
-    for (const std::uint32_t sequence : triplet) {
-      if (sequence < signal_bearing.size()) signal_bearing[sequence] = 1;
-    }
-  }
-
   const std::int32_t generation_event =
       static_cast<std::int32_t>(events_.back().id);
+  std::vector<std::uint8_t> signal_bearing =
+      fragment_signal_bearing_rows(current_event);
+
   const std::size_t old_count = working_alignment_.sequence_count();
   std::vector<std::uint32_t> slot_to_old(old_count);
   std::iota(slot_to_old.begin(), slot_to_old.end(), 0);
@@ -9141,11 +10073,12 @@ std::size_t RdpScanner::prune_event_free_fragments() {
 }
 
 bool RdpScanner::finish_detection_round(std::string& error) {
-  (void)prune_event_free_fragments();
-  // DropSeqs-style compaction refreshes the *next* working schedule. If this
-  // completed round is also the terminal round, retain its finished workload
-  // in progress instead of exposing a smaller, never-started schedule beside
-  // the preceding round's processed count.
+  // DropSeqs cannot run before the current event's late role analysis: the
+  // previous generation remains in NextNo for this event's CheckMatrix/tree
+  // panel, even when that generation is deleted before the next cyclic pass.
+  // Defer the reportable-signal approximation until the event has consumed
+  // the current matrices. This preserves Dataset8's native third-event B row
+  // without letting event-free generations accumulate indefinitely.
   const auto retain_completed_round_workload = [&]() {
     total_triplets_ = processed_triplets_;
   };
@@ -9247,6 +10180,12 @@ bool RdpScanner::finish_detection_round(std::string& error) {
     refresh_role_hypotheses(event);
   }
   refresh_breakpoint_context(event);
+
+  // Native performs the prior generation's CheckDrop/DropSeqs lifecycle only
+  // after the selected event has consumed the expanded matrices. Compact now,
+  // before adding this event's fragments; remap_working_triplet_provenance
+  // keeps the just-selected signal catalogue and cyclic shortlist coherent.
+  (void)prune_event_free_fragments(event);
 
   rebuild_cyclic_pair_shortlist(event);
   const ErasureResult erasure = erase_event_tract(event);

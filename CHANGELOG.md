@@ -2,6 +2,28 @@
 
 ## 0.26.0-session-26
 
+- Reproduced cyclic RDP's post-threshold `CheckSplit`/`SplitEvent` path. A spanning candidate must
+  first pass the ordinary unsplit cutoff, then the replay-only `MissingData` matrix is sampled at
+  ten-base steps, the outer pieces are independently rescored, and only significant pieces are
+  emitted. This includes the native inclusive missing-data bounds, left-piece informative-site
+  exclusion, and omitted long-tract exponent; it removes complement-of-erasure calls while
+  restoring native split events and improves exact event prefixes in Datasets2, 3, and 9.
+- Preserved synthetic working fragments when only the public significant-signal catalogue is
+  available. Native `DropSeqs` uses all internal `XOverList` hits, including sub-threshold ones;
+  treating reportable signals as the complete retention ledger prematurely deleted Dataset8's B
+  fragment, changed the following `CheckMatrixP` panel, and reversed the third event's role.
+- Matched installed RDP 5.93's cyclic-erasure boundary behavior: both reported breakpoint sites
+  remain in the background row and are omitted from the retained fragment. The supplied older C
+  body is inclusive despite its two-site-penalty comment; captured Dataset7 tree inputs confirm the
+  executable uses the strict tract interior and that the difference changes the second event's NJ
+  topology and role choice.
+- Restored the supplied primary-RDP candidate walk: `DefineEventP2`'s decrement-before-check
+  anchoring and two-site resume, `FastRecCheckP`'s N-minus-one search/probability bound and shared
+  cross-role `OldX`, and `FindFirstCOP`'s circular-origin terminal-count behavior. Together these
+  restore Dataset6's first nine supplied events by identity, roles, breakpoints, and order while
+  preserving Dataset9's first five-event prefix.
+- Added `RDPbugsandquirks.md` as a compatibility-phase ledger for supplied behavior that should be
+  reconsidered only in a future intentionally non-faithful cleanup.
 - Ported the supplied RDP `CentreBP` midpoint rule, including shifting a post-erasure midpoint off
   missing data toward the detected tract. Scoring continues to use the informative-site bounds, so
   this changes stored coordinates without recalculating the discovery p-value.

@@ -37,7 +37,10 @@ const digest = createHash("sha256")
 // The native-parity checkpoint adds the exact Clearcut/Tree2ArrayP2 event-tree
 // path and the currently mapped MakeConsensusC statistics before this
 // deterministic snapshot is taken.
-const expected = "5a68fbe96d81e69e1ae1a837dd9cc38f059f761385a2ed706f29f385305a3232";
+// This digest includes DefineEventP2's decrement-before-check candidate-run
+// anchoring. Peaks immediately following a supporting run must attach to the
+// preceding run rather than jump forward to the next one.
+const expected = "5fd2fffa2413e4aac7ccce896fa9b72d88330e8968a52c985be5903d7766950c";
 if (digest !== expected) {
   throw new Error(`Cyclic pruning changed selected analytical results (${digest}).`);
 }

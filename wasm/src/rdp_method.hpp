@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -229,6 +230,10 @@ struct DistanceCorrelationEvidence {
   std::uint32_t sequence = 0;
   std::array<double, 3> correlations{};
   std::array<double, 3> direct_correlations{};
+  // CalCR retains all five relabelling-class correlations even though RCorr
+  // exposes only the winning class. MakeListCorr2 later scores the class
+  // predicted by each candidate role, which need not be that winner.
+  std::array<std::array<double, 5>, 3> category_correlations{};
   std::array<double, 3> p_values{1.0, 1.0, 1.0};
   std::array<std::uint8_t, 3> inversion_codes{};
   std::array<std::uint8_t, 3> warning_filtered{};
@@ -325,6 +330,10 @@ enum class RoleMetricKind : std::uint8_t {
   cross_ou_sim = 18,
   cross_tree_subphpr_simdist = 19,
   cross_rcompat_trp = 20,
+  bad_distances = 21,
+  cross_tree_subdist_bad_distances = 22,
+  list_correlation = 23,
+  list_correlation_strength = 24,
 };
 
 struct RoleMetricEvidence {
@@ -568,6 +577,13 @@ class RdpScanner {
     std::array<std::uint32_t, 3> sequences{};
     std::vector<std::uint8_t> category;
     std::vector<std::size_t> coordinates;
+    // Bit mask of local triplet roles whose removed tract is crossed when
+    // reaching this informative site from the preceding one. The zero entry
+    // includes the circular transition from the final informative site.
+    std::vector<std::uint8_t> erased_gap_before;
+    // Native clipping ends one nucleotide before the earlier event boundary,
+    // rather than at the last informative site before its removed interior.
+    std::vector<std::size_t> erased_gap_ending_before;
     std::array<std::size_t, 3> category_counts{};
     std::array<double, 3> similarities{};
     std::array<std::vector<std::uint32_t>, 3> rolling_counts;
@@ -742,12 +758,13 @@ class RdpScanner {
   void compute_rolling_counts(TripletProfile& profile) const;
   [[nodiscard]] std::array<std::uint8_t, 3> ranked_pairs(const TripletProfile& profile) const;
   void append_candidate_signals(
-      const TripletProfile& profile,
+      TripletProfile& profile,
       std::uint8_t high_pair,
       std::uint8_t candidate_pair,
       std::uint8_t low_pair,
       bool enforce_cutoff,
-      std::vector<Signal>& output) const;
+      std::vector<Signal>& output,
+      std::optional<std::size_t>* old_search) const;
   [[nodiscard]] std::vector<Signal> triplet_signals(
       const std::array<std::uint32_t, 3>& triplet,
       bool enforce_cutoff,
@@ -779,7 +796,10 @@ class RdpScanner {
       const std::array<std::uint32_t, 3>& triplet);
   [[nodiscard]] bool finish_detection_round(std::string& error);
   [[nodiscard]] ErasureResult erase_event_tract(const UniqueEvent& event);
-  [[nodiscard]] std::size_t prune_event_free_fragments();
+  [[nodiscard]] std::vector<std::uint8_t> fragment_signal_bearing_rows(
+      const UniqueEvent& current_event) const;
+  [[nodiscard]] std::size_t prune_event_free_fragments(
+      const UniqueEvent& current_event);
   void remap_working_triplet_provenance(
       const std::vector<std::uint32_t>& old_to_new);
   void refresh_active_sequences();
